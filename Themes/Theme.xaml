@@ -37,7 +37,6 @@
         <Setter Property="Foreground" Value="{StaticResource TextBrush}"/>
         <Setter Property="CaretBrush" Value="{StaticResource TextBrush}"/>
         <Setter Property="SelectionBrush" Value="{StaticResource AccentBrush}"/>
-        <Setter Property="SelectionTextBrush" Value="White"/>
         <Setter Property="BorderBrush" Value="{StaticResource BorderBrushColor}"/>
         <Setter Property="BorderThickness" Value="1"/>
         <Setter Property="Padding" Value="10,6"/>
@@ -84,7 +83,6 @@
         <Setter Property="Background" Value="#0B1220"/>
         <Setter Property="CaretBrush" Value="{StaticResource TextBrush}"/>
         <Setter Property="SelectionBrush" Value="{StaticResource AccentBrush}"/>
-        <Setter Property="SelectionTextBrush" Value="White"/>
     </Style>
 
     <Style TargetType="TabControl">
@@ -110,21 +108,10 @@
         <Setter Property="Foreground" Value="{StaticResource TextBrush}"/>
         <Setter Property="Background" Value="{StaticResource SurfaceAltBrush}"/>
         <Setter Property="Padding" Value="8,4"/>
-        <Setter Property="HorizontalContentAlignment" Value="Left"/>
-        <Setter Property="Template">
-            <Setter.Value>
-                <ControlTemplate TargetType="ComboBoxItem">
-                    <Border x:Name="ItemBorder" Background="{TemplateBinding Background}" Padding="{TemplateBinding Padding}">
-                        <ContentPresenter/>
-                    </Border>
-                    <ControlTemplate.Triggers>
-                        <Trigger Property="IsHighlighted" Value="True"><Setter TargetName="ItemBorder" Property="Background" Value="#172033"/></Trigger>
-                        <Trigger Property="IsSelected" Value="True"><Setter TargetName="ItemBorder" Property="Background" Value="{StaticResource AccentBrush}"/><Setter Property="Foreground" Value="#0B1220"/></Trigger>
-                        <Trigger Property="IsEnabled" Value="False"><Setter Property="Opacity" Value="0.65"/></Trigger>
-                    </ControlTemplate.Triggers>
-                </ControlTemplate>
-            </Setter.Value>
-        </Setter>
+        <Style.Triggers>
+            <Trigger Property="IsHighlighted" Value="True"><Setter Property="Background" Value="#172033"/></Trigger>
+            <Trigger Property="IsEnabled" Value="False"><Setter Property="Opacity" Value="0.65"/></Trigger>
+        </Style.Triggers>
     </Style>
 
     <Style TargetType="ComboBox" BasedOn="{StaticResource ComboBoxStyle}">
@@ -176,22 +163,10 @@
         <Setter Property="Foreground" Value="{StaticResource TextBrush}"/>
         <Setter Property="Background" Value="{StaticResource SurfaceAltBrush}"/>
         <Setter Property="BorderBrush" Value="Transparent"/>
-        <Setter Property="Template">
-            <Setter.Value>
-                <ControlTemplate TargetType="CalendarDayButton">
-                    <Border x:Name="DayBorder" Background="{TemplateBinding Background}" CornerRadius="6" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="1" Padding="2">
-                        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                    </Border>
-                    <ControlTemplate.Triggers>
-                        <Trigger Property="IsToday" Value="True"><Setter TargetName="DayBorder" Property="BorderBrush" Value="{StaticResource AccentBrush}"/></Trigger>
-                        <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="DayBorder" Property="Background" Value="#172033"/></Trigger>
-                        <Trigger Property="IsSelected" Value="True"><Setter TargetName="DayBorder" Property="Background" Value="{StaticResource AccentBrush}"/><Setter Property="Foreground" Value="#0B1220"/></Trigger>
-                        <Trigger Property="IsInactive" Value="True"><Setter Property="Opacity" Value="0.55"/></Trigger>
-                        <Trigger Property="IsBlackedOut" Value="True"><Setter Property="Foreground" Value="#6B7280"/></Trigger>
-                    </ControlTemplate.Triggers>
-                </ControlTemplate>
-            </Setter.Value>
-        </Setter>
+        <Setter Property="BorderThickness" Value="1"/>
+        <Style.Triggers>
+            <Trigger Property="IsMouseOver" Value="True"><Setter Property="Background" Value="#172033"/></Trigger>
+        </Style.Triggers>
     </Style>
 
     <Style x:Key="ButtonBaseStyle" TargetType="Button">
