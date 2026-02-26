@@ -200,8 +200,8 @@ public class TodayViewModel : ObservableObject
 
         QuickAddCommand = new RelayCommand(QuickAdd);
         SaveCommand = new RelayCommand(SaveTask, () => SelectedTask != null);
-        ReopenCommand = new RelayCommand(ReopenTask, () => SelectedTask?.Status == TaskStatus.Done);
-        DoneCommand = new RelayCommand(MarkDone, () => SelectedTask != null);
+        ReopenCommand = new RelayCommand(ReopenSelectedTask, () => SelectedTask?.Status == TaskStatus.Done);
+        DoneCommand = new RelayCommand(MarkSelectedTaskDone, () => SelectedTask != null);
         StartTimerCommand = new RelayCommand(StartTimer, () => SelectedTask != null);
         PauseTimerCommand = new RelayCommand(PauseTimer, () => SelectedTask != null);
         StopTimerCommand = new RelayCommand(StopTimer, () => SelectedTask != null);
@@ -564,8 +564,8 @@ public class TodayViewModel : ObservableObject
         Load();
     }
 
-    private void ReopenTask() { if (SelectedTask == null) return; _tasks.MarkPlanned(SelectedTask); Load(); }
-    private void MarkDone() { if (SelectedTask == null) return; _tasks.MarkDone(SelectedTask); Load(); }
+    private void ReopenSelectedTask() { if (SelectedTask == null) return; _tasks.MarkPlanned(SelectedTask); Load(); }
+    private void MarkSelectedTaskDone() { if (SelectedTask == null) return; _tasks.MarkDone(SelectedTask); Load(); }
 
     private void TestOutlookConnection()
     {
