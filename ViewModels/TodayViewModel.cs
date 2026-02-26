@@ -161,6 +161,7 @@ public class TodayViewModel : ObservableObject
     public RelayCommand<TaskItem> PauseTaskCommand { get; }
     public RelayCommand<TaskItem> StopTaskCommand { get; }
     public RelayCommand<TaskItem> DoneTaskCommand { get; }
+    public RelayCommand<string> OpenTicketUrlCommand { get; }
     public RelayCommand<TaskSegment> SaveSegmentCommand { get; }
     public RelayCommand<TaskSegment> DeleteSegmentCommand { get; }
     public RelayCommand<TaskSegment> SyncSegmentOutlookCommand { get; }
@@ -212,6 +213,7 @@ public class TodayViewModel : ObservableObject
         PauseTaskCommand = new RelayCommand<TaskItem>(task => OnCardTaskAction(task, _tasks.PauseTimer));
         StopTaskCommand = new RelayCommand<TaskItem>(task => OnCardTaskAction(task, _tasks.StopTimer));
         DoneTaskCommand = new RelayCommand<TaskItem>(task => OnCardTaskAction(task, _tasks.MarkDone));
+        OpenTicketUrlCommand = new RelayCommand<string>(OpenTicketUrl, url => !string.IsNullOrWhiteSpace(url));
         SaveSegmentCommand = new RelayCommand<TaskSegment>(SaveSegment, seg => seg != null && seg.IsValid);
         DeleteSegmentCommand = new RelayCommand<TaskSegment>(DeleteSegment, seg => seg != null);
         SyncSegmentOutlookCommand = new RelayCommand<TaskSegment>(SyncSegmentOutlook, seg => seg != null && seg.Id > 0);
@@ -360,8 +362,11 @@ public class TodayViewModel : ObservableObject
         Segments.Clear();
         if (SelectedTask == null) return;
 
-        foreach (var seg in _tasks.GetSegments(SelectedTask.Id))
+        var orderedSegments = _tasks.GetSegments(SelectedTask.Id).OrderBy(s => s.StartLocal).ToList();
+        for (var i = 0; i < orderedSegments.Count; i++)
         {
+            var seg = orderedSegments[i];
+            seg.DisplayIndex = i + 1;
             seg.OutlookStatus = string.IsNullOrWhiteSpace(seg.OutlookEntryId) ? "fehlt" : "vorhanden";
             Segments.Add(seg);
         }
@@ -512,6 +517,15 @@ public class TodayViewModel : ObservableObject
         var hex = ExtractHResultHex(_tasks.LastError);
         StatusMessage = $"Outlook Test fehlgeschlagen. Details in logs.txt: {hex}";
         MessageBox.Show(StatusMessage, "Outlook Test", MessageBoxButton.OK, MessageBoxImage.Error);
+    }
+
+
+    private void OpenTicketUrl(string? url)
+    {
+        if (!UrlLauncher.TryOpen(url, out var error))
+        {
+            StatusMessage = error;
+        }
     }
 
     private static string ExtractHResultHex(string error)

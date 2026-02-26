@@ -68,4 +68,5 @@ public class TaskSegment
     public string Note { get; set; } = string.Empty;
     public string OutlookEntryId { get; set; } = string.Empty;
     public string OutlookStatus { get; set; } = string.Empty;
+    public int DisplayIndex { get; set; }
 }

@@ -9,13 +9,42 @@
                 <StackPanel>
                     <TextBlock Text="Task Details" FontSize="13" Foreground="{StaticResource MutedTextBrush}"/>
                     <TextBlock Text="{Binding SelectedTask.Title}" FontSize="28" FontWeight="Bold" Margin="0,4,0,10" TextWrapping="Wrap"/>
+
+                    <TextBlock Text="Beschreibung" FontWeight="SemiBold" Foreground="{StaticResource TextBrush}" Margin="0,0,0,4"/>
                     <TextBox Text="{Binding SelectedTask.Description, UpdateSourceTrigger=PropertyChanged}" Height="100" AcceptsReturn="True" VerticalScrollBarVisibility="Auto"/>
-                    <TextBox Text="{Binding SelectedTask.TicketUrl, UpdateSourceTrigger=PropertyChanged}"/>
+
+                    <TextBlock Text="Ticket URL" FontWeight="SemiBold" Foreground="{StaticResource TextBrush}" Margin="0,8,0,4"/>
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBox Grid.Column="0" Text="{Binding SelectedTask.TicketUrl, UpdateSourceTrigger=PropertyChanged}"/>
+                        <Button Grid.Column="1" Content="Öffnen" Width="84" Style="{StaticResource SecondaryButtonStyle}" Margin="8,0,0,0"
+                                Command="{Binding OpenTicketUrlCommand}" CommandParameter="{Binding SelectedTask.TicketUrl}"/>
+                    </Grid>
 
                     <WrapPanel Margin="0,8,0,0">
                         <Button Content="Speichern" Width="94" Command="{Binding SaveCommand}"/>
                         <Button Content="Erledigt" Width="94" Style="{StaticResource SuccessButtonStyle}" Command="{Binding DoneCommand}"/>
                         <Button Content="Zurück zu Aktuell" Width="120" Style="{StaticResource SecondaryButtonStyle}" Command="{Binding ReopenCommand}"/>
+                    </WrapPanel>
+                </StackPanel>
+            </Border>
+
+            <Border Style="{StaticResource CardStyle}">
+                <StackPanel>
+                    <TextBlock Text="Timer" FontSize="13" Foreground="{StaticResource MutedTextBrush}"/>
+                    <TextBlock Text="{Binding TimerDisplay}" FontSize="42" FontWeight="Bold" Margin="0,6,0,16" HorizontalAlignment="Center"/>
+                    <WrapPanel HorizontalAlignment="Center">
+                        <Button Content="Start" Width="90" Command="{Binding StartTimerCommand}"/>
+                        <Button Content="Pause" Width="90" Style="{StaticResource WarningButtonStyle}" Command="{Binding PauseTimerCommand}"/>
+                        <Button Content="Stop" Width="90" Style="{StaticResource SecondaryButtonStyle}" Command="{Binding StopTimerCommand}"/>
+                    </WrapPanel>
+                    <WrapPanel HorizontalAlignment="Center">
+                        <Button Content="+15" Width="90" Style="{StaticResource SecondaryButtonStyle}" Command="{Binding Add15Command}"/>
+                        <Button Content="+30" Width="90" Style="{StaticResource SecondaryButtonStyle}" Command="{Binding Add30Command}"/>
+                        <Button Content="+1h" Width="90" Style="{StaticResource SecondaryButtonStyle}" Command="{Binding Add60Command}"/>
                     </WrapPanel>
                 </StackPanel>
             </Border>
@@ -52,6 +81,7 @@
                             <DataTemplate>
                                 <Border Background="#0B1220" BorderBrush="{StaticResource BorderBrushColor}" BorderThickness="1" CornerRadius="8" Padding="8" Margin="0,0,0,8">
                                     <StackPanel>
+                                        <TextBlock Text="{Binding DisplayIndex, StringFormat=Segment {0}}" FontWeight="SemiBold" FontSize="14" Margin="0,0,0,6"/>
                                         <Grid>
                                             <Grid.ColumnDefinitions>
                                                 <ColumnDefinition Width="*"/>
@@ -79,23 +109,6 @@
                             </DataTemplate>
                         </ItemsControl.ItemTemplate>
                     </ItemsControl>
-                </StackPanel>
-            </Border>
-
-            <Border Style="{StaticResource CardStyle}">
-                <StackPanel>
-                    <TextBlock Text="Timer" FontSize="13" Foreground="{StaticResource MutedTextBrush}"/>
-                    <TextBlock Text="{Binding TimerDisplay}" FontSize="42" FontWeight="Bold" Margin="0,6,0,16" HorizontalAlignment="Center"/>
-                    <WrapPanel HorizontalAlignment="Center">
-                        <Button Content="Start" Width="90" Command="{Binding StartTimerCommand}"/>
-                        <Button Content="Pause" Width="90" Style="{StaticResource WarningButtonStyle}" Command="{Binding PauseTimerCommand}"/>
-                        <Button Content="Stop" Width="90" Style="{StaticResource SecondaryButtonStyle}" Command="{Binding StopTimerCommand}"/>
-                    </WrapPanel>
-                    <WrapPanel HorizontalAlignment="Center">
-                        <Button Content="+15" Width="90" Style="{StaticResource SecondaryButtonStyle}" Command="{Binding Add15Command}"/>
-                        <Button Content="+30" Width="90" Style="{StaticResource SecondaryButtonStyle}" Command="{Binding Add30Command}"/>
-                        <Button Content="+1h" Width="90" Style="{StaticResource SecondaryButtonStyle}" Command="{Binding Add60Command}"/>
-                    </WrapPanel>
                 </StackPanel>
             </Border>
         </StackPanel>
