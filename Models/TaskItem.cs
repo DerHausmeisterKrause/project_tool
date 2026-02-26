@@ -13,6 +13,7 @@ public class TaskItem
     public string Tags { get; set; } = string.Empty;
     public string OutlookEntryId { get; set; } = string.Empty;
     public int TicketMinutesBooked { get; set; }
+    public long TicketSecondsBooked { get; set; }
     public DateTime CreatedUtc { get; set; } = DateTime.UtcNow;
     public DateTime UpdatedUtc { get; set; } = DateTime.UtcNow;
 }
