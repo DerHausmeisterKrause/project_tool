@@ -624,7 +624,7 @@ public class TodayViewModel : ObservableObject
     private void UpdateTimerDisplay()
     {
         if (SelectedTask == null) { TimerDisplay = "00:00:00"; return; }
-        var booked = TimeSpan.FromMinutes(Math.Max(0, SelectedTask.TicketMinutesBooked));
+        var booked = TimeSpan.FromSeconds(Math.Max(0, SelectedTask.TicketSecondsBooked));
         var runningPart = _tasks.GetOpenSessionDuration(SelectedTask.Id);
         var total = booked + runningPart;
         TimerDisplay = $"{(int)total.TotalHours:00}:{total.Minutes:00}:{total.Seconds:00}";

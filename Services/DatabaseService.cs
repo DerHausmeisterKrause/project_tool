@@ -46,24 +46,34 @@ CREATE TABLE IF NOT EXISTS schema_version (
                 MigrateToV2(conn);
                 MigrateToV3(conn);
                 MigrateToV4(conn);
-                SetVersion(conn, 4);
+                MigrateToV5(conn);
+                SetVersion(conn, 5);
             }
             else if (currentVersion == 2)
             {
                 MigrateToV3(conn);
                 MigrateToV4(conn);
-                SetVersion(conn, 4);
+                MigrateToV5(conn);
+                SetVersion(conn, 5);
             }
             else if (currentVersion == 3)
             {
                 MigrateToV4(conn);
-                SetVersion(conn, 4);
+                MigrateToV5(conn);
+                SetVersion(conn, 5);
             }
-            else
+            else if (currentVersion == 4)
+            {
+                MigrateToV5(conn);
+                SetVersion(conn, 5);
+            }
+            else if (currentVersion < 5)
             {
                 CreateBaseSchema(conn);
                 MigrateToV3(conn);
                 MigrateToV4(conn);
+                MigrateToV5(conn);
+                SetVersion(conn, 5);
             }
         }
         catch (Exception ex)
@@ -87,6 +97,7 @@ CREATE TABLE IF NOT EXISTS tasks (
     tags TEXT,
     outlook_entry_id TEXT,
     ticket_minutes_booked INTEGER NOT NULL DEFAULT 0,
+    ticket_seconds_booked INTEGER NOT NULL DEFAULT 0,
     created_utc TEXT NOT NULL,
     updated_utc TEXT NOT NULL
 );
@@ -137,6 +148,12 @@ CREATE TABLE IF NOT EXISTS breaks (
     private static void MigrateToV4(SqliteConnection conn)
     {
         EnsureColumn(conn, "task_segments", "note", "TEXT NOT NULL DEFAULT ''");
+    }
+
+    private static void MigrateToV5(SqliteConnection conn)
+    {
+        EnsureColumn(conn, "tasks", "ticket_seconds_booked", "INTEGER NOT NULL DEFAULT 0");
+        Exec(conn, "UPDATE tasks SET ticket_seconds_booked = CASE WHEN ticket_seconds_booked IS NULL OR ticket_seconds_booked <= 0 THEN ticket_minutes_booked * 60 ELSE ticket_seconds_booked END;");
     }
 
     private static void EnsureColumn(SqliteConnection conn, string table, string column, string definition)

@@ -65,8 +65,8 @@ public class TaskService
         using var conn = new SqliteConnection(_db.ConnectionString);
         conn.Open();
         using var cmd = conn.CreateCommand();
-        cmd.CommandText = @"INSERT INTO tasks (id,title,description,ticket_url,start_local,end_local,status,priority,tags,outlook_entry_id,ticket_minutes_booked,created_utc,updated_utc)
-VALUES ($id,$title,$desc,$url,$start,$end,$status,$priority,$tags,$entry,$ticket,$created,$updated)";
+        cmd.CommandText = @"INSERT INTO tasks (id,title,description,ticket_url,start_local,end_local,status,priority,tags,outlook_entry_id,ticket_minutes_booked,ticket_seconds_booked,created_utc,updated_utc)
+VALUES ($id,$title,$desc,$url,$start,$end,$status,$priority,$tags,$entry,$ticket,$ticketSeconds,$created,$updated)";
         BindTask(cmd, task);
         cmd.ExecuteNonQuery();
         return task;
@@ -78,7 +78,7 @@ VALUES ($id,$title,$desc,$url,$start,$end,$status,$priority,$tags,$entry,$ticket
         using var conn = new SqliteConnection(_db.ConnectionString);
         conn.Open();
         using var cmd = conn.CreateCommand();
-        cmd.CommandText = @"UPDATE tasks SET title=$title,description=$desc,ticket_url=$url,start_local=$start,end_local=$end,status=$status,priority=$priority,tags=$tags,outlook_entry_id=$entry,ticket_minutes_booked=$ticket,updated_utc=$updated WHERE id=$id";
+        cmd.CommandText = @"UPDATE tasks SET title=$title,description=$desc,ticket_url=$url,start_local=$start,end_local=$end,status=$status,priority=$priority,tags=$tags,outlook_entry_id=$entry,ticket_minutes_booked=$ticket,ticket_seconds_booked=$ticketSeconds,updated_utc=$updated WHERE id=$id";
         BindTask(cmd, task);
         cmd.ExecuteNonQuery();
     }
@@ -157,9 +157,11 @@ VALUES ($id,$title,$desc,$url,$start,$end,$status,$priority,$tags,$entry,$ticket
 
     public void PauseTimer(TaskItem task)
     {
-        var elapsedMinutes = CloseOpenLogAndGetElapsedMinutes(task.Id, "pause");
-        if (elapsedMinutes > 0)
-            task.TicketMinutesBooked = Math.Max(0, task.TicketMinutesBooked + elapsedMinutes);
+        var elapsedSeconds = CloseOpenLogAndGetElapsedSeconds(task.Id, "pause");
+        if (elapsedSeconds > 0)
+            task.TicketSecondsBooked = Math.Max(0, task.TicketSecondsBooked + elapsedSeconds);
+
+        task.TicketMinutesBooked = (int)(task.TicketSecondsBooked / 60);
 
         task.Status = TaskStatus.Planned;
         UpdateTask(task);
@@ -167,9 +169,11 @@ VALUES ($id,$title,$desc,$url,$start,$end,$status,$priority,$tags,$entry,$ticket
 
     public void StopTimer(TaskItem task)
     {
-        var elapsedMinutes = CloseOpenLogAndGetElapsedMinutes(task.Id, "stop");
-        if (elapsedMinutes > 0)
-            task.TicketMinutesBooked = Math.Max(0, task.TicketMinutesBooked + elapsedMinutes);
+        var elapsedSeconds = CloseOpenLogAndGetElapsedSeconds(task.Id, "stop");
+        if (elapsedSeconds > 0)
+            task.TicketSecondsBooked = Math.Max(0, task.TicketSecondsBooked + elapsedSeconds);
+
+        task.TicketMinutesBooked = (int)(task.TicketSecondsBooked / 60);
 
         if (task.Status == TaskStatus.Running)
             task.Status = TaskStatus.Planned;
@@ -179,7 +183,8 @@ VALUES ($id,$title,$desc,$url,$start,$end,$status,$priority,$tags,$entry,$ticket
 
     public void AddTicketMinutes(TaskItem task, int minutes)
     {
-        task.TicketMinutesBooked = Math.Max(0, task.TicketMinutesBooked + minutes);
+        task.TicketSecondsBooked = Math.Max(0, task.TicketSecondsBooked + (minutes * 60L));
+        task.TicketMinutesBooked = (int)(task.TicketSecondsBooked / 60);
         UpdateTask(task);
     }
 
@@ -444,7 +449,7 @@ ORDER BY ticket_minutes_booked DESC, title ASC LIMIT $max";
         return TimeSpan.TryParse(text, out duration);
     }
 
-    private int CloseOpenLogAndGetElapsedMinutes(Guid taskId, string note)
+    private long CloseOpenLogAndGetElapsedSeconds(Guid taskId, string note)
     {
         using var conn = new SqliteConnection(_db.ConnectionString);
         conn.Open();
@@ -472,8 +477,8 @@ ORDER BY ticket_minutes_booked DESC, title ASC LIMIT $max";
             return 0;
 
         var elapsed = DateTime.UtcNow - startUtc.Value;
-        var minutes = (int)Math.Floor(elapsed.TotalMinutes);
-        return Math.Max(0, minutes);
+        var seconds = (long)Math.Floor(elapsed.TotalSeconds);
+        return Math.Max(0, seconds);
     }
 
     private static TaskItem MapTask(SqliteDataReader reader)
@@ -491,6 +496,7 @@ ORDER BY ticket_minutes_booked DESC, title ASC LIMIT $max";
             Tags = reader["tags"]?.ToString() ?? string.Empty,
             OutlookEntryId = reader["outlook_entry_id"]?.ToString() ?? string.Empty,
             TicketMinutesBooked = Convert.ToInt32(reader["ticket_minutes_booked"]),
+            TicketSecondsBooked = reader["ticket_seconds_booked"] == DBNull.Value ? Convert.ToInt64(reader["ticket_minutes_booked"]) * 60L : Convert.ToInt64(reader["ticket_seconds_booked"]),
             CreatedUtc = DateTime.Parse(reader["created_utc"].ToString()!),
             UpdatedUtc = DateTime.Parse(reader["updated_utc"].ToString()!)
         };
@@ -508,7 +514,12 @@ ORDER BY ticket_minutes_booked DESC, title ASC LIMIT $max";
         cmd.Parameters.AddWithValue("$priority", task.Priority ?? (object)DBNull.Value);
         cmd.Parameters.AddWithValue("$tags", task.Tags);
         cmd.Parameters.AddWithValue("$entry", task.OutlookEntryId);
+        if (task.TicketSecondsBooked <= 0 && task.TicketMinutesBooked > 0)
+            task.TicketSecondsBooked = task.TicketMinutesBooked * 60L;
+        task.TicketMinutesBooked = (int)(Math.Max(0, task.TicketSecondsBooked) / 60);
+
         cmd.Parameters.AddWithValue("$ticket", task.TicketMinutesBooked);
+        cmd.Parameters.AddWithValue("$ticketSeconds", task.TicketSecondsBooked);
         cmd.Parameters.AddWithValue("$created", task.CreatedUtc.ToString("O"));
         cmd.Parameters.AddWithValue("$updated", task.UpdatedUtc.ToString("O"));
     }
