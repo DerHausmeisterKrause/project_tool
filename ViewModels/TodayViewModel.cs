@@ -20,10 +20,10 @@ public class TodayViewModel : ObservableObject
     public ObservableCollection<TaskItem> CompletedTasks { get; } = new();
     public ObservableCollection<BreakEditRow> BreakRows { get; } = new();
     public ObservableCollection<TaskSegment> Segments { get; } = new();
+    public ObservableCollection<string> TimeOptions { get; } = new(Enumerable.Range(0, 96).Select(i => TimeSpan.FromMinutes(i * 15).ToString(@"hh\:mm")));
 
-    public ObservableCollection<int> DurationOptions { get; } = new() { 15, 30, 45, 60, 90, 120, 180 };
-    public ObservableCollection<int> Hours { get; } = new(Enumerable.Range(0, 24));
-    public ObservableCollection<int> Minutes { get; } = new(new[] { 0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55 });
+    private bool _freezeTimerDisplay;
+    private string _frozenTimerDisplay = "00:00:00";
 
     private TaskItem? _selectedTask;
     public TaskItem? SelectedTask
@@ -33,14 +33,9 @@ public class TodayViewModel : ObservableObject
         {
             if (Set(ref _selectedTask, value))
             {
-                LoadTaskPlanning();
+                _freezeTimerDisplay = false;
                 LoadSegments();
                 Raise(nameof(IsTaskSelected));
-                Raise(nameof(OutlookBlockerButtonText));
-                Raise(nameof(OutlookBlockerCanSync));
-                Raise(nameof(IsSchedulingValid));
-                Raise(nameof(OutlookSyncHint));
-                Raise(nameof(ComputedEndText));
                 RaiseCommandStates();
                 UpdateTimerDisplay();
             }
@@ -48,8 +43,6 @@ public class TodayViewModel : ObservableObject
     }
 
     public bool IsTaskSelected => SelectedTask != null;
-    public string DateTimeFormat => string.IsNullOrWhiteSpace(_settings.Current.DateTimeFormat) ? "yyyy-MM-dd HH:mm" : _settings.Current.DateTimeFormat;
-    public bool AllowMultiDaySegments => _settings.Current.AllowMultiDayTaskPlanning;
 
     private string _quickAddText = string.Empty;
     public string QuickAddText { get => _quickAddText; set => Set(ref _quickAddText, value); }
@@ -103,43 +96,52 @@ public class TodayViewModel : ObservableObject
     private string _timerDisplay = "00:00:00";
     public string TimerDisplay { get => _timerDisplay; set => Set(ref _timerDisplay, value); }
 
-    private DateTime? _selectedStartDate = DateTime.Today;
-    public DateTime? SelectedStartDate { get => _selectedStartDate; set { if (Set(ref _selectedStartDate, value)) { Raise(nameof(ComputedEndText)); Raise(nameof(OutlookBlockerCanSync)); Raise(nameof(IsSchedulingValid)); Raise(nameof(OutlookSyncHint)); RaiseCommandStates(); } } }
-
-    private int _selectedHour = DateTime.Now.Hour;
-    public int SelectedHour { get => _selectedHour; set { if (Set(ref _selectedHour, value)) { Raise(nameof(ComputedEndText)); Raise(nameof(OutlookBlockerCanSync)); Raise(nameof(IsSchedulingValid)); Raise(nameof(OutlookSyncHint)); RaiseCommandStates(); } } }
-
-    private int _selectedMinute;
-    public int SelectedMinute { get => _selectedMinute; set { if (Set(ref _selectedMinute, value)) { Raise(nameof(ComputedEndText)); Raise(nameof(OutlookBlockerCanSync)); Raise(nameof(IsSchedulingValid)); Raise(nameof(OutlookSyncHint)); RaiseCommandStates(); } } }
-
-    private int _selectedDurationMinutes = 30;
-    public int SelectedDurationMinutes { get => _selectedDurationMinutes; set { if (Set(ref _selectedDurationMinutes, value)) { Raise(nameof(ComputedEndText)); Raise(nameof(OutlookBlockerCanSync)); Raise(nameof(IsSchedulingValid)); Raise(nameof(OutlookSyncHint)); RaiseCommandStates(); } } }
-
-    private string _manualDurationMinutesText = string.Empty;
-    public string ManualDurationMinutesText { get => _manualDurationMinutesText; set { if (Set(ref _manualDurationMinutesText, value)) { Raise(nameof(ComputedEndText)); Raise(nameof(OutlookBlockerCanSync)); Raise(nameof(IsSchedulingValid)); Raise(nameof(OutlookSyncHint)); RaiseCommandStates(); } } }
-
-    private string _dayType = "Normal";
-    public string DayType { get => _dayType; set => Set(ref _dayType, value); }
-
-    private bool _isBr;
-    public bool IsBr { get => _isBr; set => Set(ref _isBr, value); }
-
-    private bool _isHo;
-    public bool IsHo { get => _isHo; set => Set(ref _isHo, value); }
-
-    public string ComputedEndText
+    private DateTime? _newSegmentDate = DateTime.Today;
+    public DateTime? NewSegmentDate
     {
-        get
+        get => _newSegmentDate;
+        set { if (Set(ref _newSegmentDate, value)) RaiseSegmentEditorState(); }
+    }
+
+    private string _newSegmentStartTime = "09:00";
+    public string NewSegmentStartTime
+    {
+        get => _newSegmentStartTime;
+        set
         {
-            if (!OutlookBlockerCanSync || !TryBuildStart(out var start)) return "-";
-            return start.AddMinutes(GetDurationMinutes()).ToString(DateTimeFormat);
+            if (Set(ref _newSegmentStartTime, value))
+            {
+                if (string.IsNullOrWhiteSpace(NewSegmentEndTime) && TimeSpan.TryParse(value, out var start))
+                    NewSegmentEndTime = start.Add(TimeSpan.FromMinutes(30)).ToString(@"hh\:mm");
+                RaiseSegmentEditorState();
+            }
         }
     }
 
-    public bool OutlookBlockerCanSync => SelectedTask != null && IsSchedulingValid;
-    public bool IsSchedulingValid => TryBuildStart(out var start) && start > DateTime.MinValue && GetDurationMinutes() > 0;
-    public string OutlookSyncHint => IsSchedulingValid ? "" : "Bitte gültigen Start + Dauer setzen (Ende > Start).";
-    public string OutlookBlockerButtonText => string.IsNullOrWhiteSpace(SelectedTask?.OutlookEntryId) ? "Outlook Blocker erstellen" : "Outlook Blocker aktualisieren";
+    private string _newSegmentEndTime = "09:30";
+    public string NewSegmentEndTime
+    {
+        get => _newSegmentEndTime;
+        set { if (Set(ref _newSegmentEndTime, value)) RaiseSegmentEditorState(); }
+    }
+
+    private string _newSegmentNote = string.Empty;
+    public string NewSegmentNote { get => _newSegmentNote; set => Set(ref _newSegmentNote, value); }
+
+    public string NewSegmentValidationHint
+    {
+        get
+        {
+            if (NewSegmentDate == null) return "Datum muss gesetzt sein.";
+            if (!TimeSpan.TryParse(NewSegmentStartTime, out var start)) return "Startzeit ungültig (HH:mm).";
+            if (string.IsNullOrWhiteSpace(NewSegmentEndTime)) return "Endzeit darf nicht leer sein.";
+            if (!TimeSpan.TryParse(NewSegmentEndTime, out var end)) return "Endzeit ungültig (HH:mm).";
+            if (start >= end) return "Startzeit muss vor Endzeit liegen.";
+            return string.Empty;
+        }
+    }
+
+    public bool CanSaveNewSegment => SelectedTask != null && string.IsNullOrWhiteSpace(NewSegmentValidationHint);
 
     public RelayCommand QuickAddCommand { get; }
     public RelayCommand SaveCommand { get; }
@@ -151,14 +153,15 @@ public class TodayViewModel : ObservableObject
     public RelayCommand Add15Command { get; }
     public RelayCommand Add30Command { get; }
     public RelayCommand Add60Command { get; }
+    public RelayCommand Subtract15Command { get; }
+    public RelayCommand Subtract30Command { get; }
+    public RelayCommand Subtract60Command { get; }
     public RelayCommand ComeCommand { get; }
     public RelayCommand GoCommand { get; }
     public RelayCommand BreakStartCommand { get; }
     public RelayCommand BreakEndCommand { get; }
     public RelayCommand ManualSaveCommand { get; }
     public RelayCommand AddBreakRowCommand { get; }
-    public RelayCommand SyncOutlookBlockerCommand { get; }
-    public RelayCommand DeleteOutlookBlockerCommand { get; }
     public RelayCommand SaveMarkersCommand { get; }
     public RelayCommand SetDayTypeNormalCommand { get; }
     public RelayCommand SetDayTypeAmCommand { get; }
@@ -174,6 +177,20 @@ public class TodayViewModel : ObservableObject
     public RelayCommand<TaskItem> PauseTaskCommand { get; }
     public RelayCommand<TaskItem> StopTaskCommand { get; }
     public RelayCommand<TaskItem> DoneTaskCommand { get; }
+    public RelayCommand<string> OpenTicketUrlCommand { get; }
+    public RelayCommand<TaskSegment> SaveSegmentCommand { get; }
+    public RelayCommand<TaskSegment> DeleteSegmentCommand { get; }
+    public RelayCommand<TaskSegment> SyncSegmentOutlookCommand { get; }
+    public RelayCommand<TaskSegment> DeleteSegmentOutlookCommand { get; }
+
+    private string _dayType = "Normal";
+    public string DayType { get => _dayType; set => Set(ref _dayType, value); }
+
+    private bool _isBr;
+    public bool IsBr { get => _isBr; set => Set(ref _isBr, value); }
+
+    private bool _isHo;
+    public bool IsHo { get => _isHo; set => Set(ref _isHo, value); }
 
     public TodayViewModel(TaskService tasks, WorkDayService workDays, SettingsService settings)
     {
@@ -183,28 +200,29 @@ public class TodayViewModel : ObservableObject
 
         QuickAddCommand = new RelayCommand(QuickAdd);
         SaveCommand = new RelayCommand(SaveTask, () => SelectedTask != null);
-        ReopenCommand = new RelayCommand(ReopenTask, () => SelectedTask?.Status == TaskStatus.Done);
-        DoneCommand = new RelayCommand(MarkDone, () => SelectedTask != null);
-        StartTimerCommand = new RelayCommand(() => WithTask(_tasks.StartTimer), () => SelectedTask != null);
-        PauseTimerCommand = new RelayCommand(() => WithTask(_tasks.PauseTimer), () => SelectedTask != null);
-        StopTimerCommand = new RelayCommand(() => WithTask(_tasks.StopTimer), () => SelectedTask != null);
-        Add15Command = new RelayCommand(() => WithTask(t => _tasks.AddTicketMinutes(t, 15)), () => SelectedTask != null);
-        Add30Command = new RelayCommand(() => WithTask(t => _tasks.AddTicketMinutes(t, 30)), () => SelectedTask != null);
-        Add60Command = new RelayCommand(() => WithTask(t => _tasks.AddTicketMinutes(t, 60)), () => SelectedTask != null);
+        ReopenCommand = new RelayCommand(ReopenSelectedTask, () => SelectedTask?.Status == TaskStatus.Done);
+        DoneCommand = new RelayCommand(MarkSelectedTaskDone, () => SelectedTask != null);
+        StartTimerCommand = new RelayCommand(StartTimer, () => SelectedTask != null);
+        PauseTimerCommand = new RelayCommand(PauseTimer, () => SelectedTask != null);
+        StopTimerCommand = new RelayCommand(StopTimer, () => SelectedTask != null);
+        Add15Command = new RelayCommand(() => AdjustBookedMinutes(15), () => SelectedTask != null);
+        Add30Command = new RelayCommand(() => AdjustBookedMinutes(30), () => SelectedTask != null);
+        Add60Command = new RelayCommand(() => AdjustBookedMinutes(60), () => SelectedTask != null);
+        Subtract15Command = new RelayCommand(() => AdjustBookedMinutes(-15), () => SelectedTask != null);
+        Subtract30Command = new RelayCommand(() => AdjustBookedMinutes(-30), () => SelectedTask != null);
+        Subtract60Command = new RelayCommand(() => AdjustBookedMinutes(-60), () => SelectedTask != null);
         ComeCommand = new RelayCommand(() => { _workDays.SetCome(DateTime.Now); Load(); });
         GoCommand = new RelayCommand(() => { _workDays.SetGo(DateTime.Now); Load(); });
         BreakStartCommand = new RelayCommand(() => { _workDays.StartBreak(DateTime.Today.ToString("yyyy-MM-dd")); Load(); });
         BreakEndCommand = new RelayCommand(() => { _workDays.EndBreak(DateTime.Today.ToString("yyyy-MM-dd")); Load(); });
         ManualSaveCommand = new RelayCommand(SaveManualDay);
         AddBreakRowCommand = new RelayCommand(() => BreakRows.Add(new BreakEditRow()));
-        SyncOutlookBlockerCommand = new RelayCommand(SyncOutlookBlocker, () => SelectedTask != null && OutlookBlockerCanSync);
-        DeleteOutlookBlockerCommand = new RelayCommand(DeleteOutlookBlocker, () => SelectedTask != null);
         SaveMarkersCommand = new RelayCommand(SaveMarkers);
         SetDayTypeNormalCommand = new RelayCommand(() => SetDayType("Normal"));
         SetDayTypeAmCommand = new RelayCommand(() => SetDayType("AM"));
         SetDayTypeUlCommand = new RelayCommand(() => SetDayType("UL"));
-        AddSegmentCommand = new RelayCommand(AddSegment, () => SelectedTask != null && AllowMultiDaySegments);
-        SyncAllSegmentsCommand = new RelayCommand(SyncAllSegments, () => SelectedTask != null && AllowMultiDaySegments);
+        AddSegmentCommand = new RelayCommand(AddSegment, () => CanSaveNewSegment);
+        SyncAllSegmentsCommand = new RelayCommand(SyncAllSegments, () => SelectedTask != null);
         ShowCurrentTasksCommand = new RelayCommand(() => ShowCompletedTasks = false);
         ShowCompletedTasksCommand = new RelayCommand(() => ShowCompletedTasks = true);
         TestOutlookConnectionCommand = new RelayCommand(TestOutlookConnection);
@@ -214,6 +232,11 @@ public class TodayViewModel : ObservableObject
         PauseTaskCommand = new RelayCommand<TaskItem>(task => OnCardTaskAction(task, _tasks.PauseTimer));
         StopTaskCommand = new RelayCommand<TaskItem>(task => OnCardTaskAction(task, _tasks.StopTimer));
         DoneTaskCommand = new RelayCommand<TaskItem>(task => OnCardTaskAction(task, _tasks.MarkDone));
+        OpenTicketUrlCommand = new RelayCommand<string>(OpenTicketUrl, url => !string.IsNullOrWhiteSpace(url));
+        SaveSegmentCommand = new RelayCommand<TaskSegment>(SaveSegment, seg => seg != null && seg.IsValid);
+        DeleteSegmentCommand = new RelayCommand<TaskSegment>(DeleteSegment, seg => seg != null);
+        SyncSegmentOutlookCommand = new RelayCommand<TaskSegment>(SyncSegmentOutlook, seg => seg != null && seg.Id > 0);
+        DeleteSegmentOutlookCommand = new RelayCommand<TaskSegment>(DeleteSegmentOutlook, seg => seg != null && !string.IsNullOrWhiteSpace(seg.OutlookEntryId));
 
         _clock = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
         _clock.Tick += (_, _) => UpdateTimerDisplay();
@@ -221,6 +244,13 @@ public class TodayViewModel : ObservableObject
 
         ShowCompletedTasks = false;
         Load();
+    }
+
+    private void RaiseSegmentEditorState()
+    {
+        Raise(nameof(NewSegmentValidationHint));
+        Raise(nameof(CanSaveNewSegment));
+        AddSegmentCommand.RaiseCanExecuteChanged();
     }
 
     private void RaiseCommandStates()
@@ -234,10 +264,15 @@ public class TodayViewModel : ObservableObject
         Add15Command.RaiseCanExecuteChanged();
         Add30Command.RaiseCanExecuteChanged();
         Add60Command.RaiseCanExecuteChanged();
-        SyncOutlookBlockerCommand.RaiseCanExecuteChanged();
-        DeleteOutlookBlockerCommand.RaiseCanExecuteChanged();
+        Subtract15Command.RaiseCanExecuteChanged();
+        Subtract30Command.RaiseCanExecuteChanged();
+        Subtract60Command.RaiseCanExecuteChanged();
         AddSegmentCommand.RaiseCanExecuteChanged();
         SyncAllSegmentsCommand.RaiseCanExecuteChanged();
+        SaveSegmentCommand.RaiseCanExecuteChanged();
+        DeleteSegmentCommand.RaiseCanExecuteChanged();
+        SyncSegmentOutlookCommand.RaiseCanExecuteChanged();
+        DeleteSegmentOutlookCommand.RaiseCanExecuteChanged();
     }
 
     private void Load()
@@ -275,6 +310,7 @@ public class TodayViewModel : ObservableObject
         WorkDaySummary = $"Kommen: {Fmt(wd.ComeLocal)}   Gehen: {Fmt(wd.GoLocal)}   Typ: {wd.DayType}";
         TodayTotals = $"Soll: {FmtMin(target)} | Ist: {FmtMin((int)net.TotalMinutes)} | Ü heute: {FmtMin(overtime)} | Ü Monat: {FmtMin(monthOvertime)}";
         StatusMessage = _tasks.LastError;
+        RaiseSegmentEditorState();
         RaiseCommandStates();
         UpdateTimerDisplay();
     }
@@ -343,21 +379,19 @@ public class TodayViewModel : ObservableObject
         Load();
     }
 
-    private void LoadTaskPlanning()
-    {
-        if (SelectedTask?.StartLocal is not DateTime start) return;
-        SelectedStartDate = start.Date;
-        SelectedHour = start.Hour;
-        SelectedMinute = (start.Minute / 5) * 5;
-        if (SelectedTask.EndLocal.HasValue)
-            SelectedDurationMinutes = Math.Max(15, (int)(SelectedTask.EndLocal.Value - start).TotalMinutes);
-    }
-
     private void LoadSegments()
     {
         Segments.Clear();
-        if (SelectedTask == null || !AllowMultiDaySegments) return;
-        foreach (var seg in _tasks.GetSegments(SelectedTask.Id)) Segments.Add(seg);
+        if (SelectedTask == null) return;
+
+        var orderedSegments = _tasks.GetSegments(SelectedTask.Id).OrderBy(s => s.StartLocal).ToList();
+        for (var i = 0; i < orderedSegments.Count; i++)
+        {
+            var seg = orderedSegments[i];
+            seg.DisplayIndex = i + 1;
+            seg.OutlookStatus = string.IsNullOrWhiteSpace(seg.OutlookEntryId) ? "fehlt" : "vorhanden";
+            Segments.Add(seg);
+        }
     }
 
     private void QuickAdd()
@@ -374,98 +408,162 @@ public class TodayViewModel : ObservableObject
     private void SaveTask()
     {
         if (SelectedTask == null) return;
-        if (TryBuildStart(out var start))
-        {
-            SelectedTask.StartLocal = start;
-            SelectedTask.EndLocal = start.AddMinutes(GetDurationMinutes());
-        }
         _tasks.UpdateTask(SelectedTask);
         StatusMessage = "Task gespeichert.";
         Load();
     }
 
-    private bool TryBuildStart(out DateTime start)
+    private static DateTime BuildSegmentDateTime(DateTime day, string timeText)
     {
-        start = DateTime.MinValue;
-        if (!SelectedStartDate.HasValue) return false;
-        start = SelectedStartDate.Value.Date.AddHours(SelectedHour).AddMinutes(SelectedMinute);
-        return true;
-    }
+        if (!TimeSpan.TryParse(timeText, out var time))
+            throw new InvalidOperationException("Zeitformat ungültig.");
 
-    private int GetDurationMinutes() => int.TryParse(ManualDurationMinutesText, out var parsed) && parsed > 0 ? parsed : SelectedDurationMinutes;
+        return day.Date + time;
+    }
 
     private void AddSegment()
     {
-        if (SelectedTask == null || !TryBuildStart(out var start)) return;
-        var dur = GetDurationMinutes();
-        _tasks.AddSegment(new TaskSegment { TaskId = SelectedTask.Id, StartLocal = start, EndLocal = start.AddMinutes(dur), PlannedMinutes = dur });
+        if (SelectedTask == null || !CanSaveNewSegment || NewSegmentDate == null) return;
+
+        var segment = new TaskSegment
+        {
+            TaskId = SelectedTask.Id,
+            StartLocal = BuildSegmentDateTime(NewSegmentDate.Value, NewSegmentStartTime),
+            EndLocal = BuildSegmentDateTime(NewSegmentDate.Value, NewSegmentEndTime),
+            Note = NewSegmentNote,
+            OutlookEntryId = string.Empty
+        };
+        segment.PlannedMinutes = (int)(segment.EndLocal - segment.StartLocal).TotalMinutes;
+        _tasks.AddSegment(segment);
+        StatusMessage = "Segment hinzugefügt.";
         LoadSegments();
+        RaiseCommandStates();
+    }
+
+    private void SaveSegment(TaskSegment? segment)
+    {
+        if (segment == null) return;
+        if (!segment.IsValid)
+        {
+            StatusMessage = segment.ValidationHint;
+            return;
+        }
+
+        segment.PlannedMinutes = (int)(segment.EndLocal - segment.StartLocal).TotalMinutes;
+        _tasks.UpdateSegment(segment);
+        segment.OutlookStatus = string.IsNullOrWhiteSpace(segment.OutlookEntryId) ? "fehlt" : "vorhanden";
+        StatusMessage = "Segment gespeichert.";
+        RaiseCommandStates();
+    }
+
+    private void DeleteSegment(TaskSegment? segment)
+    {
+        if (segment == null) return;
+
+        if (!_tasks.DeleteSegmentOutlook(segment))
+        {
+            segment.OutlookStatus = "fehler";
+        }
+
+        _tasks.DeleteSegment(segment.Id);
+        StatusMessage = "Segment gelöscht.";
+        LoadSegments();
+    }
+
+    private void SyncSegmentOutlook(TaskSegment? segment)
+    {
+        if (segment == null || SelectedTask == null) return;
+
+        if (!_tasks.SyncSegmentOutlook(segment, SelectedTask.Title, SelectedTask.Description, SelectedTask.TicketUrl))
+        {
+            segment.OutlookStatus = "fehler";
+            StatusMessage = _tasks.LastError;
+            return;
+        }
+
+        segment.OutlookStatus = "vorhanden";
+        StatusMessage = "Outlook Blocker für Segment synchronisiert.";
+        RaiseCommandStates();
+    }
+
+    private void DeleteSegmentOutlook(TaskSegment? segment)
+    {
+        if (segment == null) return;
+
+        if (!_tasks.DeleteSegmentOutlook(segment))
+        {
+            segment.OutlookStatus = "fehler";
+            StatusMessage = _tasks.LastError;
+            return;
+        }
+
+        segment.OutlookStatus = "fehlt";
+        StatusMessage = "Outlook Blocker für Segment gelöscht.";
+        RaiseCommandStates();
     }
 
     private void SyncAllSegments()
     {
         if (SelectedTask == null) return;
-        foreach (var seg in Segments) _tasks.SyncSegmentOutlook(seg, SelectedTask.Title, SelectedTask.Description, SelectedTask.TicketUrl);
-        StatusMessage = _tasks.LastError;
-        LoadSegments();
-    }
 
-    private void ReopenTask() { if (SelectedTask == null) return; _tasks.MarkPlanned(SelectedTask); Load(); }
-    private void MarkDone() { if (SelectedTask == null) return; _tasks.MarkDone(SelectedTask); Load(); }
-
-    private void SyncOutlookBlocker()
-    {
-        if (SelectedTask == null || !TryBuildStart(out var start)) return;
-
-        try
+        var errors = 0;
+        foreach (var seg in Segments)
         {
-            SelectedTask.StartLocal = start;
-            SelectedTask.EndLocal = start.AddMinutes(GetDurationMinutes());
-            var ok = _tasks.SyncOutlookBlocker(SelectedTask);
-            if (!ok)
+            if (!_tasks.SyncSegmentOutlook(seg, SelectedTask.Title, SelectedTask.Description, SelectedTask.TicketUrl))
             {
-                var hResultHex = ExtractHResultHex(_tasks.LastError);
-                StatusMessage = $"Outlook Sync fehlgeschlagen. Details in logs.txt: {hResultHex}";
-                MessageBox.Show(StatusMessage, "Outlook Fehler", MessageBoxButton.OK, MessageBoxImage.Error);
-                return;
+                errors++;
+                seg.OutlookStatus = "fehler";
+                continue;
             }
 
-            StatusMessage = "Outlook Blocker synchronisiert.";
-            Load();
+            seg.OutlookStatus = "vorhanden";
         }
-        catch (Exception ex)
-        {
-            var hResultHex = $"0x{ex.HResult:X8}";
-            StatusMessage = $"Outlook Sync fehlgeschlagen. Details in logs.txt: {hResultHex}";
-            MessageBox.Show(StatusMessage, "Outlook Fehler", MessageBoxButton.OK, MessageBoxImage.Error);
-        }
+
+        StatusMessage = errors == 0 ? "Alle Segmente wurden mit Outlook synchronisiert." : $"{errors} Segment(e) mit Fehler synchronisiert.";
+        RaiseCommandStates();
     }
 
-    private void DeleteOutlookBlocker()
+
+    private void StartTimer()
     {
         if (SelectedTask == null) return;
-        try
-        {
-            var ok = _tasks.DeleteOutlookBlocker(SelectedTask);
-            if (!ok)
-            {
-                var hResultHex = ExtractHResultHex(_tasks.LastError);
-                StatusMessage = $"Outlook Delete fehlgeschlagen. Details in logs.txt: {hResultHex}";
-                MessageBox.Show(StatusMessage, "Outlook Fehler", MessageBoxButton.OK, MessageBoxImage.Error);
-                return;
-            }
-
-            StatusMessage = "Outlook Blocker gelöscht.";
-            Load();
-        }
-        catch (Exception ex)
-        {
-            var hResultHex = $"0x{ex.HResult:X8}";
-            StatusMessage = $"Outlook Delete fehlgeschlagen. Details in logs.txt: {hResultHex}";
-            MessageBox.Show(StatusMessage, "Outlook Fehler", MessageBoxButton.OK, MessageBoxImage.Error);
-        }
+        _freezeTimerDisplay = false;
+        _tasks.StartTimer(SelectedTask);
+        Load();
     }
 
+    private void PauseTimer()
+    {
+        if (SelectedTask == null) return;
+        var snapshot = TimerDisplay;
+        _tasks.PauseTimer(SelectedTask);
+        Load();
+        _freezeTimerDisplay = true;
+        _frozenTimerDisplay = snapshot;
+        TimerDisplay = _frozenTimerDisplay;
+    }
+
+    private void StopTimer()
+    {
+        if (SelectedTask == null) return;
+        var snapshot = TimerDisplay;
+        _tasks.StopTimer(SelectedTask);
+        Load();
+        _freezeTimerDisplay = true;
+        _frozenTimerDisplay = snapshot;
+        TimerDisplay = _frozenTimerDisplay;
+    }
+
+    private void AdjustBookedMinutes(int deltaMinutes)
+    {
+        if (SelectedTask == null) return;
+        _freezeTimerDisplay = false;
+        _tasks.AddTicketMinutes(SelectedTask, deltaMinutes);
+        Load();
+    }
+
+    private void ReopenSelectedTask() { if (SelectedTask == null) return; _tasks.MarkPlanned(SelectedTask); Load(); }
+    private void MarkSelectedTaskDone() { if (SelectedTask == null) return; _tasks.MarkDone(SelectedTask); Load(); }
 
     private void TestOutlookConnection()
     {
@@ -480,6 +578,15 @@ public class TodayViewModel : ObservableObject
         var hex = ExtractHResultHex(_tasks.LastError);
         StatusMessage = $"Outlook Test fehlgeschlagen. Details in logs.txt: {hex}";
         MessageBox.Show(StatusMessage, "Outlook Test", MessageBoxButton.OK, MessageBoxImage.Error);
+    }
+
+
+    private void OpenTicketUrl(string? url)
+    {
+        if (!UrlLauncher.TryOpen(url, out var error))
+        {
+            StatusMessage = error;
+        }
     }
 
     private static string ExtractHResultHex(string error)
@@ -530,8 +637,12 @@ public class TodayViewModel : ObservableObject
     private void UpdateTimerDisplay()
     {
         if (SelectedTask == null) { TimerDisplay = "00:00:00"; return; }
-        var elapsed = _tasks.GetTrackedDuration(SelectedTask.Id);
-        TimerDisplay = $"{(int)elapsed.TotalHours:00}:{elapsed.Minutes:00}:{elapsed.Seconds:00}";
+        if (_freezeTimerDisplay) { TimerDisplay = _frozenTimerDisplay; return; }
+
+        var booked = TimeSpan.FromMinutes(Math.Max(0, SelectedTask.TicketMinutesBooked));
+        var runningPart = _tasks.GetOpenSessionDuration(SelectedTask.Id);
+        var total = booked + runningPart;
+        TimerDisplay = $"{(int)total.TotalHours:00}:{total.Minutes:00}:{total.Seconds:00}";
     }
 
     public override string ToString() => Title;
