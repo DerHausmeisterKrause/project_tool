@@ -102,6 +102,11 @@ public class WeekViewModel : ObservableObject
         UrlLauncher.TryOpen(url, out _);
     }
 
+    private void OpenTicketUrl(string? url)
+    {
+        UrlLauncher.TryOpen(url, out _);
+    }
+
     private void SetDayType(string type)
     {
         if (SelectedDay == null) return;
