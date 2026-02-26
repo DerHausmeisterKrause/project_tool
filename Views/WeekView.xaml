@@ -61,6 +61,11 @@
                                                     <TextBlock Text="{Binding StartLocal, StringFormat={}{0:HH:mm}}" Foreground="{StaticResource MutedTextBrush}" FontSize="12"/>
                                                     <TextBlock Text="{Binding Title}" FontWeight="SemiBold" TextWrapping="Wrap"/>
                                                     <TextBlock Text="{Binding Status}" Foreground="{StaticResource MutedTextBrush}" FontSize="12"/>
+                                                    <Button Content="Ticket öffnen" Style="{StaticResource LinkButtonStyle}"
+                                                            Visibility="{Binding TicketUrl, Converter={StaticResource StringEmptyToVisibilityConverter}}"
+                                                            ToolTip="{Binding TicketUrl}"
+                                                            Command="{Binding DataContext.OpenTicketUrlCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                            CommandParameter="{Binding TicketUrl}"/>
                                                 </StackPanel>
                                             </Border>
                                         </DataTemplate>
@@ -74,13 +79,22 @@
         </ScrollViewer>
 
         <Border Grid.Row="2" Style="{StaticResource CardStyle}">
-            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                <TextBlock Text="Markierungen für ausgewählten Tag:" Margin="0,0,12,0"/>
-                <Button Content="Normal" Width="80" Style="{StaticResource SecondaryButtonStyle}" Command="{Binding SetDayTypeNormalCommand}"/>
-                <Button Content="UL" Width="60" Style="{StaticResource SecondaryButtonStyle}" Command="{Binding SetDayTypeUlCommand}"/>
-                <Button Content="AM" Width="60" Style="{StaticResource SecondaryButtonStyle}" Command="{Binding SetDayTypeAmCommand}"/>
-                <ToggleButton Content="HO" Style="{StaticResource TogglePillStyle}" IsChecked="{Binding SelectedIsHo, Mode=OneWay}" Command="{Binding ToggleHoCommand}"/>
-                <ToggleButton Content="BR" Style="{StaticResource TogglePillStyle}" IsChecked="{Binding SelectedIsBr, Mode=OneWay}" Command="{Binding ToggleBrCommand}"/>
+            <StackPanel VerticalAlignment="Center">
+                <TextBlock Text="Markierungen für ausgewählten Tag:" Margin="0,0,0,8"/>
+                <Border Background="Transparent" BorderBrush="{StaticResource BorderBrushColor}" BorderThickness="1" CornerRadius="16" Padding="0" HorizontalAlignment="Left">
+                    <StackPanel Orientation="Horizontal">
+                        <RadioButton GroupName="WeekDayType" Content="Normal" Style="{StaticResource DayMarkerSegmentLeftStyle}"
+                                     IsChecked="{Binding SelectedDayType, Mode=OneWay, Converter={StaticResource EqualityConverter}, ConverterParameter=Normal}" Command="{Binding SetDayTypeNormalCommand}"/>
+                        <RadioButton GroupName="WeekDayType" Content="UL" Style="{StaticResource DayMarkerSegmentMiddleStyle}"
+                                     IsChecked="{Binding SelectedDayType, Mode=OneWay, Converter={StaticResource EqualityConverter}, ConverterParameter=UL}" Command="{Binding SetDayTypeUlCommand}"/>
+                        <RadioButton GroupName="WeekDayType" Content="AM" Style="{StaticResource DayMarkerSegmentRightStyle}"
+                                     IsChecked="{Binding SelectedDayType, Mode=OneWay, Converter={StaticResource EqualityConverter}, ConverterParameter=AM}" Command="{Binding SetDayTypeAmCommand}"/>
+                    </StackPanel>
+                </Border>
+                <WrapPanel Margin="0,8,0,0">
+                    <ToggleButton Content="HO" Style="{StaticResource DayMarkerChipToggleStyle}" IsChecked="{Binding SelectedIsHo, Mode=OneWay}" Command="{Binding ToggleHoCommand}"/>
+                    <ToggleButton Content="BR" Style="{StaticResource DayMarkerChipToggleStyle}" IsChecked="{Binding SelectedIsBr, Mode=OneWay}" Command="{Binding ToggleBrCommand}"/>
+                </WrapPanel>
             </StackPanel>
         </Border>
     </Grid>

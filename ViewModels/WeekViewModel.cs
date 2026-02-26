@@ -53,6 +53,7 @@ public class WeekViewModel : ObservableObject
     public RelayCommand CurrentWeekCommand { get; }
     public RelayCommand<WeekDayGroup> SelectDayCommand { get; }
     public RelayCommand<TaskItem> OpenTaskCommand { get; }
+    public RelayCommand<string> OpenTicketUrlCommand { get; }
     public RelayCommand SetDayTypeNormalCommand { get; }
     public RelayCommand SetDayTypeUlCommand { get; }
     public RelayCommand SetDayTypeAmCommand { get; }
@@ -71,6 +72,7 @@ public class WeekViewModel : ObservableObject
         CurrentWeekCommand = new RelayCommand(() => { WeekStart = StartOfWeek(DateTime.Today); LoadWeek(); });
         SelectDayCommand = new RelayCommand<WeekDayGroup>(d => SelectedDay = d, d => d != null);
         OpenTaskCommand = new RelayCommand<TaskItem>(OpenTask, t => t != null);
+        OpenTicketUrlCommand = new RelayCommand<string>(OpenTicketUrl, url => !string.IsNullOrWhiteSpace(url));
         SetDayTypeNormalCommand = new RelayCommand(() => SetDayType("Normal"), () => SelectedDay != null);
         SetDayTypeUlCommand = new RelayCommand(() => SetDayType("UL"), () => SelectedDay != null);
         SetDayTypeAmCommand = new RelayCommand(() => SetDayType("AM"), () => SelectedDay != null);
@@ -89,6 +91,11 @@ public class WeekViewModel : ObservableObject
                     ?? main.TodayViewModel.CompletedTasks.FirstOrDefault(t => t.Id == task.Id)
                     ?? task;
         main.TodayViewModel.SelectedTask = match;
+    }
+
+    private void OpenTicketUrl(string? url)
+    {
+        UrlLauncher.TryOpen(url, out _);
     }
 
     private void SetDayType(string type)
