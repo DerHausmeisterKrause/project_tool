@@ -515,6 +515,14 @@ public class TodayViewModel : ObservableObject
     }
 
 
+
+    private void StartTaskFromCard(TaskItem? task)
+    {
+        if (task == null) return;
+        SelectedTask = task;
+        StartTimer();
+    }
+
     private void StartTimer()
     {
         if (SelectedTask == null) return;
