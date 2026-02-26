@@ -1,0 +1,44 @@
+<UserControl x:Class="TaskTool.Views.SettingsView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             Background="{StaticResource BgBrush}">
+    <Grid Background="{StaticResource BgBrush}" HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
+        <ScrollViewer VerticalScrollBarVisibility="Auto" Background="Transparent">
+            <StackPanel>
+                <Border Style="{StaticResource CardStyle}">
+                    <StackPanel>
+                        <TextBlock Text="Einstellungen" FontSize="24" FontWeight="SemiBold" Margin="0,0,0,10"/>
+                        <CheckBox Content="Outlook Sync aktiv" IsChecked="{Binding OutlookSyncEnabled}" Margin="0,0,0,12"/>
+                        <TextBlock Text="Outlook Kategorie" Foreground="{StaticResource MutedTextBrush}"/>
+                        <TextBox Text="{Binding OutlookCategoryName}" Width="260"/>
+                        <TextBlock Text="Reminder Vorlauf Minuten" Foreground="{StaticResource MutedTextBrush}"/>
+                        <TextBox Text="{Binding ReminderLeadMinutes}" Width="120"/>
+                        <TextBlock Text="Datum/Zeit Format" Foreground="{StaticResource MutedTextBrush}"/>
+                        <TextBox Text="{Binding DateTimeFormat}" Width="220"/>
+                        <CheckBox Content="Tasks dürfen über mehrere Tage geplant werden" IsChecked="{Binding AllowMultiDayTaskPlanning}" Margin="0,8,0,0"/>
+                    </StackPanel>
+                </Border>
+
+                <Border Style="{StaticResource CardStyle}">
+                    <StackPanel>
+                        <TextBlock Text="Sollstunden pro Wochentag (Minuten)" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,10"/>
+                        <Grid>
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="180"/><ColumnDefinition Width="120"/></Grid.ColumnDefinitions>
+                            <TextBlock Grid.Row="0" Grid.Column="0" Text="Montag"/><TextBox Grid.Row="0" Grid.Column="1" Text="{Binding MondayTargetMinutes}"/>
+                            <TextBlock Grid.Row="1" Grid.Column="0" Text="Dienstag"/><TextBox Grid.Row="1" Grid.Column="1" Text="{Binding TuesdayTargetMinutes}"/>
+                            <TextBlock Grid.Row="2" Grid.Column="0" Text="Mittwoch"/><TextBox Grid.Row="2" Grid.Column="1" Text="{Binding WednesdayTargetMinutes}"/>
+                            <TextBlock Grid.Row="3" Grid.Column="0" Text="Donnerstag"/><TextBox Grid.Row="3" Grid.Column="1" Text="{Binding ThursdayTargetMinutes}"/>
+                            <TextBlock Grid.Row="4" Grid.Column="0" Text="Freitag"/><TextBox Grid.Row="4" Grid.Column="1" Text="{Binding FridayTargetMinutes}"/>
+                            <TextBlock Grid.Row="5" Grid.Column="0" Text="Samstag"/><TextBox Grid.Row="5" Grid.Column="1" Text="{Binding SaturdayTargetMinutes}"/>
+                            <TextBlock Grid.Row="6" Grid.Column="0" Text="Sonntag"/><TextBox Grid.Row="6" Grid.Column="1" Text="{Binding SundayTargetMinutes}"/>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/>
+                            </Grid.RowDefinitions>
+                        </Grid>
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+        </ScrollViewer>
+    </Grid>
+</UserControl>

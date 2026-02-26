@@ -1,0 +1,40 @@
+<UserControl x:Class="TaskTool.Views.ReportsView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             Background="{StaticResource BgBrush}">
+    <Grid Background="{StaticResource BgBrush}" HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
+        <ScrollViewer VerticalScrollBarVisibility="Auto" Background="Transparent">
+            <StackPanel>
+                <UniformGrid Columns="4" Margin="0,0,0,12">
+                    <Border Style="{StaticResource CardStyle}"><StackPanel><TextBlock Text="Ticket Monat" Foreground="{StaticResource MutedTextBrush}"/><TextBlock Text="{Binding MonthSummary}" FontSize="26" FontWeight="Bold"/></StackPanel></Border>
+                    <Border Style="{StaticResource CardStyle}"><StackPanel><TextBlock Text="Netto Monat" Foreground="{StaticResource MutedTextBrush}"/><TextBlock Text="{Binding NetMonthSummary}" FontSize="26" FontWeight="Bold"/></StackPanel></Border>
+                    <Border Style="{StaticResource CardStyle}"><StackPanel><TextBlock Text="Soll Monat" Foreground="{StaticResource MutedTextBrush}"/><TextBlock Text="{Binding SollMonthSummary}" FontSize="26" FontWeight="Bold"/></StackPanel></Border>
+                    <Border Style="{StaticResource CardStyle}"><StackPanel><TextBlock Text="Überstunden Monat" Foreground="{StaticResource MutedTextBrush}"/><TextBlock Text="{Binding OvertimeMonthSummary}" FontSize="26" FontWeight="Bold"/></StackPanel></Border>
+                </UniformGrid>
+
+                <Border Style="{StaticResource CardStyle}">
+                    <StackPanel>
+                        <DockPanel LastChildFill="False">
+                            <TextBlock Text="Monatsübersicht" FontSize="14" Foreground="{StaticResource MutedTextBrush}" />
+                            <Button Content="Refresh" Width="90" Style="{StaticResource SecondaryButtonStyle}" Command="{Binding RefreshCommand}" />
+                        </DockPanel>
+                        <ItemsControl ItemsSource="{Binding Breakdown}"><ItemsControl.ItemTemplate><DataTemplate><TextBlock Text="{Binding}" Margin="0,0,0,6"/></DataTemplate></ItemsControl.ItemTemplate></ItemsControl>
+                    </StackPanel>
+                </Border>
+
+                <Border Style="{StaticResource CardStyle}">
+                    <StackPanel>
+                        <TextBlock Text="Top Tasks diesen Monat" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8"/>
+                        <ItemsControl ItemsSource="{Binding TopTasks}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Grid Margin="0,0,0,8"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="120"/></Grid.ColumnDefinitions><TextBlock Grid.Column="0" Text="{Binding Title}" TextTrimming="CharacterEllipsis"/><TextBlock Grid.Column="1" Text="{Binding DurationText}" HorizontalAlignment="Right" Foreground="{StaticResource MutedTextBrush}"/></Grid>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+        </ScrollViewer>
+    </Grid>
+</UserControl>

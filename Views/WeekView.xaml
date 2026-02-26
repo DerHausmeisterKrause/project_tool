@@ -1,0 +1,87 @@
+<UserControl x:Class="TaskTool.Views.WeekView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             Background="{StaticResource BgBrush}">
+    <Grid Background="{StaticResource BgBrush}" HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <Border Grid.Row="0" Style="{StaticResource CardStyle}">
+            <DockPanel LastChildFill="False">
+                <Button Content="← Vorherige Woche" Width="150" Style="{StaticResource SecondaryButtonStyle}" Command="{Binding PreviousWeekCommand}"/>
+                <Button Content="Diese Woche" Width="120" Style="{StaticResource SecondaryButtonStyle}" Command="{Binding CurrentWeekCommand}"/>
+                <Button Content="Nächste Woche →" Width="150" Style="{StaticResource SecondaryButtonStyle}" Command="{Binding NextWeekCommand}"/>
+                <TextBlock Text="{Binding WeekRangeLabel}" FontSize="22" FontWeight="SemiBold" Margin="14,4,0,0"/>
+            </DockPanel>
+        </Border>
+
+        <ScrollViewer Grid.Row="1" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto" Background="Transparent">
+            <ItemsControl ItemsSource="{Binding Days}">
+                <ItemsControl.ItemsPanel>
+                    <ItemsPanelTemplate>
+                        <UniformGrid Rows="1" Columns="7"/>
+                    </ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                        <Border Margin="0,0,10,12" MinWidth="230">
+                            <Border.Style>
+                                <Style TargetType="Border" BasedOn="{StaticResource CardStyle}">
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding IsSelected}" Value="True">
+                                            <Setter Property="BorderBrush" Value="{StaticResource AccentBrush}"/>
+                                            <Setter Property="BorderThickness" Value="2"/>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </Border.Style>
+                            <Border.InputBindings>
+                                <MouseBinding Gesture="LeftClick" Command="{Binding DataContext.SelectDayCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" CommandParameter="{Binding}"/>
+                            </Border.InputBindings>
+                            <StackPanel>
+                                <TextBlock Text="{Binding DayLabel}" FontSize="17" FontWeight="Bold"/>
+                                <WrapPanel Margin="0,4,0,4">
+                                    <Border Style="{StaticResource BadgeStyle}"><TextBlock Text="{Binding DayType}"/></Border>
+                                    <Border Style="{StaticResource BadgeStyle}" Visibility="{Binding IsHo, Converter={StaticResource BooleanToVisibilityConverter}}"><TextBlock Text="HO"/></Border>
+                                    <Border Style="{StaticResource BadgeStyle}" Visibility="{Binding IsBr, Converter={StaticResource BooleanToVisibilityConverter}}"><TextBlock Text="BR"/></Border>
+                                </WrapPanel>
+                                <TextBlock Text="{Binding Summary}" Foreground="{StaticResource MutedTextBrush}" FontSize="12" Margin="0,0,0,6"/>
+
+                                <ItemsControl ItemsSource="{Binding Tasks}">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <Border Background="#0B1220" BorderBrush="{StaticResource BorderBrushColor}" BorderThickness="1" CornerRadius="8" Padding="8" Margin="0,0,0,8">
+                                                <Border.InputBindings>
+                                                    <MouseBinding Gesture="LeftClick" Command="{Binding DataContext.OpenTaskCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" CommandParameter="{Binding}"/>
+                                                </Border.InputBindings>
+                                                <StackPanel>
+                                                    <TextBlock Text="{Binding StartLocal, StringFormat={}{0:HH:mm}}" Foreground="{StaticResource MutedTextBrush}" FontSize="12"/>
+                                                    <TextBlock Text="{Binding Title}" FontWeight="SemiBold" TextWrapping="Wrap"/>
+                                                    <TextBlock Text="{Binding Status}" Foreground="{StaticResource MutedTextBrush}" FontSize="12"/>
+                                                </StackPanel>
+                                            </Border>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </StackPanel>
+                        </Border>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+        </ScrollViewer>
+
+        <Border Grid.Row="2" Style="{StaticResource CardStyle}">
+            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                <TextBlock Text="Markierungen für ausgewählten Tag:" Margin="0,0,12,0"/>
+                <Button Content="Normal" Width="80" Style="{StaticResource SecondaryButtonStyle}" Command="{Binding SetDayTypeNormalCommand}"/>
+                <Button Content="UL" Width="60" Style="{StaticResource SecondaryButtonStyle}" Command="{Binding SetDayTypeUlCommand}"/>
+                <Button Content="AM" Width="60" Style="{StaticResource SecondaryButtonStyle}" Command="{Binding SetDayTypeAmCommand}"/>
+                <ToggleButton Content="HO" Style="{StaticResource TogglePillStyle}" IsChecked="{Binding SelectedIsHo, Mode=OneWay}" Command="{Binding ToggleHoCommand}"/>
+                <ToggleButton Content="BR" Style="{StaticResource TogglePillStyle}" IsChecked="{Binding SelectedIsBr, Mode=OneWay}" Command="{Binding ToggleBrCommand}"/>
+            </StackPanel>
+        </Border>
+    </Grid>
+</UserControl>

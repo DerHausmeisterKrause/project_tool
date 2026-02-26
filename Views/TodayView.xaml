@@ -1,0 +1,162 @@
+<UserControl x:Class="TaskTool.Views.TodayView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <Grid Background="{StaticResource BgBrush}" HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+
+        <Border Grid.Row="0" Style="{StaticResource CardStyle}">
+            <StackPanel>
+                <TextBlock Text="Neue Aufgabe" FontWeight="SemiBold" Margin="0,0,0,8"/>
+                <Grid>
+                    <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                    <TextBox Grid.Column="0" Text="{Binding QuickAddText, UpdateSourceTrigger=PropertyChanged}" FontSize="16" Padding="14,10" Margin="0"/>
+                    <Button Grid.Column="1" Content="＋" Width="44" Height="44" FontSize="22" Padding="0" Command="{Binding QuickAddCommand}"/>
+                </Grid>
+            </StackPanel>
+        </Border>
+
+        <Border Grid.Row="1" Style="{StaticResource CardStyle}">
+            <StackPanel>
+                <TextBlock Text="Arbeitstag heute" FontSize="20" FontWeight="SemiBold"/>
+                <TextBlock Text="{Binding TodayTotals}" FontWeight="SemiBold" Margin="0,4,0,6"/>
+                <TextBlock Text="{Binding WorkDaySummary}" TextWrapping="Wrap" Margin="0,0,0,8"/>
+
+                <WrapPanel Margin="0,0,0,8">
+                    <Border Style="{StaticResource BadgeStyle}"><TextBlock Text="{Binding DayType}"/></Border>
+                    <Border Style="{StaticResource BadgeStyle}" Visibility="{Binding IsHo, Converter={StaticResource BooleanToVisibilityConverter}}"><TextBlock Text="HO"/></Border>
+                    <Border Style="{StaticResource BadgeStyle}" Visibility="{Binding IsBr, Converter={StaticResource BooleanToVisibilityConverter}}"><TextBlock Text="BR"/></Border>
+                </WrapPanel>
+
+                <WrapPanel>
+                    <Button Content="Kommen" Width="92" Command="{Binding ComeCommand}"/>
+                    <Button Content="Gehen" Width="92" Style="{StaticResource SecondaryButtonStyle}" Command="{Binding GoCommand}"/>
+                    <Button Content="Pause Start" Width="110" Style="{StaticResource WarningButtonStyle}" Command="{Binding BreakStartCommand}"/>
+                    <Button Content="Pause Ende" Width="110" Style="{StaticResource SecondaryButtonStyle}" Command="{Binding BreakEndCommand}"/>
+                </WrapPanel>
+
+                <TextBlock Text="Tagesmarker" FontWeight="SemiBold" Margin="0,4,0,4"/>
+                <WrapPanel>
+                    <ToggleButton Content="Normal" Style="{StaticResource TogglePillStyle}" IsChecked="{Binding DayType, Converter={StaticResource EqualityConverter}, ConverterParameter=Normal}" Command="{Binding SetDayTypeNormalCommand}"/>
+                    <ToggleButton Content="UL" Style="{StaticResource TogglePillStyle}" IsChecked="{Binding DayType, Converter={StaticResource EqualityConverter}, ConverterParameter=UL}" Command="{Binding SetDayTypeUlCommand}"/>
+                    <ToggleButton Content="AM" Style="{StaticResource TogglePillStyle}" IsChecked="{Binding DayType, Converter={StaticResource EqualityConverter}, ConverterParameter=AM}" Command="{Binding SetDayTypeAmCommand}"/>
+                    <ToggleButton Content="HO" Style="{StaticResource TogglePillStyle}" IsChecked="{Binding IsHo}" Command="{Binding SaveMarkersCommand}"/>
+                    <ToggleButton Content="BR" Style="{StaticResource TogglePillStyle}" IsChecked="{Binding IsBr}" Command="{Binding SaveMarkersCommand}"/>
+                </WrapPanel>
+
+                <Grid Margin="0,8,0,0">
+                    <Grid.ColumnDefinitions><ColumnDefinition Width="150"/><ColumnDefinition Width="150"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                    <StackPanel Grid.Column="0" Margin="0,0,10,0"><TextBlock Text="Kommen (HH:mm)" FontSize="12" Foreground="{StaticResource MutedTextBrush}"/><TextBox Text="{Binding ComeTimeText, UpdateSourceTrigger=PropertyChanged}" Margin="0,2,0,0"/></StackPanel>
+                    <StackPanel Grid.Column="1" Margin="0,0,10,0"><TextBlock Text="Gehen (HH:mm)" FontSize="12" Foreground="{StaticResource MutedTextBrush}"/><TextBox Text="{Binding GoTimeText, UpdateSourceTrigger=PropertyChanged}" Margin="0,2,0,0"/></StackPanel>
+                    <StackPanel Grid.Column="2">
+                        <TextBlock Text="Pausen" FontSize="12" Foreground="{StaticResource MutedTextBrush}"/>
+                        <ItemsControl ItemsSource="{Binding BreakRows}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Grid Margin="0,2,0,2">
+                                        <Grid.ColumnDefinitions><ColumnDefinition Width="90"/><ColumnDefinition Width="90"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                                        <TextBox Grid.Column="0" Text="{Binding StartTime, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,6,0"/>
+                                        <TextBox Grid.Column="1" Text="{Binding EndTime, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,6,0"/>
+                                        <TextBox Grid.Column="2" Text="{Binding Note, UpdateSourceTrigger=PropertyChanged}"/>
+                                    </Grid>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
+                </Grid>
+
+                <WrapPanel>
+                    <Button Content="Pausezeile +" Width="120" Style="{StaticResource SecondaryButtonStyle}" Command="{Binding AddBreakRowCommand}"/>
+                    <Button Content="Tag manuell speichern" Width="180" Style="{StaticResource SuccessButtonStyle}" Command="{Binding ManualSaveCommand}"/>
+                </WrapPanel>
+            </StackPanel>
+        </Border>
+
+        <TextBlock Grid.Row="2" Text="{Binding StatusMessage}" Foreground="#FCA5A5" TextWrapping="Wrap" Margin="4,0,0,8"/>
+
+        <Border Grid.Row="3" Style="{StaticResource CardStyle}">
+            <Grid Margin="0,8,0,0">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                </Grid.RowDefinitions>
+
+                <WrapPanel Grid.Row="0" Margin="0,0,0,8">
+                    <RadioButton GroupName="TaskScope" Content="Aktuelle Aufgaben" Style="{StaticResource SegmentedRadioLeftStyle}"
+                                 IsChecked="{Binding ShowCompletedTasks, Converter={StaticResource InverseBooleanConverter}, Mode=TwoWay}"/>
+                    <RadioButton GroupName="TaskScope" Content="Erledigte Aufgaben" Style="{StaticResource SegmentedRadioRightStyle}"
+                                 IsChecked="{Binding ShowCompletedTasks, Mode=TwoWay}"/>
+                </WrapPanel>
+
+                <Grid Grid.Row="1" Visibility="{Binding ShowCurrentTasks, Converter={StaticResource BooleanToVisibilityConverter}}">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+                    <TextBlock Grid.Row="0" Text="Aktuelle Aufgaben:" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,6"/>
+                    <TextBox Grid.Row="1" Text="{Binding TaskSearchText, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,10"/>
+                </Grid>
+
+                <TextBox Grid.Row="1" Text="{Binding CompletedTaskSearchText, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,10"
+                         Visibility="{Binding ShowCompletedTaskList, Converter={StaticResource BooleanToVisibilityConverter}}"/>
+
+                <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto" Background="Transparent"
+                              Visibility="{Binding ShowCurrentTasks, Converter={StaticResource BooleanToVisibilityConverter}}">
+                    <ItemsControl ItemsSource="{Binding CurrentTasks}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Border>
+                                    <Border.Style>
+                                        <Style TargetType="Border" BasedOn="{StaticResource CardStyle}">
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding Status}" Value="Running"><Setter Property="BorderBrush" Value="{StaticResource AccentBrush}"/><Setter Property="BorderThickness" Value="2"/></DataTrigger>
+                                                <DataTrigger Binding="{Binding Status}" Value="Done"><Setter Property="Opacity" Value="0.58"/></DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </Border.Style>
+                                    <Grid>
+                                        <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                                        <StackPanel>
+                                            <TextBlock Text="{Binding Title}" FontSize="18" FontWeight="Bold" TextWrapping="Wrap"/>
+                                            <TextBlock Margin="0,4,0,6" Foreground="{StaticResource MutedTextBrush}" Text="{Binding StartLocal, StringFormat=Start: {0:dd.MM HH:mm}}"/>
+                                            <WrapPanel><Border Style="{StaticResource BadgeStyle}"><TextBlock Text="{Binding Status}"/></Border><TextBlock VerticalAlignment="Center" Text="{Binding TicketMinutesBooked, StringFormat=Ticket: {0} min}"/></WrapPanel>
+                                        </StackPanel>
+                                        <StackPanel Grid.Column="1" Orientation="Horizontal">
+                                            <Button Content="▶" Width="36" Height="36" Padding="0" Command="{Binding DataContext.StartTaskCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}" CommandParameter="{Binding}"/>
+                                            <Button Content="⏸" Width="36" Height="36" Padding="0" Style="{StaticResource WarningButtonStyle}" Command="{Binding DataContext.PauseTaskCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}" CommandParameter="{Binding}"/>
+                                            <Button Content="■" Width="36" Height="36" Padding="0" Style="{StaticResource SecondaryButtonStyle}" Command="{Binding DataContext.StopTaskCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}" CommandParameter="{Binding}"/>
+                                            <Button Content="✓" Width="36" Height="36" Padding="0" Style="{StaticResource SuccessButtonStyle}" Command="{Binding DataContext.DoneTaskCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}" CommandParameter="{Binding}"/>
+                                        </StackPanel>
+                                    </Grid>
+                                    <Border.InputBindings><MouseBinding Gesture="LeftClick" Command="{Binding DataContext.SelectTaskCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}" CommandParameter="{Binding}"/></Border.InputBindings>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </ScrollViewer>
+
+                <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto" Background="Transparent"
+                              Visibility="{Binding ShowCompletedTaskList, Converter={StaticResource BooleanToVisibilityConverter}}">
+                    <ItemsControl ItemsSource="{Binding CompletedTasks}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Border Style="{StaticResource CardStyle}" Opacity="0.7">
+                                    <StackPanel>
+                                        <TextBlock Text="{Binding Title}" FontSize="16" FontWeight="SemiBold" TextWrapping="Wrap"/>
+                                        <TextBlock Margin="0,4,0,0" Foreground="{StaticResource MutedTextBrush}" Text="{Binding TicketMinutesBooked, StringFormat=Gebucht: {0} min}"/>
+                                    </StackPanel>
+                                    <Border.InputBindings><MouseBinding Gesture="LeftClick" Command="{Binding DataContext.SelectTaskCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}" CommandParameter="{Binding}"/></Border.InputBindings>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </ScrollViewer>
+            </Grid>
+        </Border>
+    </Grid>
+</UserControl>
