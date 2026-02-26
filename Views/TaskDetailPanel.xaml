@@ -3,85 +3,32 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              Visibility="{Binding SelectedTask, Converter={StaticResource NullToVisibilityConverter}}"
              Background="{StaticResource BgBrush}">
-    <UserControl.Resources>
-        <DataTemplate x:Key="TwoDigitNumberTemplate">
-            <TextBlock Text="{Binding StringFormat={}{0:00}}" Foreground="{StaticResource TextBrush}"/>
-        </DataTemplate>
-        <DataTemplate x:Key="DurationNumberTemplate">
-            <TextBlock Text="{Binding StringFormat={}{0} min}" Foreground="{StaticResource TextBrush}"/>
-        </DataTemplate>
-    </UserControl.Resources>
     <ScrollViewer VerticalScrollBarVisibility="Auto" Background="Transparent">
         <StackPanel>
             <Border Style="{StaticResource CardStyle}">
                 <StackPanel>
                     <TextBlock Text="Task Details" FontSize="13" Foreground="{StaticResource MutedTextBrush}"/>
                     <TextBlock Text="{Binding SelectedTask.Title}" FontSize="28" FontWeight="Bold" Margin="0,4,0,10" TextWrapping="Wrap"/>
+
+                    <TextBlock Text="Beschreibung" FontWeight="SemiBold" Foreground="{StaticResource TextBrush}" Margin="0,0,0,4"/>
                     <TextBox Text="{Binding SelectedTask.Description, UpdateSourceTrigger=PropertyChanged}" Height="100" AcceptsReturn="True" VerticalScrollBarVisibility="Auto"/>
-                    <TextBox Text="{Binding SelectedTask.TicketUrl, UpdateSourceTrigger=PropertyChanged}"/>
 
-                    <TextBlock Text="Scheduling" FontWeight="SemiBold" Margin="0,6,0,6"/>
+                    <TextBlock Text="Ticket URL" FontWeight="SemiBold" Foreground="{StaticResource TextBrush}" Margin="0,8,0,4"/>
                     <Grid>
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="70"/>
-                            <ColumnDefinition Width="70"/>
+                            <ColumnDefinition Width="Auto"/>
                         </Grid.ColumnDefinitions>
-                        <DatePicker Grid.Column="0" SelectedDate="{Binding SelectedStartDate}"/>
-                        <ComboBox Grid.Column="1" ItemsSource="{Binding Hours}" SelectedItem="{Binding SelectedHour}" ItemTemplate="{StaticResource TwoDigitNumberTemplate}" Margin="6,2,6,8"/>
-                        <ComboBox Grid.Column="2" ItemsSource="{Binding Minutes}" SelectedItem="{Binding SelectedMinute}" ItemTemplate="{StaticResource TwoDigitNumberTemplate}" Margin="0,2,0,8"/>
+                        <TextBox Grid.Column="0" Text="{Binding SelectedTask.TicketUrl, UpdateSourceTrigger=PropertyChanged}"/>
+                        <Button Grid.Column="1" Content="Öffnen" Width="84" Style="{StaticResource SecondaryButtonStyle}" Margin="8,0,0,0"
+                                Command="{Binding OpenTicketUrlCommand}" CommandParameter="{Binding SelectedTask.TicketUrl}"/>
                     </Grid>
 
-                    <Grid>
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="140"/>
-                            <ColumnDefinition Width="120"/>
-                            <ColumnDefinition Width="*"/>
-                        </Grid.ColumnDefinitions>
-                        <ComboBox Grid.Column="0" ItemsSource="{Binding DurationOptions}" SelectedItem="{Binding SelectedDurationMinutes}" ItemTemplate="{StaticResource DurationNumberTemplate}"/>
-                        <TextBox Grid.Column="1" Text="{Binding ManualDurationMinutesText, UpdateSourceTrigger=PropertyChanged}" Margin="8,2,8,8"/>
-                        <TextBlock Grid.Column="2" Text="{Binding ComputedEndText, StringFormat=Ende: {0}}" VerticalAlignment="Center" Foreground="{StaticResource MutedTextBrush}"/>
-                    </Grid>
-
-                    <TextBlock Text="{Binding DateTimeFormat, StringFormat=Format: {0}}" Foreground="{StaticResource MutedTextBrush}" Margin="0,0,0,4"/>
-                    <TextBlock Text="{Binding OutlookSyncHint}" Foreground="#FCA5A5" Margin="0,0,0,8"/>
-
-                    <WrapPanel>
+                    <WrapPanel Margin="0,8,0,0">
                         <Button Content="Speichern" Width="94" Command="{Binding SaveCommand}"/>
                         <Button Content="Erledigt" Width="94" Style="{StaticResource SuccessButtonStyle}" Command="{Binding DoneCommand}"/>
-                        <Button Content="Zurück zu Aktuell" Width="94" Style="{StaticResource SecondaryButtonStyle}" Command="{Binding ReopenCommand}"/>
+                        <Button Content="Zurück zu Aktuell" Width="120" Style="{StaticResource SecondaryButtonStyle}" Command="{Binding ReopenCommand}"/>
                     </WrapPanel>
-
-                    <TextBlock Text="{Binding OutlookBlockerButtonText}" Foreground="{StaticResource MutedTextBrush}"/>
-                    <WrapPanel>
-                        <Button Content="Outlook Blocker sync" Width="180" Style="{StaticResource SecondaryButtonStyle}" Command="{Binding SyncOutlookBlockerCommand}" IsEnabled="{Binding OutlookBlockerCanSync}"/>
-                        <Button Content="Outlook Blocker löschen" Width="180" Style="{StaticResource DangerButtonStyle}" Command="{Binding DeleteOutlookBlockerCommand}"/>
-                        <Button Content="Outlook Verbindung testen" Width="200" Style="{StaticResource SecondaryButtonStyle}" Command="{Binding TestOutlookConnectionCommand}"/>
-                    </WrapPanel>
-                </StackPanel>
-            </Border>
-
-            <Border Style="{StaticResource CardStyle}" Visibility="{Binding AllowMultiDaySegments, Converter={StaticResource BooleanToVisibilityConverter}}">
-                <StackPanel>
-                    <TextBlock Text="Planung (Segmente)" FontWeight="SemiBold" Margin="0,0,0,8"/>
-                    <WrapPanel>
-                        <Button Content="Segment hinzufügen" Width="160" Style="{StaticResource SecondaryButtonStyle}" Command="{Binding AddSegmentCommand}"/>
-                        <Button Content="Alle Segmente zu Outlook" Width="200" Style="{StaticResource SecondaryButtonStyle}" Command="{Binding SyncAllSegmentsCommand}"/>
-                    </WrapPanel>
-                    <ItemsControl ItemsSource="{Binding Segments}">
-                        <ItemsControl.ItemTemplate>
-                            <DataTemplate>
-                                <Border Background="#0B1220" BorderBrush="{StaticResource BorderBrushColor}" BorderThickness="1" CornerRadius="8" Padding="8" Margin="0,0,0,8">
-                                    <StackPanel>
-                                        <TextBlock Text="{Binding StartLocal, StringFormat=Start: {0:yyyy-MM-dd HH:mm}}"/>
-                                        <TextBlock Text="{Binding EndLocal, StringFormat=Ende: {0:yyyy-MM-dd HH:mm}}"/>
-                                        <TextBlock Text="{Binding PlannedMinutes, StringFormat=Geplant: {0} min}" Foreground="{StaticResource MutedTextBrush}"/>
-                                        <TextBlock Text="{Binding OutlookEntryId, StringFormat=Outlook: {0}}" Foreground="{StaticResource MutedTextBrush}"/>
-                                    </StackPanel>
-                                </Border>
-                            </DataTemplate>
-                        </ItemsControl.ItemTemplate>
-                    </ItemsControl>
                 </StackPanel>
             </Border>
 
@@ -99,6 +46,76 @@
                         <Button Content="+30" Width="90" Style="{StaticResource SecondaryButtonStyle}" Command="{Binding Add30Command}"/>
                         <Button Content="+1h" Width="90" Style="{StaticResource SecondaryButtonStyle}" Command="{Binding Add60Command}"/>
                     </WrapPanel>
+                    <WrapPanel HorizontalAlignment="Center">
+                        <Button Content="-15" Width="90" Style="{StaticResource DangerButtonStyle}" Command="{Binding Subtract15Command}"/>
+                        <Button Content="-30" Width="90" Style="{StaticResource DangerButtonStyle}" Command="{Binding Subtract30Command}"/>
+                        <Button Content="-1h" Width="90" Style="{StaticResource DangerButtonStyle}" Command="{Binding Subtract60Command}"/>
+                    </WrapPanel>
+                </StackPanel>
+            </Border>
+
+            <Border Style="{StaticResource CardStyle}">
+                <StackPanel>
+                    <TextBlock Text="Planung (Segmente)" FontWeight="SemiBold" Margin="0,0,0,8"/>
+
+                    <Border Background="#0B1220" BorderBrush="{StaticResource BorderBrushColor}" BorderThickness="1" CornerRadius="8" Padding="8" Margin="0,0,0,8">
+                        <StackPanel>
+                            <TextBlock Text="Neues Segment" FontWeight="SemiBold" Margin="0,0,0,6"/>
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="90"/>
+                                    <ColumnDefinition Width="90"/>
+                                </Grid.ColumnDefinitions>
+                                <DatePicker Grid.Column="0" SelectedDate="{Binding NewSegmentDate, UpdateSourceTrigger=PropertyChanged}"/>
+                                <ComboBox Grid.Column="1" Margin="6,0,0,0" ItemsSource="{Binding TimeOptions}" SelectedItem="{Binding NewSegmentStartTime, UpdateSourceTrigger=PropertyChanged}"/>
+                                <ComboBox Grid.Column="2" Margin="6,0,0,0" ItemsSource="{Binding TimeOptions}" SelectedItem="{Binding NewSegmentEndTime, UpdateSourceTrigger=PropertyChanged}"/>
+                            </Grid>
+                            <TextBlock Text="Kurzbeschreibung" Foreground="{StaticResource MutedTextBrush}" Margin="0,8,0,2"/>
+                            <TextBox Margin="0,0,0,0" Text="{Binding NewSegmentNote, UpdateSourceTrigger=PropertyChanged}"/>
+                            <TextBlock Text="{Binding NewSegmentValidationHint}" Foreground="#FCA5A5" Margin="0,6,0,0"/>
+                            <WrapPanel Margin="0,6,0,0">
+                                <Button Content="Segment speichern" Width="140" Command="{Binding AddSegmentCommand}" IsEnabled="{Binding CanSaveNewSegment}"/>
+                                <Button Content="Alle Segmente zu Outlook" Width="190" Style="{StaticResource SecondaryButtonStyle}" Command="{Binding SyncAllSegmentsCommand}"/>
+                                <Button Content="Outlook Verbindung testen" Width="190" Style="{StaticResource SecondaryButtonStyle}" Command="{Binding TestOutlookConnectionCommand}"/>
+                            </WrapPanel>
+                        </StackPanel>
+                    </Border>
+
+                    <ItemsControl ItemsSource="{Binding Segments}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Border Background="#0B1220" BorderBrush="{StaticResource BorderBrushColor}" BorderThickness="1" CornerRadius="8" Padding="8" Margin="0,0,0,8">
+                                    <StackPanel>
+                                        <TextBlock Text="{Binding DisplayIndex, StringFormat=Segment {0}}" FontWeight="SemiBold" FontSize="14" Margin="0,0,0,6"/>
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="90"/>
+                                                <ColumnDefinition Width="90"/>
+                                            </Grid.ColumnDefinitions>
+                                            <DatePicker Grid.Column="0" SelectedDate="{Binding SegmentDate, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
+                                            <ComboBox Grid.Column="1" Margin="6,0,0,0" ItemsSource="{Binding DataContext.TimeOptions, RelativeSource={RelativeSource AncestorType=ItemsControl}}" SelectedItem="{Binding StartTimeText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
+                                            <ComboBox Grid.Column="2" Margin="6,0,0,0" ItemsSource="{Binding DataContext.TimeOptions, RelativeSource={RelativeSource AncestorType=ItemsControl}}" SelectedItem="{Binding EndTimeText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
+                                        </Grid>
+
+                                        <TextBlock Text="Kurzbeschreibung" Foreground="{StaticResource MutedTextBrush}" Margin="0,8,0,2"/>
+                                        <TextBox Margin="0,0,0,0" Text="{Binding Note, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
+                                        <TextBlock Text="{Binding PlannedMinutes, StringFormat=Dauer: {0} min}" Foreground="{StaticResource MutedTextBrush}"/>
+                                        <TextBlock Text="{Binding OutlookStatus, StringFormat=Outlook Status: {0}}" Foreground="{StaticResource MutedTextBrush}"/>
+                                        <TextBlock Text="{Binding ValidationHint}" Foreground="#FCA5A5"/>
+
+                                        <WrapPanel Margin="0,6,0,0">
+                                            <Button Content="Speichern" Width="90" Command="{Binding DataContext.SaveSegmentCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}" CommandParameter="{Binding}"/>
+                                            <Button Content="Löschen" Width="90" Style="{StaticResource DangerButtonStyle}" Command="{Binding DataContext.DeleteSegmentCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}" CommandParameter="{Binding}"/>
+                                            <Button Content="Outlook Blocker erstellen/aktualisieren" Width="220" Style="{StaticResource SecondaryButtonStyle}" Command="{Binding DataContext.SyncSegmentOutlookCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}" CommandParameter="{Binding}"/>
+                                            <Button Content="Outlook Blocker löschen" Width="170" Style="{StaticResource DangerButtonStyle}" Command="{Binding DataContext.DeleteSegmentOutlookCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}" CommandParameter="{Binding}"/>
+                                        </WrapPanel>
+                                    </StackPanel>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
                 </StackPanel>
             </Border>
         </StackPanel>

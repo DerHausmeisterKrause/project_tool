@@ -45,16 +45,25 @@ CREATE TABLE IF NOT EXISTS schema_version (
                 CreateBaseSchema(conn);
                 MigrateToV2(conn);
                 MigrateToV3(conn);
-                SetVersion(conn, 3);
+                MigrateToV4(conn);
+                SetVersion(conn, 4);
             }
             else if (currentVersion == 2)
             {
                 MigrateToV3(conn);
-                SetVersion(conn, 3);
+                MigrateToV4(conn);
+                SetVersion(conn, 4);
+            }
+            else if (currentVersion == 3)
+            {
+                MigrateToV4(conn);
+                SetVersion(conn, 4);
             }
             else
             {
                 CreateBaseSchema(conn);
+                MigrateToV3(conn);
+                MigrateToV4(conn);
             }
         }
         catch (Exception ex)
@@ -120,8 +129,14 @@ CREATE TABLE IF NOT EXISTS breaks (
     start_local TEXT NOT NULL,
     end_local TEXT NOT NULL,
     planned_minutes INTEGER NOT NULL DEFAULT 0,
+    note TEXT NOT NULL DEFAULT '',
     outlook_entry_id TEXT
 );");
+    }
+
+    private static void MigrateToV4(SqliteConnection conn)
+    {
+        EnsureColumn(conn, "task_segments", "note", "TEXT NOT NULL DEFAULT ''");
     }
 
     private static void EnsureColumn(SqliteConnection conn, string table, string column, string definition)
