@@ -138,24 +138,29 @@ VALUES ($id,$title,$desc,$url,$start,$end,$status,$priority,$tags,$entry,$ticket
 
     public void PauseTimer(TaskItem task)
     {
-        StopOpenLog(task.Id, "pause");
+        var elapsedMinutes = CloseOpenLogAndGetElapsedMinutes(task.Id, "pause");
+        if (elapsedMinutes > 0)
+            task.TicketMinutesBooked = Math.Max(0, task.TicketMinutesBooked + elapsedMinutes);
+
         task.Status = TaskStatus.Planned;
         UpdateTask(task);
     }
 
     public void StopTimer(TaskItem task)
     {
-        StopOpenLog(task.Id, "stop");
+        var elapsedMinutes = CloseOpenLogAndGetElapsedMinutes(task.Id, "stop");
+        if (elapsedMinutes > 0)
+            task.TicketMinutesBooked = Math.Max(0, task.TicketMinutesBooked + elapsedMinutes);
+
         if (task.Status == TaskStatus.Running)
-        {
             task.Status = TaskStatus.Planned;
-            UpdateTask(task);
-        }
+
+        UpdateTask(task);
     }
 
     public void AddTicketMinutes(TaskItem task, int minutes)
     {
-        task.TicketMinutesBooked += minutes;
+        task.TicketMinutesBooked = Math.Max(0, task.TicketMinutesBooked + minutes);
         UpdateTask(task);
     }
 
@@ -177,6 +182,22 @@ VALUES ($id,$title,$desc,$url,$start,$end,$status,$priority,$tags,$entry,$ticket
             if (end > start) total += end - start;
         }
         return total;
+    }
+
+
+    public TimeSpan GetOpenSessionDuration(Guid taskId)
+    {
+        using var conn = new SqliteConnection(_db.ConnectionString);
+        conn.Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT start_utc FROM time_logs WHERE task_id=$id AND end_utc IS NULL ORDER BY id DESC LIMIT 1";
+        cmd.Parameters.AddWithValue("$id", taskId.ToString());
+        var value = cmd.ExecuteScalar()?.ToString();
+        if (string.IsNullOrWhiteSpace(value) || !DateTime.TryParse(value, out var startUtc))
+            return TimeSpan.Zero;
+
+        var elapsed = DateTime.UtcNow - startUtc.ToUniversalTime();
+        return elapsed > TimeSpan.Zero ? elapsed : TimeSpan.Zero;
     }
 
     public int GetMonthTicketMinutes(DateTime month)
@@ -225,6 +246,42 @@ ORDER BY ticket_minutes_booked DESC, title ASC LIMIT $max";
         return GetTasksForRange(fromInclusive, toExclusive)
             .Where(t => t.Status != TaskStatus.Done && t.Status != TaskStatus.Cancelled)
             .ToList();
+    }
+
+
+    public List<(TaskItem Task, TaskSegment Segment)> GetSegmentsForRange(DateTime fromInclusive, DateTime toExclusive)
+    {
+        var result = new List<(TaskItem Task, TaskSegment Segment)>();
+        var tasks = GetAllTasks().ToDictionary(t => t.Id, t => t);
+
+        using var conn = new SqliteConnection(_db.ConnectionString);
+        conn.Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT id,task_id,start_local,end_local,planned_minutes,note,outlook_entry_id FROM task_segments WHERE datetime(start_local)>=datetime($from) AND datetime(start_local)<datetime($to) ORDER BY start_local";
+        cmd.Parameters.AddWithValue("$from", fromInclusive.ToString("s"));
+        cmd.Parameters.AddWithValue("$to", toExclusive.ToString("s"));
+        using var r = cmd.ExecuteReader();
+        while (r.Read())
+        {
+            var taskId = Guid.Parse(r["task_id"].ToString()!);
+            if (!tasks.TryGetValue(taskId, out var task))
+                continue;
+
+            var segment = new TaskSegment
+            {
+                Id = Convert.ToInt64(r["id"]),
+                TaskId = taskId,
+                StartLocal = DateTime.Parse(r["start_local"].ToString()!),
+                EndLocal = DateTime.Parse(r["end_local"].ToString()!),
+                PlannedMinutes = Convert.ToInt32(r["planned_minutes"]),
+                Note = r["note"]?.ToString() ?? string.Empty,
+                OutlookEntryId = r["outlook_entry_id"]?.ToString() ?? string.Empty
+            };
+
+            result.Add((task, segment));
+        }
+
+        return result;
     }
 
     public bool TestOutlookConnection()
@@ -368,16 +425,36 @@ ORDER BY ticket_minutes_booked DESC, title ASC LIMIT $max";
         return TimeSpan.TryParse(text, out duration);
     }
 
-    private void StopOpenLog(Guid taskId, string note)
+    private int CloseOpenLogAndGetElapsedMinutes(Guid taskId, string note)
     {
         using var conn = new SqliteConnection(_db.ConnectionString);
         conn.Open();
-        using var cmd = conn.CreateCommand();
-        cmd.CommandText = "UPDATE time_logs SET end_utc=$e,note=$n WHERE id=(SELECT id FROM time_logs WHERE task_id=$id AND end_utc IS NULL ORDER BY id DESC LIMIT 1)";
-        cmd.Parameters.AddWithValue("$e", DateTime.UtcNow.ToString("O"));
-        cmd.Parameters.AddWithValue("$n", note);
-        cmd.Parameters.AddWithValue("$id", taskId.ToString());
-        cmd.ExecuteNonQuery();
+
+        DateTime? startUtc = null;
+        using (var read = conn.CreateCommand())
+        {
+            read.CommandText = "SELECT start_utc FROM time_logs WHERE task_id=$id AND end_utc IS NULL ORDER BY id DESC LIMIT 1";
+            read.Parameters.AddWithValue("$id", taskId.ToString());
+            var value = read.ExecuteScalar()?.ToString();
+            if (DateTime.TryParse(value, out var parsed))
+                startUtc = parsed.ToUniversalTime();
+        }
+
+        using (var cmd = conn.CreateCommand())
+        {
+            cmd.CommandText = "UPDATE time_logs SET end_utc=$e,note=$n WHERE id=(SELECT id FROM time_logs WHERE task_id=$id AND end_utc IS NULL ORDER BY id DESC LIMIT 1)";
+            cmd.Parameters.AddWithValue("$e", DateTime.UtcNow.ToString("O"));
+            cmd.Parameters.AddWithValue("$n", note);
+            cmd.Parameters.AddWithValue("$id", taskId.ToString());
+            cmd.ExecuteNonQuery();
+        }
+
+        if (!startUtc.HasValue)
+            return 0;
+
+        var elapsed = DateTime.UtcNow - startUtc.Value;
+        var minutes = (int)Math.Floor(elapsed.TotalMinutes);
+        return Math.Max(0, minutes);
     }
 
     private static TaskItem MapTask(SqliteDataReader reader)

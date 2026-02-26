@@ -140,6 +140,9 @@ public class TodayViewModel : ObservableObject
     public RelayCommand Add15Command { get; }
     public RelayCommand Add30Command { get; }
     public RelayCommand Add60Command { get; }
+    public RelayCommand Subtract15Command { get; }
+    public RelayCommand Subtract30Command { get; }
+    public RelayCommand Subtract60Command { get; }
     public RelayCommand ComeCommand { get; }
     public RelayCommand GoCommand { get; }
     public RelayCommand BreakStartCommand { get; }
@@ -192,6 +195,9 @@ public class TodayViewModel : ObservableObject
         Add15Command = new RelayCommand(() => WithTask(t => _tasks.AddTicketMinutes(t, 15)), () => SelectedTask != null);
         Add30Command = new RelayCommand(() => WithTask(t => _tasks.AddTicketMinutes(t, 30)), () => SelectedTask != null);
         Add60Command = new RelayCommand(() => WithTask(t => _tasks.AddTicketMinutes(t, 60)), () => SelectedTask != null);
+        Subtract15Command = new RelayCommand(() => WithTask(t => _tasks.AddTicketMinutes(t, -15)), () => SelectedTask != null);
+        Subtract30Command = new RelayCommand(() => WithTask(t => _tasks.AddTicketMinutes(t, -30)), () => SelectedTask != null);
+        Subtract60Command = new RelayCommand(() => WithTask(t => _tasks.AddTicketMinutes(t, -60)), () => SelectedTask != null);
         ComeCommand = new RelayCommand(() => { _workDays.SetCome(DateTime.Now); Load(); });
         GoCommand = new RelayCommand(() => { _workDays.SetGo(DateTime.Now); Load(); });
         BreakStartCommand = new RelayCommand(() => { _workDays.StartBreak(DateTime.Today.ToString("yyyy-MM-dd")); Load(); });
@@ -245,6 +251,9 @@ public class TodayViewModel : ObservableObject
         Add15Command.RaiseCanExecuteChanged();
         Add30Command.RaiseCanExecuteChanged();
         Add60Command.RaiseCanExecuteChanged();
+        Subtract15Command.RaiseCanExecuteChanged();
+        Subtract30Command.RaiseCanExecuteChanged();
+        Subtract60Command.RaiseCanExecuteChanged();
         AddSegmentCommand.RaiseCanExecuteChanged();
         SyncAllSegmentsCommand.RaiseCanExecuteChanged();
         SaveSegmentCommand.RaiseCanExecuteChanged();
@@ -576,8 +585,11 @@ public class TodayViewModel : ObservableObject
     private void UpdateTimerDisplay()
     {
         if (SelectedTask == null) { TimerDisplay = "00:00:00"; return; }
-        var elapsed = _tasks.GetTrackedDuration(SelectedTask.Id);
-        TimerDisplay = $"{(int)elapsed.TotalHours:00}:{elapsed.Minutes:00}:{elapsed.Seconds:00}";
+
+        var booked = TimeSpan.FromMinutes(Math.Max(0, SelectedTask.TicketMinutesBooked));
+        var runningPart = _tasks.GetOpenSessionDuration(SelectedTask.Id);
+        var total = booked + runningPart;
+        TimerDisplay = $"{(int)total.TotalHours:00}:{total.Minutes:00}:{total.Seconds:00}";
     }
 
     public override string ToString() => Title;
