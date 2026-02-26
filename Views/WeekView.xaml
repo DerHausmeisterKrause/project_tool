@@ -84,11 +84,11 @@
                 <Border Background="Transparent" BorderBrush="{StaticResource BorderBrushColor}" BorderThickness="1" CornerRadius="16" Padding="0" HorizontalAlignment="Left">
                     <StackPanel Orientation="Horizontal">
                         <RadioButton GroupName="WeekDayType" Content="Normal" Style="{StaticResource DayMarkerSegmentLeftStyle}"
-                                     IsChecked="{Binding SelectedDayType, Converter={StaticResource EqualityConverter}, ConverterParameter=Normal}" Command="{Binding SetDayTypeNormalCommand}"/>
+                                     IsChecked="{Binding SelectedDayType, Mode=OneWay, Converter={StaticResource EqualityConverter}, ConverterParameter=Normal}" Command="{Binding SetDayTypeNormalCommand}"/>
                         <RadioButton GroupName="WeekDayType" Content="UL" Style="{StaticResource DayMarkerSegmentMiddleStyle}"
-                                     IsChecked="{Binding SelectedDayType, Converter={StaticResource EqualityConverter}, ConverterParameter=UL}" Command="{Binding SetDayTypeUlCommand}"/>
+                                     IsChecked="{Binding SelectedDayType, Mode=OneWay, Converter={StaticResource EqualityConverter}, ConverterParameter=UL}" Command="{Binding SetDayTypeUlCommand}"/>
                         <RadioButton GroupName="WeekDayType" Content="AM" Style="{StaticResource DayMarkerSegmentRightStyle}"
-                                     IsChecked="{Binding SelectedDayType, Converter={StaticResource EqualityConverter}, ConverterParameter=AM}" Command="{Binding SetDayTypeAmCommand}"/>
+                                     IsChecked="{Binding SelectedDayType, Mode=OneWay, Converter={StaticResource EqualityConverter}, ConverterParameter=AM}" Command="{Binding SetDayTypeAmCommand}"/>
                     </StackPanel>
                 </Border>
                 <WrapPanel Margin="0,8,0,0">
