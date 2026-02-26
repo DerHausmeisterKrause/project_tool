@@ -39,14 +39,23 @@
                     <Button Content="Pause Ende" Width="110" Style="{StaticResource SecondaryButtonStyle}" Command="{Binding BreakEndCommand}"/>
                 </WrapPanel>
 
-                <TextBlock Text="Tagesmarker" FontWeight="SemiBold" Margin="0,4,0,4"/>
-                <WrapPanel>
-                    <ToggleButton Content="Normal" Style="{StaticResource TogglePillStyle}" IsChecked="{Binding DayType, Converter={StaticResource EqualityConverter}, ConverterParameter=Normal}" Command="{Binding SetDayTypeNormalCommand}"/>
-                    <ToggleButton Content="UL" Style="{StaticResource TogglePillStyle}" IsChecked="{Binding DayType, Converter={StaticResource EqualityConverter}, ConverterParameter=UL}" Command="{Binding SetDayTypeUlCommand}"/>
-                    <ToggleButton Content="AM" Style="{StaticResource TogglePillStyle}" IsChecked="{Binding DayType, Converter={StaticResource EqualityConverter}, ConverterParameter=AM}" Command="{Binding SetDayTypeAmCommand}"/>
-                    <ToggleButton Content="HO" Style="{StaticResource TogglePillStyle}" IsChecked="{Binding IsHo}" Command="{Binding SaveMarkersCommand}"/>
-                    <ToggleButton Content="BR" Style="{StaticResource TogglePillStyle}" IsChecked="{Binding IsBr}" Command="{Binding SaveMarkersCommand}"/>
-                </WrapPanel>
+                <TextBlock Text="Tagesmarker" FontWeight="SemiBold" Margin="0,6,0,6"/>
+                <StackPanel>
+                    <Border Background="Transparent" BorderBrush="{StaticResource BorderBrushColor}" BorderThickness="1" CornerRadius="16" Padding="0" Margin="0,0,0,8" HorizontalAlignment="Left">
+                        <StackPanel Orientation="Horizontal">
+                            <RadioButton GroupName="TodayDayType" Content="Normal" Style="{StaticResource DayMarkerSegmentLeftStyle}"
+                                         IsChecked="{Binding DayType, Converter={StaticResource EqualityConverter}, ConverterParameter=Normal}" Command="{Binding SetDayTypeNormalCommand}"/>
+                            <RadioButton GroupName="TodayDayType" Content="UL" Style="{StaticResource DayMarkerSegmentMiddleStyle}"
+                                         IsChecked="{Binding DayType, Converter={StaticResource EqualityConverter}, ConverterParameter=UL}" Command="{Binding SetDayTypeUlCommand}"/>
+                            <RadioButton GroupName="TodayDayType" Content="AM" Style="{StaticResource DayMarkerSegmentRightStyle}"
+                                         IsChecked="{Binding DayType, Converter={StaticResource EqualityConverter}, ConverterParameter=AM}" Command="{Binding SetDayTypeAmCommand}"/>
+                        </StackPanel>
+                    </Border>
+                    <WrapPanel>
+                        <ToggleButton Content="HO" Style="{StaticResource DayMarkerChipToggleStyle}" IsChecked="{Binding IsHo}" Command="{Binding SaveMarkersCommand}"/>
+                        <ToggleButton Content="BR" Style="{StaticResource DayMarkerChipToggleStyle}" IsChecked="{Binding IsBr}" Command="{Binding SaveMarkersCommand}"/>
+                    </WrapPanel>
+                </StackPanel>
 
                 <Grid Margin="0,8,0,0">
                     <Grid.ColumnDefinitions><ColumnDefinition Width="150"/><ColumnDefinition Width="150"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
@@ -125,10 +134,14 @@
                                             <TextBlock Text="{Binding Title}" FontSize="18" FontWeight="Bold" TextWrapping="Wrap"/>
                                             <TextBlock Margin="0,4,0,6" Foreground="{StaticResource MutedTextBrush}" Text="{Binding StartLocal, StringFormat=Start: {0:dd.MM HH:mm}}"/>
                                             <WrapPanel><Border Style="{StaticResource BadgeStyle}"><TextBlock Text="{Binding Status}"/></Border><TextBlock VerticalAlignment="Center" Text="{Binding TicketMinutesBooked, StringFormat=Ticket: {0} min}"/></WrapPanel>
+                                            <Button Content="Ticket öffnen" Style="{StaticResource LinkButtonStyle}"
+                                                    Visibility="{Binding TicketUrl, Converter={StaticResource StringEmptyToVisibilityConverter}}"
+                                                    ToolTip="{Binding TicketUrl}"
+                                                    Command="{Binding DataContext.OpenTicketUrlCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
+                                                    CommandParameter="{Binding TicketUrl}"/>
                                         </StackPanel>
                                         <StackPanel Grid.Column="1" Orientation="Horizontal">
                                             <Button Content="▶" Width="36" Height="36" Padding="0" Command="{Binding DataContext.StartTaskCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}" CommandParameter="{Binding}"/>
-                                            <Button Content="⏸" Width="36" Height="36" Padding="0" Style="{StaticResource WarningButtonStyle}" Command="{Binding DataContext.PauseTaskCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}" CommandParameter="{Binding}"/>
                                             <Button Content="■" Width="36" Height="36" Padding="0" Style="{StaticResource SecondaryButtonStyle}" Command="{Binding DataContext.StopTaskCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}" CommandParameter="{Binding}"/>
                                             <Button Content="✓" Width="36" Height="36" Padding="0" Style="{StaticResource SuccessButtonStyle}" Command="{Binding DataContext.DoneTaskCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}" CommandParameter="{Binding}"/>
                                         </StackPanel>
@@ -149,6 +162,11 @@
                                     <StackPanel>
                                         <TextBlock Text="{Binding Title}" FontSize="16" FontWeight="SemiBold" TextWrapping="Wrap"/>
                                         <TextBlock Margin="0,4,0,0" Foreground="{StaticResource MutedTextBrush}" Text="{Binding TicketMinutesBooked, StringFormat=Gebucht: {0} min}"/>
+                                        <Button Content="Ticket öffnen" Style="{StaticResource LinkButtonStyle}"
+                                                Visibility="{Binding TicketUrl, Converter={StaticResource StringEmptyToVisibilityConverter}}"
+                                                ToolTip="{Binding TicketUrl}"
+                                                Command="{Binding DataContext.OpenTicketUrlCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
+                                                CommandParameter="{Binding TicketUrl}"/>
                                     </StackPanel>
                                     <Border.InputBindings><MouseBinding Gesture="LeftClick" Command="{Binding DataContext.SelectTaskCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}" CommandParameter="{Binding}"/></Border.InputBindings>
                                 </Border>

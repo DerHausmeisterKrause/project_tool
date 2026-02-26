@@ -63,7 +63,6 @@
             <Trigger Property="IsEnabled" Value="False"><Setter Property="Foreground" Value="#9CA3AF"/><Setter Property="Background" Value="#1F2937"/></Trigger>
         </Style.Triggers>
     </Style>
-    <Style TargetType="ComboBox" BasedOn="{StaticResource ComboBoxStyle}"/>
 
     <Style x:Key="DatePickerStyle" TargetType="DatePicker">
         <Setter Property="Background" Value="#0B1220"/>
@@ -77,17 +76,8 @@
             <Trigger Property="IsEnabled" Value="False"><Setter Property="Foreground" Value="#9CA3AF"/><Setter Property="Background" Value="#1F2937"/></Trigger>
         </Style.Triggers>
     </Style>
-    <Style TargetType="DatePicker" BasedOn="{StaticResource DatePickerStyle}"/>
 
 
-    <Style TargetType="ComboBoxItem">
-        <Setter Property="Foreground" Value="{StaticResource TextBrush}"/>
-        <Setter Property="Background" Value="#0B1220"/>
-        <Style.Triggers>
-            <Trigger Property="IsHighlighted" Value="True"><Setter Property="Background" Value="#1E3A8A"/></Trigger>
-            <Trigger Property="IsEnabled" Value="False"><Setter Property="Foreground" Value="#6B7280"/></Trigger>
-        </Style.Triggers>
-    </Style>
 
     <Style TargetType="DatePickerTextBox">
         <Setter Property="Foreground" Value="{StaticResource TextBrush}"/>
@@ -112,22 +102,91 @@
         <Setter Property="Foreground" Value="{StaticResource TextBrush}"/>
         <Setter Property="BorderBrush" Value="{StaticResource BorderBrushColor}"/>
     </Style>
-    <Style TargetType="Calendar" BasedOn="{StaticResource CalendarStyle}"/>
+
+
+
+
+    <Style x:Key="ComboBoxDarkItemStyle" TargetType="ComboBoxItem">
+        <Setter Property="Foreground" Value="{StaticResource TextBrush}"/>
+        <Setter Property="Background" Value="{StaticResource SurfaceAltBrush}"/>
+        <Setter Property="Padding" Value="8,4"/>
+        <Setter Property="HorizontalContentAlignment" Value="Left"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ComboBoxItem">
+                    <Border x:Name="ItemBorder" Background="{TemplateBinding Background}" Padding="{TemplateBinding Padding}">
+                        <ContentPresenter/>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsHighlighted" Value="True"><Setter TargetName="ItemBorder" Property="Background" Value="#172033"/></Trigger>
+                        <Trigger Property="IsSelected" Value="True"><Setter TargetName="ItemBorder" Property="Background" Value="{StaticResource AccentBrush}"/><Setter Property="Foreground" Value="#0B1220"/></Trigger>
+                        <Trigger Property="IsEnabled" Value="False"><Setter Property="Opacity" Value="0.65"/></Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <Style TargetType="ComboBox" BasedOn="{StaticResource ComboBoxStyle}">
+        <Setter Property="ItemContainerStyle" Value="{StaticResource ComboBoxDarkItemStyle}"/>
+        <Setter Property="ScrollViewer.CanContentScroll" Value="True"/>
+        <Setter Property="ScrollViewer.VerticalScrollBarVisibility" Value="Auto"/>
+        <Setter Property="Resources">
+            <Setter.Value>
+                <ResourceDictionary>
+                    <SolidColorBrush x:Key="{x:Static SystemColors.WindowBrushKey}" Color="#0F172A"/>
+                    <SolidColorBrush x:Key="{x:Static SystemColors.ControlTextBrushKey}" Color="#E5E7EB"/>
+                    <SolidColorBrush x:Key="{x:Static SystemColors.HighlightBrushKey}" Color="#3B82F6"/>
+                    <SolidColorBrush x:Key="{x:Static SystemColors.HighlightTextBrushKey}" Color="#0B1220"/>
+                </ResourceDictionary>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <Style TargetType="DatePicker" BasedOn="{StaticResource DatePickerStyle}">
+        <Setter Property="Foreground" Value="{StaticResource TextBrush}"/>
+        <Setter Property="Background" Value="{StaticResource SurfaceAltBrush}"/>
+        <Setter Property="BorderBrush" Value="{StaticResource BorderBrushColor}"/>
+        <Setter Property="Resources">
+            <Setter.Value>
+                <ResourceDictionary>
+                    <SolidColorBrush x:Key="{x:Static SystemColors.WindowBrushKey}" Color="#0F172A"/>
+                    <SolidColorBrush x:Key="{x:Static SystemColors.ControlTextBrushKey}" Color="#E5E7EB"/>
+                </ResourceDictionary>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <Style TargetType="Calendar" BasedOn="{StaticResource CalendarStyle}">
+        <Setter Property="Background" Value="{StaticResource SurfaceAltBrush}"/>
+        <Setter Property="Foreground" Value="{StaticResource TextBrush}"/>
+    </Style>
+
+    <Style TargetType="CalendarButton">
+        <Setter Property="Foreground" Value="{StaticResource TextBrush}"/>
+        <Setter Property="Background" Value="Transparent"/>
+    </Style>
+
+    <Style TargetType="CalendarItem">
+        <Setter Property="Background" Value="{StaticResource SurfaceAltBrush}"/>
+        <Setter Property="BorderBrush" Value="{StaticResource BorderBrushColor}"/>
+    </Style>
 
     <Style TargetType="CalendarDayButton">
         <Setter Property="Foreground" Value="{StaticResource TextBrush}"/>
-        <Setter Property="Background" Value="#0B1220"/>
+        <Setter Property="Background" Value="{StaticResource SurfaceAltBrush}"/>
         <Setter Property="BorderBrush" Value="Transparent"/>
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="CalendarDayButton">
-                    <Border Background="{TemplateBinding Background}" CornerRadius="6" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="1">
+                    <Border x:Name="DayBorder" Background="{TemplateBinding Background}" CornerRadius="6" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="1" Padding="2">
                         <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
                     </Border>
                     <ControlTemplate.Triggers>
-                        <Trigger Property="IsMouseOver" Value="True"><Setter Property="Background" Value="#1E3A8A"/></Trigger>
-                        <Trigger Property="IsSelected" Value="True"><Setter Property="Background" Value="{StaticResource AccentBrush}"/></Trigger>
-                        <Trigger Property="IsInactive" Value="True"><Setter Property="Opacity" Value="0.6"/></Trigger>
+                        <Trigger Property="IsToday" Value="True"><Setter TargetName="DayBorder" Property="BorderBrush" Value="{StaticResource AccentBrush}"/></Trigger>
+                        <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="DayBorder" Property="Background" Value="#172033"/></Trigger>
+                        <Trigger Property="IsSelected" Value="True"><Setter TargetName="DayBorder" Property="Background" Value="{StaticResource AccentBrush}"/><Setter Property="Foreground" Value="#0B1220"/></Trigger>
+                        <Trigger Property="IsInactive" Value="True"><Setter Property="Opacity" Value="0.55"/></Trigger>
                         <Trigger Property="IsBlackedOut" Value="True"><Setter Property="Foreground" Value="#6B7280"/></Trigger>
                     </ControlTemplate.Triggers>
                 </ControlTemplate>
@@ -273,6 +332,105 @@
                 </ControlTemplate>
             </Setter.Value>
         </Setter>
+    </Style>
+
+
+
+    <Style x:Key="LinkButtonStyle" TargetType="Button" BasedOn="{StaticResource SecondaryButtonStyle}">
+        <Setter Property="Height" Value="30"/>
+        <Setter Property="Padding" Value="10,4"/>
+        <Setter Property="Margin" Value="0,6,0,0"/>
+        <Setter Property="HorizontalAlignment" Value="Left"/>
+    </Style>
+
+    <Style x:Key="DayMarkerSegmentBaseStyle" TargetType="RadioButton">
+        <Setter Property="Foreground" Value="{StaticResource TextBrush}"/>
+        <Setter Property="Background" Value="{StaticResource SurfaceAltBrush}"/>
+        <Setter Property="BorderBrush" Value="{StaticResource BorderBrushColor}"/>
+        <Setter Property="BorderThickness" Value="1"/>
+        <Setter Property="Height" Value="30"/>
+        <Setter Property="MinWidth" Value="90"/>
+        <Setter Property="Padding" Value="16,4"/>
+        <Setter Property="Margin" Value="0"/>
+        <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="RadioButton">
+                    <Border x:Name="RootBorder" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}">
+                        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="RootBorder" Property="BorderBrush" Value="#64748B"/>
+                            <Setter TargetName="RootBorder" Property="Background" Value="#172033"/>
+                        </Trigger>
+                        <Trigger Property="IsChecked" Value="True">
+                            <Setter TargetName="RootBorder" Property="Background" Value="{StaticResource AccentBrush}"/>
+                            <Setter TargetName="RootBorder" Property="BorderBrush" Value="{StaticResource AccentBrush}"/>
+                            <Setter Property="Foreground" Value="#0B1220"/>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <Style x:Key="DayMarkerSegmentLeftStyle" TargetType="RadioButton" BasedOn="{StaticResource DayMarkerSegmentBaseStyle}">
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="RadioButton">
+                    <Border x:Name="RootBorder" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="1" CornerRadius="15,0,0,15">
+                        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="RootBorder" Property="BorderBrush" Value="#64748B"/><Setter TargetName="RootBorder" Property="Background" Value="#172033"/></Trigger>
+                        <Trigger Property="IsChecked" Value="True"><Setter TargetName="RootBorder" Property="Background" Value="{StaticResource AccentBrush}"/><Setter TargetName="RootBorder" Property="BorderBrush" Value="{StaticResource AccentBrush}"/><Setter Property="Foreground" Value="#0B1220"/></Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <Style x:Key="DayMarkerSegmentMiddleStyle" TargetType="RadioButton" BasedOn="{StaticResource DayMarkerSegmentBaseStyle}">
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="RadioButton">
+                    <Border x:Name="RootBorder" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="0,1,0,1">
+                        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="RootBorder" Property="BorderBrush" Value="#64748B"/><Setter TargetName="RootBorder" Property="Background" Value="#172033"/></Trigger>
+                        <Trigger Property="IsChecked" Value="True"><Setter TargetName="RootBorder" Property="Background" Value="{StaticResource AccentBrush}"/><Setter TargetName="RootBorder" Property="BorderBrush" Value="{StaticResource AccentBrush}"/><Setter Property="Foreground" Value="#0B1220"/></Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <Style x:Key="DayMarkerSegmentRightStyle" TargetType="RadioButton" BasedOn="{StaticResource DayMarkerSegmentBaseStyle}">
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="RadioButton">
+                    <Border x:Name="RootBorder" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="1" CornerRadius="0,15,15,0">
+                        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="RootBorder" Property="BorderBrush" Value="#64748B"/><Setter TargetName="RootBorder" Property="Background" Value="#172033"/></Trigger>
+                        <Trigger Property="IsChecked" Value="True"><Setter TargetName="RootBorder" Property="Background" Value="{StaticResource AccentBrush}"/><Setter TargetName="RootBorder" Property="BorderBrush" Value="{StaticResource AccentBrush}"/><Setter Property="Foreground" Value="#0B1220"/></Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <Style x:Key="DayMarkerChipToggleStyle" TargetType="ToggleButton" BasedOn="{StaticResource TogglePillStyle}">
+        <Setter Property="Height" Value="30"/>
+        <Setter Property="MinWidth" Value="62"/>
+        <Setter Property="Padding" Value="14,4"/>
+        <Setter Property="Margin" Value="0,0,10,0"/>
+        <Setter Property="Background" Value="{StaticResource SurfaceAltBrush}"/>
+        <Setter Property="BorderBrush" Value="{StaticResource BorderBrushColor}"/>
+        <Setter Property="BorderThickness" Value="1"/>
     </Style>
 
     <Style x:Key="CardStyle" TargetType="Border">
