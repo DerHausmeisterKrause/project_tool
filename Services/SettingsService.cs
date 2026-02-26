@@ -22,17 +22,26 @@ public class SettingsService
         {
             if (!File.Exists(_path))
             {
+                Normalize(Current);
                 Save();
                 return;
             }
             var json = File.ReadAllText(_path);
             Current = JsonSerializer.Deserialize<AppSettings>(json) ?? new AppSettings();
+            Normalize(Current);
         }
         catch (Exception ex)
         {
             _logger.Error($"Settings load failed: {ex.Message}");
             Current = new AppSettings();
+            Normalize(Current);
         }
+    }
+
+    private static void Normalize(AppSettings settings)
+    {
+        if (settings.FridayTargetMinutes <= 0)
+            settings.FridayTargetMinutes = 300;
     }
 
     public void Save()
