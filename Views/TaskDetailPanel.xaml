@@ -38,7 +38,6 @@
                     <TextBlock Text="{Binding TimerDisplay}" FontSize="42" FontWeight="Bold" Margin="0,6,0,16" HorizontalAlignment="Center"/>
                     <WrapPanel HorizontalAlignment="Center">
                         <Button Content="Start" Width="90" Command="{Binding StartTimerCommand}"/>
-                        <Button Content="Pause" Width="90" Style="{StaticResource WarningButtonStyle}" Command="{Binding PauseTimerCommand}"/>
                         <Button Content="Stop" Width="90" Style="{StaticResource SecondaryButtonStyle}" Command="{Binding StopTimerCommand}"/>
                     </WrapPanel>
                     <WrapPanel HorizontalAlignment="Center">

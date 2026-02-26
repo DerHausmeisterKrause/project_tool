@@ -22,9 +22,6 @@ public class TodayViewModel : ObservableObject
     public ObservableCollection<TaskSegment> Segments { get; } = new();
     public ObservableCollection<string> TimeOptions { get; } = new(Enumerable.Range(0, 96).Select(i => TimeSpan.FromMinutes(i * 15).ToString(@"hh\:mm")));
 
-    private bool _freezeTimerDisplay;
-    private string _frozenTimerDisplay = "00:00:00";
-
     private TaskItem? _selectedTask;
     public TaskItem? SelectedTask
     {
@@ -33,7 +30,6 @@ public class TodayViewModel : ObservableObject
         {
             if (Set(ref _selectedTask, value))
             {
-                _freezeTimerDisplay = false;
                 LoadSegments();
                 Raise(nameof(IsTaskSelected));
                 RaiseCommandStates();
@@ -148,7 +144,6 @@ public class TodayViewModel : ObservableObject
     public RelayCommand ReopenCommand { get; }
     public RelayCommand DoneCommand { get; }
     public RelayCommand StartTimerCommand { get; }
-    public RelayCommand PauseTimerCommand { get; }
     public RelayCommand StopTimerCommand { get; }
     public RelayCommand Add15Command { get; }
     public RelayCommand Add30Command { get; }
@@ -174,7 +169,6 @@ public class TodayViewModel : ObservableObject
 
     public RelayCommand<TaskItem> SelectTaskCommand { get; }
     public RelayCommand<TaskItem> StartTaskCommand { get; }
-    public RelayCommand<TaskItem> PauseTaskCommand { get; }
     public RelayCommand<TaskItem> StopTaskCommand { get; }
     public RelayCommand<TaskItem> DoneTaskCommand { get; }
     public RelayCommand<string> OpenTicketUrlCommand { get; }
@@ -203,7 +197,6 @@ public class TodayViewModel : ObservableObject
         ReopenCommand = new RelayCommand(ReopenSelectedTask, () => SelectedTask?.Status == TaskStatus.Done);
         DoneCommand = new RelayCommand(MarkSelectedTaskDone, () => SelectedTask != null);
         StartTimerCommand = new RelayCommand(StartTimer, () => SelectedTask != null);
-        PauseTimerCommand = new RelayCommand(PauseTimer, () => SelectedTask != null);
         StopTimerCommand = new RelayCommand(StopTimer, () => SelectedTask != null);
         Add15Command = new RelayCommand(() => AdjustBookedMinutes(15), () => SelectedTask != null);
         Add30Command = new RelayCommand(() => AdjustBookedMinutes(30), () => SelectedTask != null);
@@ -228,8 +221,7 @@ public class TodayViewModel : ObservableObject
         TestOutlookConnectionCommand = new RelayCommand(TestOutlookConnection);
 
         SelectTaskCommand = new RelayCommand<TaskItem>(task => SelectedTask = task, task => task != null);
-        StartTaskCommand = new RelayCommand<TaskItem>(task => OnCardTaskAction(task, _tasks.StartTimer));
-        PauseTaskCommand = new RelayCommand<TaskItem>(task => OnCardTaskAction(task, _tasks.PauseTimer));
+        StartTaskCommand = new RelayCommand<TaskItem>(StartTaskFromCard);
         StopTaskCommand = new RelayCommand<TaskItem>(task => OnCardTaskAction(task, _tasks.StopTimer));
         DoneTaskCommand = new RelayCommand<TaskItem>(task => OnCardTaskAction(task, _tasks.MarkDone));
         OpenTicketUrlCommand = new RelayCommand<string>(OpenTicketUrl, url => !string.IsNullOrWhiteSpace(url));
@@ -259,7 +251,6 @@ public class TodayViewModel : ObservableObject
         ReopenCommand.RaiseCanExecuteChanged();
         DoneCommand.RaiseCanExecuteChanged();
         StartTimerCommand.RaiseCanExecuteChanged();
-        PauseTimerCommand.RaiseCanExecuteChanged();
         StopTimerCommand.RaiseCanExecuteChanged();
         Add15Command.RaiseCanExecuteChanged();
         Add30Command.RaiseCanExecuteChanged();
@@ -523,43 +514,29 @@ public class TodayViewModel : ObservableObject
         RaiseCommandStates();
     }
 
-    private void ReopenTask() { if (SelectedTask == null) return; _tasks.MarkPlanned(SelectedTask); Load(); }
-    private void MarkDone() { if (SelectedTask == null) return; _tasks.MarkDone(SelectedTask); Load(); }
 
     private void StartTimer()
     {
         if (SelectedTask == null) return;
-        _freezeTimerDisplay = false;
+
+        var runningOther = CurrentTasks.FirstOrDefault(t => t.Status == TaskStatus.Running && t.Id != SelectedTask.Id);
+        if (runningOther != null)
+            _tasks.StopTimer(runningOther);
+
         _tasks.StartTimer(SelectedTask);
         Load();
-    }
-
-    private void PauseTimer()
-    {
-        if (SelectedTask == null) return;
-        var snapshot = TimerDisplay;
-        _tasks.PauseTimer(SelectedTask);
-        Load();
-        _freezeTimerDisplay = true;
-        _frozenTimerDisplay = snapshot;
-        TimerDisplay = _frozenTimerDisplay;
     }
 
     private void StopTimer()
     {
         if (SelectedTask == null) return;
-        var snapshot = TimerDisplay;
         _tasks.StopTimer(SelectedTask);
         Load();
-        _freezeTimerDisplay = true;
-        _frozenTimerDisplay = snapshot;
-        TimerDisplay = _frozenTimerDisplay;
     }
 
     private void AdjustBookedMinutes(int deltaMinutes)
     {
         if (SelectedTask == null) return;
-        _freezeTimerDisplay = false;
         _tasks.AddTicketMinutes(SelectedTask, deltaMinutes);
         Load();
     }
@@ -639,8 +616,6 @@ public class TodayViewModel : ObservableObject
     private void UpdateTimerDisplay()
     {
         if (SelectedTask == null) { TimerDisplay = "00:00:00"; return; }
-        if (_freezeTimerDisplay) { TimerDisplay = _frozenTimerDisplay; return; }
-
         var booked = TimeSpan.FromMinutes(Math.Max(0, SelectedTask.TicketMinutesBooked));
         var runningPart = _tasks.GetOpenSessionDuration(SelectedTask.Id);
         var total = booked + runningPart;

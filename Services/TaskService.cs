@@ -124,10 +124,29 @@ VALUES ($id,$title,$desc,$url,$start,$end,$status,$priority,$tags,$entry,$ticket
 
     public void StartTimer(TaskItem task)
     {
-        task.Status = TaskStatus.Running;
-        UpdateTask(task);
         using var conn = new SqliteConnection(_db.ConnectionString);
         conn.Open();
+
+        using (var closeOthers = conn.CreateCommand())
+        {
+            closeOthers.CommandText = "UPDATE time_logs SET end_utc=$e,note='auto-stop' WHERE end_utc IS NULL AND task_id <> $id";
+            closeOthers.Parameters.AddWithValue("$e", DateTime.UtcNow.ToString("O"));
+            closeOthers.Parameters.AddWithValue("$id", task.Id.ToString());
+            closeOthers.ExecuteNonQuery();
+        }
+
+        using (var resetStatuses = conn.CreateCommand())
+        {
+            resetStatuses.CommandText = "UPDATE tasks SET status=$planned WHERE status=$running AND id<>$id";
+            resetStatuses.Parameters.AddWithValue("$planned", TaskStatus.Planned.ToString());
+            resetStatuses.Parameters.AddWithValue("$running", TaskStatus.Running.ToString());
+            resetStatuses.Parameters.AddWithValue("$id", task.Id.ToString());
+            resetStatuses.ExecuteNonQuery();
+        }
+
+        task.Status = TaskStatus.Running;
+        UpdateTask(task);
+
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "INSERT INTO time_logs (task_id,start_utc,note) VALUES ($id,$s,$n)";
         cmd.Parameters.AddWithValue("$id", task.Id.ToString());
