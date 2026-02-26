@@ -72,7 +72,7 @@ public class WeekViewModel : ObservableObject
         CurrentWeekCommand = new RelayCommand(() => { WeekStart = StartOfWeek(DateTime.Today); LoadWeek(); });
         SelectDayCommand = new RelayCommand<WeekDayGroup>(d => SelectedDay = d, d => d != null);
         OpenCalendarItemCommand = new RelayCommand<WeekCalendarItem>(OpenCalendarItem, i => i != null);
-        OpenTicketUrlCommand = new RelayCommand<string>(OpenTicketUrl, url => !string.IsNullOrWhiteSpace(url));
+        OpenTicketUrlCommand = new RelayCommand<string>(OpenTicketUrlFromWeek, url => !string.IsNullOrWhiteSpace(url));
         SetDayTypeNormalCommand = new RelayCommand(() => SetDayType("Normal"), () => SelectedDay != null);
         SetDayTypeUlCommand = new RelayCommand(() => SetDayType("UL"), () => SelectedDay != null);
         SetDayTypeAmCommand = new RelayCommand(() => SetDayType("AM"), () => SelectedDay != null);
@@ -97,12 +97,7 @@ public class WeekViewModel : ObservableObject
             main.TodayViewModel.SelectedTask = match;
     }
 
-    private void OpenTicketUrl(string? url)
-    {
-        UrlLauncher.TryOpen(url, out _);
-    }
-
-    private void OpenTicketUrl(string? url)
+    private void OpenTicketUrlFromWeek(string? url)
     {
         UrlLauncher.TryOpen(url, out _);
     }
