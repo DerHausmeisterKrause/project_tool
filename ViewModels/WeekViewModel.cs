@@ -160,7 +160,8 @@ public class WeekViewModel : ObservableObject
                         SegmentStart = pair.Segment.StartLocal,
                         SegmentEnd = pair.Segment.EndLocal,
                         SegmentIndexDisplay = indexByTask[pair.Task.Id],
-                        TaskStatus = pair.Task.Status.ToString()
+                        TaskStatus = pair.Task.Status.ToString(),
+                        SegmentNote = pair.Segment.Note
                     });
                 }
             }
@@ -183,7 +184,8 @@ public class WeekViewModel : ObservableObject
                         SegmentStart = task.StartLocal ?? day,
                         SegmentEnd = task.EndLocal ?? task.StartLocal ?? day,
                         SegmentIndexDisplay = idx++,
-                        TaskStatus = task.Status.ToString()
+                        TaskStatus = task.Status.ToString(),
+                        SegmentNote = string.Empty
                     });
                 }
             }
@@ -259,4 +261,5 @@ public class WeekCalendarItem
     public DateTime SegmentEnd { get; set; }
     public int SegmentIndexDisplay { get; set; }
     public string TaskStatus { get; set; } = string.Empty;
+    public string SegmentNote { get; set; } = string.Empty;
 }

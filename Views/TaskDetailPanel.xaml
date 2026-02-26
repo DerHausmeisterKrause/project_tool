@@ -68,10 +68,11 @@
                                     <ColumnDefinition Width="90"/>
                                 </Grid.ColumnDefinitions>
                                 <DatePicker Grid.Column="0" SelectedDate="{Binding NewSegmentDate, UpdateSourceTrigger=PropertyChanged}"/>
-                                <TextBox Grid.Column="1" Margin="6,0,0,0" Text="{Binding NewSegmentStartTime, UpdateSourceTrigger=PropertyChanged}" ToolTip="HH:mm"/>
-                                <TextBox Grid.Column="2" Margin="6,0,0,0" Text="{Binding NewSegmentEndTime, UpdateSourceTrigger=PropertyChanged}" ToolTip="HH:mm"/>
+                                <ComboBox Grid.Column="1" Margin="6,0,0,0" ItemsSource="{Binding TimeOptions}" SelectedItem="{Binding NewSegmentStartTime, UpdateSourceTrigger=PropertyChanged}"/>
+                                <ComboBox Grid.Column="2" Margin="6,0,0,0" ItemsSource="{Binding TimeOptions}" SelectedItem="{Binding NewSegmentEndTime, UpdateSourceTrigger=PropertyChanged}"/>
                             </Grid>
-                            <TextBox Margin="0,8,0,0" Text="{Binding NewSegmentNote, UpdateSourceTrigger=PropertyChanged}"/>
+                            <TextBlock Text="Kurzbeschreibung" Foreground="{StaticResource MutedTextBrush}" Margin="0,8,0,2"/>
+                            <TextBox Margin="0,0,0,0" Text="{Binding NewSegmentNote, UpdateSourceTrigger=PropertyChanged}"/>
                             <TextBlock Text="{Binding NewSegmentValidationHint}" Foreground="#FCA5A5" Margin="0,6,0,0"/>
                             <WrapPanel Margin="0,6,0,0">
                                 <Button Content="Segment speichern" Width="140" Command="{Binding AddSegmentCommand}" IsEnabled="{Binding CanSaveNewSegment}"/>
@@ -94,11 +95,12 @@
                                                 <ColumnDefinition Width="90"/>
                                             </Grid.ColumnDefinitions>
                                             <DatePicker Grid.Column="0" SelectedDate="{Binding SegmentDate, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
-                                            <TextBox Grid.Column="1" Margin="6,0,0,0" Text="{Binding StartTimeText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" ToolTip="HH:mm"/>
-                                            <TextBox Grid.Column="2" Margin="6,0,0,0" Text="{Binding EndTimeText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" ToolTip="HH:mm"/>
+                                            <ComboBox Grid.Column="1" Margin="6,0,0,0" ItemsSource="{Binding DataContext.TimeOptions, RelativeSource={RelativeSource AncestorType=ItemsControl}}" SelectedItem="{Binding StartTimeText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
+                                            <ComboBox Grid.Column="2" Margin="6,0,0,0" ItemsSource="{Binding DataContext.TimeOptions, RelativeSource={RelativeSource AncestorType=ItemsControl}}" SelectedItem="{Binding EndTimeText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
                                         </Grid>
 
-                                        <TextBox Margin="0,8,0,0" Text="{Binding Note, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
+                                        <TextBlock Text="Kurzbeschreibung" Foreground="{StaticResource MutedTextBrush}" Margin="0,8,0,2"/>
+                                        <TextBox Margin="0,0,0,0" Text="{Binding Note, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
                                         <TextBlock Text="{Binding PlannedMinutes, StringFormat=Dauer: {0} min}" Foreground="{StaticResource MutedTextBrush}"/>
                                         <TextBlock Text="{Binding OutlookStatus, StringFormat=Outlook Status: {0}}" Foreground="{StaticResource MutedTextBrush}"/>
                                         <TextBlock Text="{Binding ValidationHint}" Foreground="#FCA5A5"/>

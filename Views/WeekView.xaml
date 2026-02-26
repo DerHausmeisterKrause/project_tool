@@ -42,25 +42,27 @@
                                 <MouseBinding Gesture="LeftClick" Command="{Binding DataContext.SelectDayCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" CommandParameter="{Binding}"/>
                             </Border.InputBindings>
                             <StackPanel>
-                                <TextBlock Text="{Binding DayLabel}" FontSize="17" FontWeight="Bold"/>
+                                <TextBlock Text="{Binding DayLabel}" FontSize="16" FontWeight="Bold" Foreground="{StaticResource TextBrush}"/>
                                 <WrapPanel Margin="0,4,0,4">
                                     <Border Style="{StaticResource BadgeStyle}"><TextBlock Text="{Binding DayType}"/></Border>
                                     <Border Style="{StaticResource BadgeStyle}" Visibility="{Binding IsHo, Converter={StaticResource BooleanToVisibilityConverter}}"><TextBlock Text="HO"/></Border>
                                     <Border Style="{StaticResource BadgeStyle}" Visibility="{Binding IsBr, Converter={StaticResource BooleanToVisibilityConverter}}"><TextBlock Text="BR"/></Border>
                                 </WrapPanel>
-                                <TextBlock Text="{Binding Summary}" Foreground="{StaticResource MutedTextBrush}" FontSize="12" Margin="0,0,0,6"/>
+                                <TextBlock Text="{Binding Summary}" Foreground="{StaticResource MutedTextBrush}" FontSize="12" Margin="0,0,0,8"/>
 
                                 <ItemsControl ItemsSource="{Binding CalendarItems}">
                                     <ItemsControl.ItemTemplate>
                                         <DataTemplate>
-                                            <Border Background="#0B1220" BorderBrush="{StaticResource BorderBrushColor}" BorderThickness="1" CornerRadius="8" Padding="8" Margin="0,0,0,8">
+                                            <Border Background="{StaticResource SurfaceAltBrush}" BorderBrush="{StaticResource BorderBrushColor}" BorderThickness="1" CornerRadius="10" Padding="10" Margin="0,0,0,8">
                                                 <Border.InputBindings>
                                                     <MouseBinding Gesture="LeftClick" Command="{Binding DataContext.OpenCalendarItemCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" CommandParameter="{Binding}"/>
                                                 </Border.InputBindings>
                                                 <StackPanel>
-                                                    <TextBlock Text="{Binding SegmentIndexDisplay, StringFormat=Segment {0}}" FontWeight="SemiBold"/>
-                                                    <TextBlock Foreground="{StaticResource MutedTextBrush}" FontSize="12"><Run Text="{Binding SegmentStart, StringFormat={}{0:HH:mm}}"/><Run Text=" - "/><Run Text="{Binding SegmentEnd, StringFormat={}{0:HH:mm}}"/></TextBlock>
-                                                    <TextBlock Text="{Binding TaskTitle}" FontWeight="SemiBold" TextWrapping="Wrap"/>
+                                                    <TextBlock Text="{Binding SegmentIndexDisplay, StringFormat=Segment {0}}" FontWeight="SemiBold" Foreground="{StaticResource TextBrush}" FontSize="13"/>
+                                                    <TextBlock Foreground="{StaticResource TextBrush}" FontSize="12"><Run Text="{Binding SegmentStart, StringFormat={}{0:HH:mm}}"/><Run Text=" - "/><Run Text="{Binding SegmentEnd, StringFormat={}{0:HH:mm}}"/></TextBlock>
+                                                    <TextBlock Text="{Binding TaskTitle}" FontWeight="SemiBold" TextWrapping="Wrap" Foreground="{StaticResource TextBrush}" FontSize="12"/>
+                                                    <TextBlock Text="{Binding SegmentNote}" Foreground="{StaticResource MutedTextBrush}" FontSize="12" TextWrapping="Wrap"
+                                                               Visibility="{Binding SegmentNote, Converter={StaticResource StringEmptyToVisibilityConverter}}"/>
                                                     <TextBlock Text="{Binding TaskStatus}" Foreground="{StaticResource MutedTextBrush}" FontSize="12"/>
                                                     <Button Content="Ticket öffnen" Style="{StaticResource LinkButtonStyle}"
                                                             Visibility="{Binding TicketUrl, Converter={StaticResource StringEmptyToVisibilityConverter}}"

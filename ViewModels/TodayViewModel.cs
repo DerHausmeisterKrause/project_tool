@@ -20,6 +20,10 @@ public class TodayViewModel : ObservableObject
     public ObservableCollection<TaskItem> CompletedTasks { get; } = new();
     public ObservableCollection<BreakEditRow> BreakRows { get; } = new();
     public ObservableCollection<TaskSegment> Segments { get; } = new();
+    public ObservableCollection<string> TimeOptions { get; } = new(Enumerable.Range(0, 96).Select(i => TimeSpan.FromMinutes(i * 15).ToString(@"hh\:mm")));
+
+    private bool _freezeTimerDisplay;
+    private string _frozenTimerDisplay = "00:00:00";
 
     private TaskItem? _selectedTask;
     public TaskItem? SelectedTask
@@ -29,6 +33,7 @@ public class TodayViewModel : ObservableObject
         {
             if (Set(ref _selectedTask, value))
             {
+                _freezeTimerDisplay = false;
                 LoadSegments();
                 Raise(nameof(IsTaskSelected));
                 RaiseCommandStates();
@@ -102,7 +107,15 @@ public class TodayViewModel : ObservableObject
     public string NewSegmentStartTime
     {
         get => _newSegmentStartTime;
-        set { if (Set(ref _newSegmentStartTime, value)) RaiseSegmentEditorState(); }
+        set
+        {
+            if (Set(ref _newSegmentStartTime, value))
+            {
+                if (string.IsNullOrWhiteSpace(NewSegmentEndTime) && TimeSpan.TryParse(value, out var start))
+                    NewSegmentEndTime = start.Add(TimeSpan.FromMinutes(30)).ToString(@"hh\:mm");
+                RaiseSegmentEditorState();
+            }
+        }
     }
 
     private string _newSegmentEndTime = "09:30";
@@ -189,15 +202,15 @@ public class TodayViewModel : ObservableObject
         SaveCommand = new RelayCommand(SaveTask, () => SelectedTask != null);
         ReopenCommand = new RelayCommand(ReopenTask, () => SelectedTask?.Status == TaskStatus.Done);
         DoneCommand = new RelayCommand(MarkDone, () => SelectedTask != null);
-        StartTimerCommand = new RelayCommand(() => WithTask(_tasks.StartTimer), () => SelectedTask != null);
-        PauseTimerCommand = new RelayCommand(() => WithTask(_tasks.PauseTimer), () => SelectedTask != null);
-        StopTimerCommand = new RelayCommand(() => WithTask(_tasks.StopTimer), () => SelectedTask != null);
-        Add15Command = new RelayCommand(() => WithTask(t => _tasks.AddTicketMinutes(t, 15)), () => SelectedTask != null);
-        Add30Command = new RelayCommand(() => WithTask(t => _tasks.AddTicketMinutes(t, 30)), () => SelectedTask != null);
-        Add60Command = new RelayCommand(() => WithTask(t => _tasks.AddTicketMinutes(t, 60)), () => SelectedTask != null);
-        Subtract15Command = new RelayCommand(() => WithTask(t => _tasks.AddTicketMinutes(t, -15)), () => SelectedTask != null);
-        Subtract30Command = new RelayCommand(() => WithTask(t => _tasks.AddTicketMinutes(t, -30)), () => SelectedTask != null);
-        Subtract60Command = new RelayCommand(() => WithTask(t => _tasks.AddTicketMinutes(t, -60)), () => SelectedTask != null);
+        StartTimerCommand = new RelayCommand(StartTimer, () => SelectedTask != null);
+        PauseTimerCommand = new RelayCommand(PauseTimer, () => SelectedTask != null);
+        StopTimerCommand = new RelayCommand(StopTimer, () => SelectedTask != null);
+        Add15Command = new RelayCommand(() => AdjustBookedMinutes(15), () => SelectedTask != null);
+        Add30Command = new RelayCommand(() => AdjustBookedMinutes(30), () => SelectedTask != null);
+        Add60Command = new RelayCommand(() => AdjustBookedMinutes(60), () => SelectedTask != null);
+        Subtract15Command = new RelayCommand(() => AdjustBookedMinutes(-15), () => SelectedTask != null);
+        Subtract30Command = new RelayCommand(() => AdjustBookedMinutes(-30), () => SelectedTask != null);
+        Subtract60Command = new RelayCommand(() => AdjustBookedMinutes(-60), () => SelectedTask != null);
         ComeCommand = new RelayCommand(() => { _workDays.SetCome(DateTime.Now); Load(); });
         GoCommand = new RelayCommand(() => { _workDays.SetGo(DateTime.Now); Load(); });
         BreakStartCommand = new RelayCommand(() => { _workDays.StartBreak(DateTime.Today.ToString("yyyy-MM-dd")); Load(); });
@@ -513,6 +526,47 @@ public class TodayViewModel : ObservableObject
     private void ReopenTask() { if (SelectedTask == null) return; _tasks.MarkPlanned(SelectedTask); Load(); }
     private void MarkDone() { if (SelectedTask == null) return; _tasks.MarkDone(SelectedTask); Load(); }
 
+    private void StartTimer()
+    {
+        if (SelectedTask == null) return;
+        _freezeTimerDisplay = false;
+        _tasks.StartTimer(SelectedTask);
+        Load();
+    }
+
+    private void PauseTimer()
+    {
+        if (SelectedTask == null) return;
+        var snapshot = TimerDisplay;
+        _tasks.PauseTimer(SelectedTask);
+        Load();
+        _freezeTimerDisplay = true;
+        _frozenTimerDisplay = snapshot;
+        TimerDisplay = _frozenTimerDisplay;
+    }
+
+    private void StopTimer()
+    {
+        if (SelectedTask == null) return;
+        var snapshot = TimerDisplay;
+        _tasks.StopTimer(SelectedTask);
+        Load();
+        _freezeTimerDisplay = true;
+        _frozenTimerDisplay = snapshot;
+        TimerDisplay = _frozenTimerDisplay;
+    }
+
+    private void AdjustBookedMinutes(int deltaMinutes)
+    {
+        if (SelectedTask == null) return;
+        _freezeTimerDisplay = false;
+        _tasks.AddTicketMinutes(SelectedTask, deltaMinutes);
+        Load();
+    }
+
+    private void ReopenTask() { if (SelectedTask == null) return; _tasks.MarkPlanned(SelectedTask); Load(); }
+    private void MarkDone() { if (SelectedTask == null) return; _tasks.MarkDone(SelectedTask); Load(); }
+
     private void TestOutlookConnection()
     {
         var ok = _tasks.TestOutlookConnection();
@@ -585,6 +639,7 @@ public class TodayViewModel : ObservableObject
     private void UpdateTimerDisplay()
     {
         if (SelectedTask == null) { TimerDisplay = "00:00:00"; return; }
+        if (_freezeTimerDisplay) { TimerDisplay = _frozenTimerDisplay; return; }
 
         var booked = TimeSpan.FromMinutes(Math.Max(0, SelectedTask.TicketMinutesBooked));
         var runningPart = _tasks.GetOpenSessionDuration(SelectedTask.Id);
