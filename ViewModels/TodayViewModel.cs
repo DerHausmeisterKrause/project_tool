@@ -523,6 +523,8 @@ public class TodayViewModel : ObservableObject
         RaiseCommandStates();
     }
 
+    private void ReopenTask() { if (SelectedTask == null) return; _tasks.MarkPlanned(SelectedTask); Load(); }
+    private void MarkDone() { if (SelectedTask == null) return; _tasks.MarkDone(SelectedTask); Load(); }
 
     private void StartTimer()
     {
