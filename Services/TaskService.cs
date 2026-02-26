@@ -90,7 +90,7 @@ VALUES ($id,$title,$desc,$url,$start,$end,$status,$priority,$tags,$entry,$ticket
         {
             if (!DeleteSegmentOutlook(segment) && string.IsNullOrWhiteSpace(LastError) == false)
             {
-                _logger.Warn($"Segment outlook delete failed for segment {segment.Id}: {LastError}");
+                _logger.Error($"Segment outlook delete failed for segment {segment.Id}: {LastError}");
             }
         }
 
