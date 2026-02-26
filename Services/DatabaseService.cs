@@ -40,39 +40,15 @@ CREATE TABLE IF NOT EXISTS schema_version (
                 currentVersion = 1;
             }
 
-            if (currentVersion == 1)
+            // Ensure the schema is fully present even on partially initialized databases.
+            CreateBaseSchema(conn);
+            MigrateToV2(conn);
+            MigrateToV3(conn);
+            MigrateToV4(conn);
+            MigrateToV5(conn);
+
+            if (currentVersion < 5)
             {
-                CreateBaseSchema(conn);
-                MigrateToV2(conn);
-                MigrateToV3(conn);
-                MigrateToV4(conn);
-                MigrateToV5(conn);
-                SetVersion(conn, 5);
-            }
-            else if (currentVersion == 2)
-            {
-                MigrateToV3(conn);
-                MigrateToV4(conn);
-                MigrateToV5(conn);
-                SetVersion(conn, 5);
-            }
-            else if (currentVersion == 3)
-            {
-                MigrateToV4(conn);
-                MigrateToV5(conn);
-                SetVersion(conn, 5);
-            }
-            else if (currentVersion == 4)
-            {
-                MigrateToV5(conn);
-                SetVersion(conn, 5);
-            }
-            else if (currentVersion < 5)
-            {
-                CreateBaseSchema(conn);
-                MigrateToV3(conn);
-                MigrateToV4(conn);
-                MigrateToV5(conn);
                 SetVersion(conn, 5);
             }
         }
