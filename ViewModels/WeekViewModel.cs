@@ -437,6 +437,116 @@ public class WeekViewModel : ObservableObject
         }
     }
 
+    private void LayoutDayItems(DateTime dayDate, List<WeekCalendarItem> items)
+    {
+        var rangeStart = dayDate.Date.AddHours(CalendarStartHour);
+        var rangeEnd = dayDate.Date.AddHours(CalendarEndHour);
+
+        foreach (var item in items)
+        {
+            item.DisplayStart = item.SegmentStart < rangeStart ? rangeStart : item.SegmentStart;
+            item.DisplayEnd = item.SegmentEnd > rangeEnd ? rangeEnd : item.SegmentEnd;
+        }
+
+        var visible = items
+            .Where(i => i.DisplayEnd > i.DisplayStart)
+            .OrderBy(i => i.DisplayStart)
+            .ThenBy(i => i.DisplayEnd)
+            .ToList();
+
+        var group = new List<WeekCalendarItem>();
+        var groupEnd = DateTime.MinValue;
+
+        foreach (var item in visible)
+        {
+            if (group.Count == 0)
+            {
+                group.Add(item);
+                groupEnd = item.DisplayEnd;
+                continue;
+            }
+
+            if (item.DisplayStart < groupEnd)
+            {
+                group.Add(item);
+                if (item.DisplayEnd > groupEnd) groupEnd = item.DisplayEnd;
+                continue;
+            }
+
+            AssignOverlapLayout(group, rangeStart);
+            group.Clear();
+            group.Add(item);
+            groupEnd = item.DisplayEnd;
+        }
+
+        if (group.Count > 0)
+            AssignOverlapLayout(group, rangeStart);
+
+        foreach (var item in items.Where(i => i.DisplayEnd <= i.DisplayStart))
+        {
+            item.DisplayWidth = 0;
+            item.DisplayHeight = 0;
+        }
+    }
+
+    private void AssignOverlapLayout(List<WeekCalendarItem> group, DateTime rangeStart)
+    {
+        var columnsEnd = new List<DateTime>();
+
+        foreach (var item in group.OrderBy(i => i.DisplayStart).ThenBy(i => i.DisplayEnd))
+        {
+            var placed = false;
+            for (var col = 0; col < columnsEnd.Count; col++)
+            {
+                if (item.DisplayStart >= columnsEnd[col])
+                {
+                    item.OverlapColumn = col;
+                    columnsEnd[col] = item.DisplayEnd;
+                    placed = true;
+                    break;
+                }
+            }
+
+            if (!placed)
+            {
+                item.OverlapColumn = columnsEnd.Count;
+                columnsEnd.Add(item.DisplayEnd);
+            }
+        }
+
+        var columnCount = Math.Max(1, columnsEnd.Count);
+        var availableWidth = DayColumnWidth - (DayInnerPadding * 2);
+        var blockWidth = Math.Max(46, (availableWidth - ((columnCount - 1) * OverlapGap)) / columnCount);
+
+        foreach (var item in group)
+        {
+            item.OverlapColumnCount = columnCount;
+            item.DisplayLeft = DayInnerPadding + (item.OverlapColumn * (blockWidth + OverlapGap));
+            item.DisplayWidth = blockWidth;
+            item.DisplayTop = (item.DisplayStart - rangeStart).TotalMinutes * PixelsPerMinute;
+            item.DisplayHeight = Math.Max(28, (item.DisplayEnd - item.DisplayStart).TotalMinutes * PixelsPerMinute - 2);
+            item.TimeLabel = $"{item.SegmentStart:HH:mm} - {item.SegmentEnd:HH:mm}";
+            item.IsCompact = item.DisplayHeight < 46;
+            item.ShowNote = item.DisplayHeight >= 64 && !string.IsNullOrWhiteSpace(item.SegmentNote);
+            item.ShowTime = item.DisplayHeight >= 34;
+        }
+
+        // Prevent visual overlap caused by enforced minimum height.
+        // We only adjust vertical rendering position, not the actual segment time data.
+        foreach (var colGroup in group.GroupBy(g => g.OverlapColumn))
+        {
+            var colItems = colGroup.OrderBy(i => i.DisplayTop).ToList();
+            for (var i = 1; i < colItems.Count; i++)
+            {
+                var prev = colItems[i - 1];
+                var current = colItems[i];
+                var minTop = prev.DisplayTop + prev.DisplayHeight + 2;
+                if (current.DisplayTop < minTop)
+                    current.DisplayTop = minTop;
+            }
+        }
+    }
+
     private WeekDayGroup ResolveSelectedDay(DateTime? previousSelectionDate)
     {
         if (previousSelectionDate.HasValue)
