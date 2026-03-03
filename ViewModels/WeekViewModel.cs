@@ -28,6 +28,8 @@ public class WeekViewModel : ObservableObject
     public double CalendarBodyHeight => (CalendarEndHour - CalendarStartHour) * 60 * PixelsPerMinute;
     public double FullDayColumnHeight => CalendarBodyHeight + 58;
     public double DayAreaWidth => DayColumnWidth * 7;
+    public double DayInnerOffset => DayInnerPadding;
+    public double NowLineWidth => DayAreaWidth - DayInnerOffset;
 
     public ObservableCollection<TimeAxisLabel> TimeAxisLabels { get; } = new();
     public ObservableCollection<TimeGridLine> TimeGridLines { get; } = new();
@@ -414,7 +416,7 @@ public class WeekViewModel : ObservableObject
             item.TimeLabel = $"{item.SegmentStart:HH:mm} - {item.SegmentEnd:HH:mm}";
             item.IsCompact = item.DisplayHeight < 46;
             item.ShowNote = item.DisplayHeight >= 64 && !string.IsNullOrWhiteSpace(item.SegmentNote);
-            item.ShowTime = item.DisplayHeight >= 34;
+            item.ShowTime = item.IsCompact || item.DisplayHeight >= 34;
         }
 
         // Prevent visual overlap caused by enforced minimum height.
