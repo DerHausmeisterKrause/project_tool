@@ -50,7 +50,7 @@ public partial class ReminderWindow : Window
 
         var fade = new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(220));
         Storyboard.SetTarget(fade, PillBorder);
-        Storyboard.SetTargetProperty(fade, new PropertyPath(Border.OpacityProperty));
+        Storyboard.SetTargetProperty(fade, new PropertyPath(UIElement.OpacityProperty));
 
         var slide = new DoubleAnimation(Top - 8, Top, TimeSpan.FromMilliseconds(220));
         Storyboard.SetTarget(slide, this);
@@ -68,7 +68,7 @@ public partial class ReminderWindow : Window
 
         var fade = new DoubleAnimation(1, 0, TimeSpan.FromMilliseconds(220));
         Storyboard.SetTarget(fade, PillBorder);
-        Storyboard.SetTargetProperty(fade, new PropertyPath(Border.OpacityProperty));
+        Storyboard.SetTargetProperty(fade, new PropertyPath(UIElement.OpacityProperty));
 
         var slide = new DoubleAnimation(Top, Top - 8, TimeSpan.FromMilliseconds(220));
         Storyboard.SetTarget(slide, this);
