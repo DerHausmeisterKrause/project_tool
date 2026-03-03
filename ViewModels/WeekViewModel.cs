@@ -173,16 +173,6 @@ public class WeekViewModel : ObservableObject
         if (item == null) return;
 
         SelectedDate = item.SegmentStart.Date;
-
-        var main = ServiceLocator.MainViewModel;
-        main.SelectedView = main.TodayViewModel;
-
-        var match = main.TodayViewModel.CurrentTasks.FirstOrDefault(t => t.Id == item.TaskId)
-                    ?? main.TodayViewModel.CompletedTasks.FirstOrDefault(t => t.Id == item.TaskId)
-                    ?? _tasks.GetAllTasks().FirstOrDefault(t => t.Id == item.TaskId);
-
-        if (match != null)
-            main.TodayViewModel.SelectedTask = match;
     }
 
     private void OpenTicketUrlFromWeek(string? url)
@@ -321,10 +311,16 @@ public class WeekViewModel : ObservableObject
         }
 
         var dayIndex = (int)(today - WeekStart.Date).TotalDays;
-        NowLineTop = minutesFromStart * PixelsPerMinute;
+        NowLineTop = MapToCalendarY(now, today);
         NowMarkerLeft = dayIndex * DayColumnWidth - 4;
-        NowMarkerTop = NowLineTop - 3;
+        NowMarkerTop = NowLineTop - 4;
         ShowNowIndicator = true;
+    }
+
+    private double MapToCalendarY(DateTime value, DateTime dayDate)
+    {
+        var dayStart = dayDate.Date.AddHours(CalendarStartHour);
+        return (value - dayStart).TotalMinutes * PixelsPerMinute;
     }
 
     private void LayoutDayItemsCore(DateTime dayDate, List<WeekCalendarItem> items)
@@ -413,7 +409,7 @@ public class WeekViewModel : ObservableObject
             item.OverlapColumnCount = columnCount;
             item.DisplayLeft = DayInnerPadding + (item.OverlapColumn * (blockWidth + OverlapGap));
             item.DisplayWidth = blockWidth;
-            item.DisplayTop = (item.DisplayStart - rangeStart).TotalMinutes * PixelsPerMinute;
+            item.DisplayTop = MapToCalendarY(item.DisplayStart, dayDate: rangeStart.Date);
             item.DisplayHeight = Math.Max(28, (item.DisplayEnd - item.DisplayStart).TotalMinutes * PixelsPerMinute - 2);
             item.TimeLabel = $"{item.SegmentStart:HH:mm} - {item.SegmentEnd:HH:mm}";
             item.IsCompact = item.DisplayHeight < 46;
