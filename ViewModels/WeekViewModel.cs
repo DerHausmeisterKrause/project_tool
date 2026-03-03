@@ -153,10 +153,6 @@ public class WeekViewModel : ObservableObject
         _nowIndicatorTimer.Tick += (_, _) => UpdateNowIndicator();
         _nowIndicatorTimer.Start();
 
-        _nowIndicatorTimer.Interval = TimeSpan.FromSeconds(30);
-        _nowIndicatorTimer.Tick += (_, _) => UpdateNowIndicator();
-        _nowIndicatorTimer.Start();
-
         LoadWeek();
         UpdateNowIndicator();
     }
