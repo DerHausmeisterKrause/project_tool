@@ -34,25 +34,13 @@ Output liegt unter:
 - Bei Outlook/COM Fehlern läuft die App weiter; Fehlertext erscheint in der Heute-Ansicht und im Log.
 
 ## Optional: Eigenes App/Fenster-Icon (manuell)
-Wenn eure Umgebung keine Binärdateien im Repo erlaubt, legt das Icon lokal ab:
+Lege (lokal) die Datei `Assets/Plenaro.ico` im Projektroot ab.
 
-1. Erstelle den Ordner `Assets/` im Projektroot (falls nicht vorhanden).
-2. Lege die Datei `Assets/Plenaro.ico` ab (empfohlen: 16/32/48/256 px).
-3. Build/Publish wie gewohnt ausführen.
+Was dann automatisch passiert:
+- Wenn die Datei existiert, wird sie beim Build als `ApplicationIcon` genutzt (EXE/Taskleiste).
+- Die Datei wird in Output/Publish mitkopiert (`CopyToOutputDirectory` + `CopyToPublishDirectory`).
+- Das Fenster-Icon wird zur Laufzeit geladen (`MainWindow.xaml.cs`) über:
+  1. eingebettete Resource (`pack://application:,,,/Assets/Plenaro.ico`)
+  2. Fallback auf `<publish>/Assets/Plenaro.ico`.
 
-Verhalten:
-- Für maximale Build-Stabilität ist aktuell **kein compile-time ApplicationIcon** im `.csproj` gesetzt.
-- Optional kann `Assets/Plenaro.ico` neben der EXE liegen (`<publish>/Assets/Plenaro.ico`) — das Fenster lädt dieses Icon zur Laufzeit (siehe `MainWindow.xaml.cs`).
-- **Ohne** Icon-Datei: Build funktioniert weiterhin, es wird das Standard-Icon verwendet.
-
-Hinweis zu `CS7065` ("Symbol-Stream weist nicht das erwartete Format auf"):
-- Dieser Fehler entsteht bei ungültigen `.ico` Dateien, wenn sie als `ApplicationIcon` kompiliert werden.
-- Deshalb wurde die compile-time Icon-Einbindung entfernt.
-
-
-### Build-Fehler CS7065 (Win32-Ressourcen)
-Falls weiterhin `CS7065` auftritt:
-1. `bin/` und `obj/` im Projektordner löschen.
-2. `dotnet restore` und `dotnet build -c Release` erneut ausführen.
-
-Hinweis: Das Projekt deaktiviert die Win32-Manifest-Erzeugung (`NoWin32Manifest=true`), damit fehlerhafte lokale Win32/Icon-Resource-Streams den Build nicht mehr blockieren.
+Wenn die Datei fehlt, baut die App weiterhin normal mit Standard-Icon.
