@@ -57,13 +57,13 @@
                                 <Border Width="{Binding DataContext.DayColumnWidth, RelativeSource={RelativeSource AncestorType=UserControl}}"
                                         Background="{StaticResource SurfaceAltBrush}"
                                         BorderBrush="{StaticResource BorderBrushColor}"
-                                        BorderThickness="0,0,1,1"
+                                        BorderThickness="1,1,1,0"
                                         Padding="8,6">
                                     <Border.Style>
                                         <Style TargetType="Border">
                                             <Setter Property="Background" Value="{StaticResource SurfaceAltBrush}"/>
                                             <Setter Property="BorderBrush" Value="{StaticResource BorderBrushColor}"/>
-                                            <Setter Property="BorderThickness" Value="0,0,1,1"/>
+                                            <Setter Property="BorderThickness" Value="1,1,1,0"/>
                                             <Style.Triggers>
                                                 <DataTrigger Binding="{Binding IsToday}" Value="True">
                                                     <Setter Property="Background" Value="#14243B"/>
@@ -71,7 +71,7 @@
                                                 <DataTrigger Binding="{Binding IsSelected}" Value="True">
                                                     <Setter Property="Background" Value="#172033"/>
                                                     <Setter Property="BorderBrush" Value="{StaticResource AccentBrush}"/>
-                                                    <Setter Property="BorderThickness" Value="2"/>
+                                                    <Setter Property="BorderThickness" Value="2,2,2,0"/>
                                                 </DataTrigger>
                                             </Style.Triggers>
                                         </Style>
@@ -152,11 +152,11 @@
                                         Height="{Binding DataContext.CalendarBodyHeight, RelativeSource={RelativeSource AncestorType=UserControl}}"
                                         Background="#0F172A"
                                         BorderBrush="{StaticResource BorderBrushColor}"
-                                        BorderThickness="0,0,1,0">
+                                        BorderThickness="1,0,1,1">
                                     <Border.Style>
                                         <Style TargetType="Border">
                                             <Setter Property="BorderBrush" Value="{StaticResource BorderBrushColor}"/>
-                                            <Setter Property="BorderThickness" Value="0,0,1,0"/>
+                                            <Setter Property="BorderThickness" Value="1,0,1,1"/>
                                             <Setter Property="Background" Value="#0F172A"/>
                                             <Style.Triggers>
                                                 <DataTrigger Binding="{Binding IsToday}" Value="True">
@@ -164,7 +164,7 @@
                                                 </DataTrigger>
                                                 <DataTrigger Binding="{Binding IsSelected}" Value="True">
                                                     <Setter Property="BorderBrush" Value="{StaticResource AccentBrush}"/>
-                                                    <Setter Property="BorderThickness" Value="2"/>
+                                                    <Setter Property="BorderThickness" Value="2,0,2,2"/>
                                                     <Setter Property="Background" Value="#122136"/>
                                                 </DataTrigger>
                                             </Style.Triggers>

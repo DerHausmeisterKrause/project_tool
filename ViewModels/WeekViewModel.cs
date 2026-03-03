@@ -39,6 +39,21 @@ public class WeekViewModel : ObservableObject
     public string WeekRangeLabel => $"{WeekStart:dd.MM.yyyy} - {WeekStart.AddDays(6):dd.MM.yyyy}";
     public ObservableCollection<WeekDayGroup> Days { get; } = new();
 
+    private DateTime _selectedDate;
+    public DateTime SelectedDate
+    {
+        get => _selectedDate;
+        set
+        {
+            if (Set(ref _selectedDate, value.Date))
+            {
+                var day = Days.FirstOrDefault(d => d.DayDate.Date == _selectedDate.Date);
+                if (day != null && !ReferenceEquals(day, SelectedDay))
+                    SelectedDay = day;
+            }
+        }
+    }
+
     private WeekDayGroup? _selectedDay;
     public WeekDayGroup? SelectedDay
     {
@@ -47,6 +62,9 @@ public class WeekViewModel : ObservableObject
         {
             if (Set(ref _selectedDay, value))
             {
+                if (value != null && value.DayDate.Date != SelectedDate.Date)
+                    Set(ref _selectedDate, value.DayDate.Date, nameof(SelectedDate));
+
                 foreach (var d in Days) d.IsSelected = d == value;
                 Raise(nameof(SelectedDayType));
                 Raise(nameof(SelectedIsHo));
@@ -88,7 +106,11 @@ public class WeekViewModel : ObservableObject
         PreviousWeekCommand = new RelayCommand(() => { WeekStart = WeekStart.AddDays(-7); LoadWeek(); });
         NextWeekCommand = new RelayCommand(() => { WeekStart = WeekStart.AddDays(7); LoadWeek(); });
         CurrentWeekCommand = new RelayCommand(() => { WeekStart = StartOfWeek(DateTime.Today); LoadWeek(); });
-        SelectDayCommand = new RelayCommand<WeekDayGroup>(d => SelectedDay = d, d => d != null);
+        SelectDayCommand = new RelayCommand<WeekDayGroup>(d =>
+        {
+            if (d == null) return;
+            SelectedDate = d.DayDate.Date;
+        }, d => d != null);
         OpenCalendarItemCommand = new RelayCommand<WeekCalendarItem>(OpenCalendarItem, i => i != null);
         OpenTicketUrlCommand = new RelayCommand<string>(OpenTicketUrlFromWeek, url => !string.IsNullOrWhiteSpace(url));
         SetDayTypeNormalCommand = new RelayCommand(() => SetDayType("Normal"), () => SelectedDay != null);
@@ -128,9 +150,7 @@ public class WeekViewModel : ObservableObject
     {
         if (item == null) return;
 
-        var dayMatch = Days.FirstOrDefault(d => d.DayDate.Date == item.SegmentStart.Date);
-        if (dayMatch != null)
-            SelectedDay = dayMatch;
+        SelectedDate = item.SegmentStart.Date;
 
         var main = ServiceLocator.MainViewModel;
         main.SelectedView = main.TodayViewModel;
