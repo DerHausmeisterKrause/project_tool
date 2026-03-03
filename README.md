@@ -48,3 +48,11 @@ Verhalten:
 Hinweis zu `CS7065` ("Symbol-Stream weist nicht das erwartete Format auf"):
 - Dieser Fehler entsteht bei ungültigen `.ico` Dateien, wenn sie als `ApplicationIcon` kompiliert werden.
 - Deshalb wurde die compile-time Icon-Einbindung entfernt.
+
+
+### Build-Fehler CS7065 (Win32-Ressourcen)
+Falls weiterhin `CS7065` auftritt:
+1. `bin/` und `obj/` im Projektordner löschen.
+2. `dotnet restore` und `dotnet build -c Release` erneut ausführen.
+
+Hinweis: Das Projekt deaktiviert die Win32-Manifest-Erzeugung (`NoWin32Manifest=true`), damit fehlerhafte lokale Win32/Icon-Resource-Streams den Build nicht mehr blockieren.
