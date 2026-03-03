@@ -79,10 +79,20 @@
         <Setter Property="BorderBrush" Value="{StaticResource BorderBrushColor}"/>
         <Setter Property="BorderThickness" Value="1"/>
         <Setter Property="Padding" Value="8,4"/>
+        <Setter Property="TextElement.Foreground" Value="{StaticResource TextBrush}"/>
         <Setter Property="Margin" Value="0,2,0,8"/>
         <Setter Property="ItemContainerStyle" Value="{StaticResource ComboBoxItemDarkStyle}"/>
         <Setter Property="VerticalContentAlignment" Value="Center"/>
         <Setter Property="HorizontalContentAlignment" Value="Left"/>
+        <Style.Triggers>
+            <Trigger Property="IsEnabled" Value="False">
+                <Setter Property="Background" Value="#1F2937"/>
+                <Setter Property="Foreground" Value="#CBD5E1"/>
+                <Setter Property="TextElement.Foreground" Value="#CBD5E1"/>
+                <Setter Property="BorderBrush" Value="{StaticResource BorderBrushColor}"/>
+                <Setter Property="Opacity" Value="1"/>
+            </Trigger>
+        </Style.Triggers>
         
     </Style>
 

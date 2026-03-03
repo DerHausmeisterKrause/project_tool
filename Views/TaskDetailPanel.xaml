@@ -67,8 +67,8 @@
                                     <ColumnDefinition Width="90"/>
                                 </Grid.ColumnDefinitions>
                                 <DatePicker Grid.Column="0" SelectedDate="{Binding NewSegmentDate, UpdateSourceTrigger=PropertyChanged}"/>
-                                <ComboBox Grid.Column="1" Margin="6,0,0,0" ItemsSource="{Binding TimeOptions}" SelectedItem="{Binding NewSegmentStartTime, UpdateSourceTrigger=PropertyChanged}"/>
-                                <ComboBox Grid.Column="2" Margin="6,0,0,0" ItemsSource="{Binding TimeOptions}" SelectedItem="{Binding NewSegmentEndTime, UpdateSourceTrigger=PropertyChanged}"/>
+                                <ComboBox Grid.Column="1" Margin="6,0,0,0" Background="{StaticResource SurfaceAltBrush}" Foreground="{StaticResource TextBrush}" BorderBrush="{StaticResource BorderBrushColor}" ItemsSource="{Binding TimeOptions}" SelectedItem="{Binding NewSegmentStartTime, UpdateSourceTrigger=PropertyChanged}"/>
+                                <ComboBox Grid.Column="2" Margin="6,0,0,0" Background="{StaticResource SurfaceAltBrush}" Foreground="{StaticResource TextBrush}" BorderBrush="{StaticResource BorderBrushColor}" ItemsSource="{Binding TimeOptions}" SelectedItem="{Binding NewSegmentEndTime, UpdateSourceTrigger=PropertyChanged}"/>
                             </Grid>
                             <TextBlock Text="Kurzbeschreibung" Foreground="{StaticResource MutedTextBrush}" Margin="0,8,0,2"/>
                             <TextBox Margin="0,0,0,0" Text="{Binding NewSegmentNote, UpdateSourceTrigger=PropertyChanged}"/>
@@ -94,8 +94,8 @@
                                                 <ColumnDefinition Width="90"/>
                                             </Grid.ColumnDefinitions>
                                             <DatePicker Grid.Column="0" SelectedDate="{Binding SegmentDate, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
-                                            <ComboBox Grid.Column="1" Margin="6,0,0,0" ItemsSource="{Binding DataContext.TimeOptions, RelativeSource={RelativeSource AncestorType=ItemsControl}}" SelectedItem="{Binding StartTimeText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
-                                            <ComboBox Grid.Column="2" Margin="6,0,0,0" ItemsSource="{Binding DataContext.TimeOptions, RelativeSource={RelativeSource AncestorType=ItemsControl}}" SelectedItem="{Binding EndTimeText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
+                                            <ComboBox Grid.Column="1" Margin="6,0,0,0" Background="{StaticResource SurfaceAltBrush}" Foreground="{StaticResource TextBrush}" BorderBrush="{StaticResource BorderBrushColor}" ItemsSource="{Binding DataContext.TimeOptions, RelativeSource={RelativeSource AncestorType=ItemsControl}}" SelectedItem="{Binding StartTimeText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
+                                            <ComboBox Grid.Column="2" Margin="6,0,0,0" Background="{StaticResource SurfaceAltBrush}" Foreground="{StaticResource TextBrush}" BorderBrush="{StaticResource BorderBrushColor}" ItemsSource="{Binding DataContext.TimeOptions, RelativeSource={RelativeSource AncestorType=ItemsControl}}" SelectedItem="{Binding EndTimeText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
                                         </Grid>
 
                                         <TextBlock Text="Kurzbeschreibung" Foreground="{StaticResource MutedTextBrush}" Margin="0,8,0,2"/>
