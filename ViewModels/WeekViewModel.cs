@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Globalization;
 using TaskTool.Infrastructure;
 using TaskTool.Models;
 using TaskTool.Services;
@@ -11,7 +12,22 @@ public class WeekViewModel : ObservableObject
     private readonly WorkDayService _workDays;
     private readonly SettingsService _settings;
 
+    private const int CalendarStartHour = 6;
+    private const int CalendarEndHour = 20;
+    private const double PixelsPerMinuteConst = 1.2;
+    private const double DayColumnWidthConst = 220;
+    private const double DayInnerPadding = 4;
+    private const double OverlapGap = 4;
+
     public string Title => "Kalender";
+
+    public double TimeColumnWidth => 72;
+    public double DayColumnWidth => DayColumnWidthConst;
+    public double PixelsPerMinute => PixelsPerMinuteConst;
+    public double CalendarBodyHeight => (CalendarEndHour - CalendarStartHour) * 60 * PixelsPerMinute;
+
+    public ObservableCollection<TimeAxisLabel> TimeAxisLabels { get; } = new();
+    public ObservableCollection<TimeGridLine> TimeGridLines { get; } = new();
 
     private DateTime _weekStart;
     public DateTime WeekStart
@@ -66,6 +82,8 @@ public class WeekViewModel : ObservableObject
         _workDays = workDays;
         _settings = settings;
 
+        BuildTimeScale();
+
         WeekStart = StartOfWeek(DateTime.Today);
         PreviousWeekCommand = new RelayCommand(() => { WeekStart = WeekStart.AddDays(-7); LoadWeek(); });
         NextWeekCommand = new RelayCommand(() => { WeekStart = WeekStart.AddDays(7); LoadWeek(); });
@@ -80,6 +98,30 @@ public class WeekViewModel : ObservableObject
         ToggleBrCommand = new RelayCommand(() => { if (SelectedDay == null) return; SelectedDay.IsBr = !SelectedDay.IsBr; SaveSelectedDay(); }, () => SelectedDay != null);
 
         LoadWeek();
+    }
+
+    private void BuildTimeScale()
+    {
+        TimeAxisLabels.Clear();
+        TimeGridLines.Clear();
+
+        var totalMinutes = (CalendarEndHour - CalendarStartHour) * 60;
+        for (var minute = 0; minute <= totalMinutes; minute += 30)
+        {
+            var time = TimeSpan.FromHours(CalendarStartHour).Add(TimeSpan.FromMinutes(minute));
+            var isHour = minute % 60 == 0;
+            var top = minute * PixelsPerMinute;
+
+            TimeGridLines.Add(new TimeGridLine { Top = top, IsHour = isHour });
+            if (isHour)
+            {
+                TimeAxisLabels.Add(new TimeAxisLabel
+                {
+                    Label = $"{time.Hours:00}:00",
+                    Top = top - 8
+                });
+            }
+        }
     }
 
     private void OpenCalendarItem(WeekCalendarItem? item)
@@ -155,6 +197,7 @@ public class WeekViewModel : ObservableObject
                     {
                         TaskId = pair.Task.Id,
                         TaskTitle = pair.Task.Title,
+                        TaskDescription = pair.Task.Description,
                         TicketUrl = pair.Task.TicketUrl,
                         SegmentId = pair.Segment.Id,
                         SegmentStart = pair.Segment.StartLocal,
@@ -179,6 +222,7 @@ public class WeekViewModel : ObservableObject
                     {
                         TaskId = task.Id,
                         TaskTitle = task.Title,
+                        TaskDescription = task.Description,
                         TicketUrl = task.TicketUrl,
                         SegmentId = 0,
                         SegmentStart = task.StartLocal ?? day,
@@ -190,11 +234,13 @@ public class WeekViewModel : ObservableObject
                 }
             }
 
+            LayoutDayItems(day.Date, calendarItems);
+
             Days.Add(new WeekDayGroup
             {
                 DayDate = day,
-                DayLabel = day.ToString("ddd dd.MM"),
-                CalendarItems = new ObservableCollection<WeekCalendarItem>(calendarItems),
+                DayLabel = day.ToString("ddd dd.MM", CultureInfo.CurrentCulture),
+                CalendarItems = new ObservableCollection<WeekCalendarItem>(calendarItems.OrderBy(c => c.DisplayTop)),
                 DayType = wd.DayType,
                 IsBr = wd.IsBr,
                 IsHo = wd.IsHo,
@@ -203,6 +249,98 @@ public class WeekViewModel : ObservableObject
         }
 
         SelectedDay = ResolveSelectedDay(previousSelectionDate);
+    }
+
+    private void LayoutDayItems(DateTime dayDate, List<WeekCalendarItem> items)
+    {
+        var rangeStart = dayDate.Date.AddHours(CalendarStartHour);
+        var rangeEnd = dayDate.Date.AddHours(CalendarEndHour);
+
+        foreach (var item in items)
+        {
+            item.DisplayStart = item.SegmentStart < rangeStart ? rangeStart : item.SegmentStart;
+            item.DisplayEnd = item.SegmentEnd > rangeEnd ? rangeEnd : item.SegmentEnd;
+        }
+
+        var visible = items
+            .Where(i => i.DisplayEnd > i.DisplayStart)
+            .OrderBy(i => i.DisplayStart)
+            .ThenBy(i => i.DisplayEnd)
+            .ToList();
+
+        var group = new List<WeekCalendarItem>();
+        var groupEnd = DateTime.MinValue;
+
+        foreach (var item in visible)
+        {
+            if (group.Count == 0)
+            {
+                group.Add(item);
+                groupEnd = item.DisplayEnd;
+                continue;
+            }
+
+            if (item.DisplayStart < groupEnd)
+            {
+                group.Add(item);
+                if (item.DisplayEnd > groupEnd) groupEnd = item.DisplayEnd;
+                continue;
+            }
+
+            AssignOverlapLayout(group, rangeStart);
+            group.Clear();
+            group.Add(item);
+            groupEnd = item.DisplayEnd;
+        }
+
+        if (group.Count > 0)
+            AssignOverlapLayout(group, rangeStart);
+
+        foreach (var item in items.Where(i => i.DisplayEnd <= i.DisplayStart))
+        {
+            item.DisplayWidth = 0;
+            item.DisplayHeight = 0;
+        }
+    }
+
+    private void AssignOverlapLayout(List<WeekCalendarItem> group, DateTime rangeStart)
+    {
+        var columnsEnd = new List<DateTime>();
+
+        foreach (var item in group.OrderBy(i => i.DisplayStart).ThenBy(i => i.DisplayEnd))
+        {
+            var placed = false;
+            for (var col = 0; col < columnsEnd.Count; col++)
+            {
+                if (item.DisplayStart >= columnsEnd[col])
+                {
+                    item.OverlapColumn = col;
+                    columnsEnd[col] = item.DisplayEnd;
+                    placed = true;
+                    break;
+                }
+            }
+
+            if (!placed)
+            {
+                item.OverlapColumn = columnsEnd.Count;
+                columnsEnd.Add(item.DisplayEnd);
+            }
+        }
+
+        var columnCount = Math.Max(1, columnsEnd.Count);
+        var availableWidth = DayColumnWidth - (DayInnerPadding * 2);
+        var blockWidth = Math.Max(46, (availableWidth - ((columnCount - 1) * OverlapGap)) / columnCount);
+
+        foreach (var item in group)
+        {
+            item.OverlapColumnCount = columnCount;
+            item.DisplayLeft = DayInnerPadding + (item.OverlapColumn * (blockWidth + OverlapGap));
+            item.DisplayWidth = blockWidth;
+            item.DisplayTop = (item.DisplayStart - rangeStart).TotalMinutes * PixelsPerMinute;
+            item.DisplayHeight = Math.Max(24, (item.DisplayEnd - item.DisplayStart).TotalMinutes * PixelsPerMinute - 2);
+            item.TimeLabel = $"{item.SegmentStart:HH:mm} - {item.SegmentEnd:HH:mm}";
+        }
     }
 
     private WeekDayGroup ResolveSelectedDay(DateTime? previousSelectionDate)
@@ -222,7 +360,13 @@ public class WeekViewModel : ObservableObject
     }
 
     private static string Fmt(int minutes) => $"{minutes / 60}h {Math.Abs(minutes % 60):00}m";
-    private static DateTime StartOfWeek(DateTime date) => date.Date.AddDays(-((7 + (date.DayOfWeek - DayOfWeek.Monday)) % 7));
+
+    private static DateTime StartOfWeek(DateTime date)
+    {
+        var firstDay = CultureInfo.CurrentCulture.DateTimeFormat.FirstDayOfWeek;
+        var diff = (7 + (date.DayOfWeek - firstDay)) % 7;
+        return date.Date.AddDays(-diff);
+    }
 
     public void Refresh() => LoadWeek();
 
@@ -255,6 +399,7 @@ public class WeekCalendarItem
 {
     public Guid TaskId { get; set; }
     public string TaskTitle { get; set; } = string.Empty;
+    public string TaskDescription { get; set; } = string.Empty;
     public string TicketUrl { get; set; } = string.Empty;
     public long SegmentId { get; set; }
     public DateTime SegmentStart { get; set; }
@@ -262,4 +407,32 @@ public class WeekCalendarItem
     public int SegmentIndexDisplay { get; set; }
     public string TaskStatus { get; set; } = string.Empty;
     public string SegmentNote { get; set; } = string.Empty;
+
+    public DateTime DisplayStart { get; set; }
+    public DateTime DisplayEnd { get; set; }
+    public double DisplayTop { get; set; }
+    public double DisplayHeight { get; set; }
+    public double DisplayLeft { get; set; }
+    public double DisplayWidth { get; set; }
+    public int OverlapColumn { get; set; }
+    public int OverlapColumnCount { get; set; }
+    public string TimeLabel { get; set; } = string.Empty;
+
+    public string TooltipText =>
+        $"{TaskTitle}\n{TimeLabel}\nStatus: {TaskStatus}" +
+        (string.IsNullOrWhiteSpace(SegmentNote) ? string.Empty : $"\nNotiz: {SegmentNote}") +
+        (string.IsNullOrWhiteSpace(TaskDescription) ? string.Empty : $"\n{TaskDescription}") +
+        (string.IsNullOrWhiteSpace(TicketUrl) ? string.Empty : $"\nTicket: {TicketUrl}");
+}
+
+public class TimeAxisLabel
+{
+    public string Label { get; set; } = string.Empty;
+    public double Top { get; set; }
+}
+
+public class TimeGridLine
+{
+    public double Top { get; set; }
+    public bool IsHour { get; set; }
 }
