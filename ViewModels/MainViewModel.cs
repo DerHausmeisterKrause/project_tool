@@ -1,3 +1,5 @@
+using System;
+using System.Windows;
 using System.Collections.ObjectModel;
 using TaskTool.Infrastructure;
 using TaskTool.Services;
@@ -28,6 +30,17 @@ public class MainViewModel : ObservableObject
     }
 
     public bool IsTodaySelected => SelectedView is TodayViewModel;
+
+
+    public void NavigateToTodayAndOpenTask(Guid taskId)
+    {
+        SelectedView = TodayViewModel;
+
+        if (TodayViewModel.NavigateToTask(taskId))
+            return;
+
+        MessageBox.Show("Aufgabe nicht gefunden", "Kalender", MessageBoxButton.OK, MessageBoxImage.Warning);
+    }
 
     public MainViewModel(TaskService taskService, WorkDayService workDayService, SettingsService settingsService, NotificationService notifications, LoggerService logger)
     {
