@@ -96,4 +96,10 @@ public partial class ReminderWindow : Window
         NotificationClicked?.Invoke(this, _taskId);
         BeginHide();
     }
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern int GetWindowLong(IntPtr hWnd, int nIndex);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern int SetWindowLong(IntPtr hWnd, int nIndex, int dwNewLong);
 }
