@@ -41,6 +41,10 @@ Wenn eure Umgebung keine Binärdateien im Repo erlaubt, legt das Icon lokal ab:
 3. Build/Publish wie gewohnt ausführen.
 
 Verhalten:
-- **Mit** `Assets/Plenaro.ico` im Projektroot vor dem Build: wird in die App eingebettet und als Application-Icon (EXE/Taskleiste) sowie Fenster-Icon genutzt.
-- Alternativ kann `Assets/Plenaro.ico` auch neben der EXE liegen (`<publish>/Assets/Plenaro.ico`) — das Fenster lädt dieses Icon zur Laufzeit als Fallback.
+- Für maximale Build-Stabilität ist aktuell **kein compile-time ApplicationIcon** im `.csproj` gesetzt.
+- Optional kann `Assets/Plenaro.ico` neben der EXE liegen (`<publish>/Assets/Plenaro.ico`) — das Fenster lädt dieses Icon zur Laufzeit (siehe `MainWindow.xaml.cs`).
 - **Ohne** Icon-Datei: Build funktioniert weiterhin, es wird das Standard-Icon verwendet.
+
+Hinweis zu `CS7065` ("Symbol-Stream weist nicht das erwartete Format auf"):
+- Dieser Fehler entsteht bei ungültigen `.ico` Dateien, wenn sie als `ApplicationIcon` kompiliert werden.
+- Deshalb wurde die compile-time Icon-Einbindung entfernt.

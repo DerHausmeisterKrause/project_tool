@@ -19,7 +19,4 @@
     <PackageReference Include="Microsoft.Data.Sqlite" Version="8.0.8" />
   </ItemGroup>
 
-  <ItemGroup Condition="Exists('Assets\Plenaro.ico')">
-    <Resource Include="Assets\Plenaro.ico" />
-  </ItemGroup>
 </Project>
