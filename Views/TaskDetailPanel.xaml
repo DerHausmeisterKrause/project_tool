@@ -3,22 +3,6 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              Visibility="{Binding SelectedTask, Converter={StaticResource NullToVisibilityConverter}}"
              Background="{StaticResource BgBrush}">
-    <UserControl.Resources>
-        <Style TargetType="DatePickerTextBox" BasedOn="{StaticResource {x:Type DatePickerTextBox}}">
-            <Setter Property="Background" Value="{StaticResource SurfaceAltBrush}"/>
-            <Setter Property="Foreground" Value="{StaticResource TextBrush}"/>
-            <Setter Property="TextElement.Foreground" Value="{StaticResource TextBrush}"/>
-            <Setter Property="BorderBrush" Value="{StaticResource BorderBrushColor}"/>
-        </Style>
-
-        <Style x:Key="SegmentDatePickerStyle" TargetType="DatePicker" BasedOn="{StaticResource {x:Type DatePicker}}">
-            <Setter Property="Background" Value="{StaticResource SurfaceAltBrush}"/>
-            <Setter Property="Foreground" Value="{StaticResource TextBrush}"/>
-            <Setter Property="TextElement.Foreground" Value="{StaticResource TextBrush}"/>
-            <Setter Property="BorderBrush" Value="{StaticResource BorderBrushColor}"/>
-        </Style>
-    </UserControl.Resources>
-
     <ScrollViewer VerticalScrollBarVisibility="Auto" Background="Transparent">
         <StackPanel>
             <Border Style="{StaticResource CardStyle}">
@@ -82,7 +66,7 @@
                                     <ColumnDefinition Width="90"/>
                                     <ColumnDefinition Width="90"/>
                                 </Grid.ColumnDefinitions>
-                                <DatePicker Grid.Column="0" Style="{StaticResource SegmentDatePickerStyle}" SelectedDate="{Binding NewSegmentDate, UpdateSourceTrigger=PropertyChanged}"/>
+                                <DatePicker Grid.Column="0" Style="{StaticResource DarkDatePickerStyle}" SelectedDate="{Binding NewSegmentDate, UpdateSourceTrigger=PropertyChanged}"/>
                                 <ComboBox Grid.Column="1" Margin="6,0,0,0" Style="{StaticResource DarkComboBoxStyle}" ItemsSource="{Binding TimeOptions}" SelectedItem="{Binding NewSegmentStartTime, UpdateSourceTrigger=PropertyChanged}"/>
                                 <ComboBox Grid.Column="2" Margin="6,0,0,0" Style="{StaticResource DarkComboBoxStyle}" ItemsSource="{Binding TimeOptions}" SelectedItem="{Binding NewSegmentEndTime, UpdateSourceTrigger=PropertyChanged}"/>
                             </Grid>
@@ -109,7 +93,7 @@
                                                 <ColumnDefinition Width="90"/>
                                                 <ColumnDefinition Width="90"/>
                                             </Grid.ColumnDefinitions>
-                                            <DatePicker Grid.Column="0" Style="{StaticResource SegmentDatePickerStyle}" SelectedDate="{Binding SegmentDate, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
+                                            <DatePicker Grid.Column="0" Style="{StaticResource DarkDatePickerStyle}" SelectedDate="{Binding SegmentDate, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
                                             <ComboBox Grid.Column="1" Margin="6,0,0,0" Style="{StaticResource DarkComboBoxStyle}" ItemsSource="{Binding DataContext.TimeOptions, RelativeSource={RelativeSource AncestorType=ItemsControl}}" SelectedItem="{Binding StartTimeText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
                                             <ComboBox Grid.Column="2" Margin="6,0,0,0" Style="{StaticResource DarkComboBoxStyle}" ItemsSource="{Binding DataContext.TimeOptions, RelativeSource={RelativeSource AncestorType=ItemsControl}}" SelectedItem="{Binding EndTimeText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
                                         </Grid>
