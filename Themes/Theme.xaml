@@ -46,11 +46,20 @@
         <Setter Property="Foreground" Value="{StaticResource TextBrush}"/>
         <Setter Property="Background" Value="{StaticResource SurfaceAltBrush}"/>
         <Setter Property="Padding" Value="8,4"/>
-        <Style.Triggers>
-            <Trigger Property="IsHighlighted" Value="True"><Setter Property="Background" Value="#172033"/></Trigger>
-            <Trigger Property="IsSelected" Value="True"><Setter Property="Background" Value="{StaticResource AccentBrush}"/><Setter Property="Foreground" Value="#0B1220"/></Trigger>
-            <Trigger Property="IsEnabled" Value="False"><Setter Property="Opacity" Value="0.65"/></Trigger>
-        </Style.Triggers>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ComboBoxItem">
+                    <Border x:Name="ItemRoot" Background="{TemplateBinding Background}" Padding="{TemplateBinding Padding}">
+                        <ContentPresenter HorizontalAlignment="Left" VerticalAlignment="Center"/>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsHighlighted" Value="True"><Setter TargetName="ItemRoot" Property="Background" Value="#172033"/></Trigger>
+                        <Trigger Property="IsSelected" Value="True"><Setter TargetName="ItemRoot" Property="Background" Value="{StaticResource AccentBrush}"/><Setter Property="Foreground" Value="#0B1220"/></Trigger>
+                        <Trigger Property="IsEnabled" Value="False"><Setter Property="Opacity" Value="0.65"/></Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
     </Style>
 
     <Style TargetType="ComboBox">
@@ -61,6 +70,7 @@
         <Setter Property="Padding" Value="8,4"/>
         <Setter Property="Margin" Value="0,2,0,8"/>
         <Setter Property="ItemContainerStyle" Value="{StaticResource ComboBoxItemDarkStyle}"/>
+        <Setter Property="VerticalContentAlignment" Value="Center"/>
         
     </Style>
 
@@ -75,6 +85,20 @@
     <Style TargetType="DatePickerTextBox">
         <Setter Property="Background" Value="{StaticResource SurfaceAltBrush}"/>
         <Setter Property="Foreground" Value="{StaticResource TextBrush}"/>
+    </Style>
+
+    <Style TargetType="ScrollViewer">
+        <Setter Property="Background" Value="{StaticResource SurfaceAltBrush}"/>
+        <Setter Property="Foreground" Value="{StaticResource TextBrush}"/>
+    </Style>
+
+    <Style TargetType="ScrollBar">
+        <Setter Property="Background" Value="{StaticResource SurfaceAltBrush}"/>
+        <Setter Property="Foreground" Value="{StaticResource TextBrush}"/>
+    </Style>
+
+    <Style TargetType="Thumb">
+        <Setter Property="Background" Value="#334155"/>
     </Style>
 
     <Style TargetType="Calendar">
