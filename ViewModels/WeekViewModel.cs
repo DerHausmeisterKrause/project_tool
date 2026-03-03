@@ -128,6 +128,10 @@ public class WeekViewModel : ObservableObject
     {
         if (item == null) return;
 
+        var dayMatch = Days.FirstOrDefault(d => d.DayDate.Date == item.SegmentStart.Date);
+        if (dayMatch != null)
+            SelectedDay = dayMatch;
+
         var main = ServiceLocator.MainViewModel;
         main.SelectedView = main.TodayViewModel;
 
@@ -240,6 +244,7 @@ public class WeekViewModel : ObservableObject
             {
                 DayDate = day,
                 DayLabel = day.ToString("ddd dd.MM", CultureInfo.CurrentCulture),
+                IsToday = day.Date == DateTime.Today,
                 CalendarItems = new ObservableCollection<WeekCalendarItem>(calendarItems.OrderBy(c => c.DisplayTop)),
                 DayType = wd.DayType,
                 IsBr = wd.IsBr,
@@ -340,6 +345,9 @@ public class WeekViewModel : ObservableObject
             item.DisplayTop = (item.DisplayStart - rangeStart).TotalMinutes * PixelsPerMinute;
             item.DisplayHeight = Math.Max(24, (item.DisplayEnd - item.DisplayStart).TotalMinutes * PixelsPerMinute - 2);
             item.TimeLabel = $"{item.SegmentStart:HH:mm} - {item.SegmentEnd:HH:mm}";
+            item.IsCompact = item.DisplayHeight < 42;
+            item.ShowNote = item.DisplayHeight >= 58 && !string.IsNullOrWhiteSpace(item.SegmentNote);
+            item.ShowTime = item.DisplayHeight >= 32;
         }
     }
 
@@ -393,6 +401,54 @@ public class WeekDayGroup : ObservableObject
 
     private bool _isSelected;
     public bool IsSelected { get => _isSelected; set => Set(ref _isSelected, value); }
+
+    private bool _isToday;
+    public bool IsToday { get => _isToday; set => Set(ref _isToday, value); }
+}
+
+public class WeekCalendarItem
+{
+    public Guid TaskId { get; set; }
+    public string TaskTitle { get; set; } = string.Empty;
+    public string TaskDescription { get; set; } = string.Empty;
+    public string TicketUrl { get; set; } = string.Empty;
+    public long SegmentId { get; set; }
+    public DateTime SegmentStart { get; set; }
+    public DateTime SegmentEnd { get; set; }
+    public int SegmentIndexDisplay { get; set; }
+    public string TaskStatus { get; set; } = string.Empty;
+    public string SegmentNote { get; set; } = string.Empty;
+
+    public DateTime DisplayStart { get; set; }
+    public DateTime DisplayEnd { get; set; }
+    public double DisplayTop { get; set; }
+    public double DisplayHeight { get; set; }
+    public double DisplayLeft { get; set; }
+    public double DisplayWidth { get; set; }
+    public int OverlapColumn { get; set; }
+    public int OverlapColumnCount { get; set; }
+    public string TimeLabel { get; set; } = string.Empty;
+    public bool IsCompact { get; set; }
+    public bool ShowNote { get; set; }
+    public bool ShowTime { get; set; }
+
+    public string TooltipText =>
+        $"{TaskTitle}\n{TimeLabel}\nStatus: {TaskStatus}" +
+        (string.IsNullOrWhiteSpace(SegmentNote) ? string.Empty : $"\nNotiz: {SegmentNote}") +
+        (string.IsNullOrWhiteSpace(TaskDescription) ? string.Empty : $"\n{TaskDescription}") +
+        (string.IsNullOrWhiteSpace(TicketUrl) ? string.Empty : $"\nTicket: {TicketUrl}");
+}
+
+public class TimeAxisLabel
+{
+    public string Label { get; set; } = string.Empty;
+    public double Top { get; set; }
+}
+
+public class TimeGridLine
+{
+    public double Top { get; set; }
+    public bool IsHour { get; set; }
 }
 
 public class WeekCalendarItem
