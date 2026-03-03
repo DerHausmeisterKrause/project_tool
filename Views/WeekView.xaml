@@ -46,6 +46,39 @@
 
                     <Border Grid.Row="0" Grid.Column="0" Background="{StaticResource SurfaceAltBrush}" BorderBrush="{StaticResource BorderBrushColor}" BorderThickness="0,0,1,1" Height="58"/>
 
+                    <ItemsControl Grid.RowSpan="2" Grid.Column="1" ItemsSource="{Binding Days}" IsHitTestVisible="False" Panel.ZIndex="10">
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <StackPanel Orientation="Horizontal"/>
+                            </ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Border Width="{Binding DataContext.DayColumnWidth, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                        Height="{Binding DataContext.FullDayColumnHeight, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                        Background="Transparent"
+                                        BorderBrush="{StaticResource BorderBrushColor}"
+                                        BorderThickness="1"
+                                        CornerRadius="8">
+                                    <Border.Style>
+                                        <Style TargetType="Border">
+                                            <Setter Property="Background" Value="Transparent"/>
+                                            <Setter Property="BorderBrush" Value="{StaticResource BorderBrushColor}"/>
+                                            <Setter Property="BorderThickness" Value="1"/>
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding IsSelected}" Value="True">
+                                                    <Setter Property="BorderBrush" Value="{StaticResource AccentBrush}"/>
+                                                    <Setter Property="BorderThickness" Value="2"/>
+                                                    <Setter Property="Background" Value="#141F33"/>
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </Border.Style>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+
                     <ItemsControl Grid.Row="0" Grid.Column="1" ItemsSource="{Binding Days}">
                         <ItemsControl.ItemsPanel>
                             <ItemsPanelTemplate>
@@ -243,6 +276,12 @@
                             </DataTemplate>
                         </ItemsControl.ItemTemplate>
                     </ItemsControl>
+
+                    <Canvas Grid.Row="1" Grid.Column="1" Height="{Binding CalendarBodyHeight}" Width="{Binding DayAreaWidth}" IsHitTestVisible="False" Panel.ZIndex="20"
+                            Visibility="{Binding ShowNowIndicator, Converter={StaticResource BooleanToVisibilityConverter}}">
+                        <Rectangle Canvas.Left="0" Canvas.Top="{Binding NowLineTop}" Width="{Binding DayAreaWidth}" Height="2" Fill="White" Opacity="0.85"/>
+                        <Ellipse Canvas.Left="{Binding NowMarkerLeft}" Canvas.Top="{Binding NowMarkerTop}" Width="8" Height="8" Fill="White" Opacity="0.95"/>
+                    </Canvas>
                 </Grid>
             </ScrollViewer>
         </Border>

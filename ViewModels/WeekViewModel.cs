@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using System.Globalization;
+using System.Windows.Threading;
 using TaskTool.Infrastructure;
 using TaskTool.Models;
 using TaskTool.Services;
@@ -25,9 +26,25 @@ public class WeekViewModel : ObservableObject
     public double DayColumnWidth => DayColumnWidthConst;
     public double PixelsPerMinute => PixelsPerMinuteConst;
     public double CalendarBodyHeight => (CalendarEndHour - CalendarStartHour) * 60 * PixelsPerMinute;
+    public double FullDayColumnHeight => CalendarBodyHeight + 58;
+    public double DayAreaWidth => DayColumnWidth * 7;
 
     public ObservableCollection<TimeAxisLabel> TimeAxisLabels { get; } = new();
     public ObservableCollection<TimeGridLine> TimeGridLines { get; } = new();
+
+    private readonly DispatcherTimer _nowIndicatorTimer = new();
+
+    private bool _showNowIndicator;
+    public bool ShowNowIndicator { get => _showNowIndicator; set => Set(ref _showNowIndicator, value); }
+
+    private double _nowLineTop;
+    public double NowLineTop { get => _nowLineTop; set => Set(ref _nowLineTop, value); }
+
+    private double _nowMarkerLeft;
+    public double NowMarkerLeft { get => _nowMarkerLeft; set => Set(ref _nowMarkerLeft, value); }
+
+    private double _nowMarkerTop;
+    public double NowMarkerTop { get => _nowMarkerTop; set => Set(ref _nowMarkerTop, value); }
 
     private DateTime _weekStart;
     public DateTime WeekStart
@@ -119,7 +136,12 @@ public class WeekViewModel : ObservableObject
         ToggleHoCommand = new RelayCommand(() => { if (SelectedDay == null) return; SelectedDay.IsHo = !SelectedDay.IsHo; SaveSelectedDay(); }, () => SelectedDay != null);
         ToggleBrCommand = new RelayCommand(() => { if (SelectedDay == null) return; SelectedDay.IsBr = !SelectedDay.IsBr; SaveSelectedDay(); }, () => SelectedDay != null);
 
+        _nowIndicatorTimer.Interval = TimeSpan.FromSeconds(30);
+        _nowIndicatorTimer.Tick += (_, _) => UpdateNowIndicator();
+        _nowIndicatorTimer.Start();
+
         LoadWeek();
+        UpdateNowIndicator();
     }
 
     private void BuildTimeScale()
@@ -274,6 +296,145 @@ public class WeekViewModel : ObservableObject
         }
 
         SelectedDay = ResolveSelectedDay(previousSelectionDate);
+        UpdateNowIndicator();
+    }
+
+    private void UpdateNowIndicator()
+    {
+        var now = DateTime.Now;
+        var today = now.Date;
+        var weekEnd = WeekStart.Date.AddDays(6);
+        if (today < WeekStart.Date || today > weekEnd)
+        {
+            ShowNowIndicator = false;
+            return;
+        }
+
+        var start = today.AddHours(CalendarStartHour);
+        var minutesFromStart = (now - start).TotalMinutes;
+        var rangeMinutes = (CalendarEndHour - CalendarStartHour) * 60;
+
+        if (minutesFromStart < 0 || minutesFromStart > rangeMinutes)
+        {
+            ShowNowIndicator = false;
+            return;
+        }
+
+        var dayIndex = (int)(today - WeekStart.Date).TotalDays;
+        NowLineTop = minutesFromStart * PixelsPerMinute;
+        NowMarkerLeft = dayIndex * DayColumnWidth - 4;
+        NowMarkerTop = NowLineTop - 3;
+        ShowNowIndicator = true;
+    }
+
+    private void LayoutDayItems(DateTime dayDate, List<WeekCalendarItem> items)
+    {
+        var rangeStart = dayDate.Date.AddHours(CalendarStartHour);
+        var rangeEnd = dayDate.Date.AddHours(CalendarEndHour);
+
+        foreach (var item in items)
+        {
+            item.DisplayStart = item.SegmentStart < rangeStart ? rangeStart : item.SegmentStart;
+            item.DisplayEnd = item.SegmentEnd > rangeEnd ? rangeEnd : item.SegmentEnd;
+        }
+
+        var visible = items
+            .Where(i => i.DisplayEnd > i.DisplayStart)
+            .OrderBy(i => i.DisplayStart)
+            .ThenBy(i => i.DisplayEnd)
+            .ToList();
+
+        var group = new List<WeekCalendarItem>();
+        var groupEnd = DateTime.MinValue;
+
+        foreach (var item in visible)
+        {
+            if (group.Count == 0)
+            {
+                group.Add(item);
+                groupEnd = item.DisplayEnd;
+                continue;
+            }
+
+            if (item.DisplayStart < groupEnd)
+            {
+                group.Add(item);
+                if (item.DisplayEnd > groupEnd) groupEnd = item.DisplayEnd;
+                continue;
+            }
+
+            AssignOverlapLayout(group, rangeStart);
+            group.Clear();
+            group.Add(item);
+            groupEnd = item.DisplayEnd;
+        }
+
+        if (group.Count > 0)
+            AssignOverlapLayout(group, rangeStart);
+
+        foreach (var item in items.Where(i => i.DisplayEnd <= i.DisplayStart))
+        {
+            item.DisplayWidth = 0;
+            item.DisplayHeight = 0;
+        }
+    }
+
+    private void AssignOverlapLayout(List<WeekCalendarItem> group, DateTime rangeStart)
+    {
+        var columnsEnd = new List<DateTime>();
+
+        foreach (var item in group.OrderBy(i => i.DisplayStart).ThenBy(i => i.DisplayEnd))
+        {
+            var placed = false;
+            for (var col = 0; col < columnsEnd.Count; col++)
+            {
+                if (item.DisplayStart >= columnsEnd[col])
+                {
+                    item.OverlapColumn = col;
+                    columnsEnd[col] = item.DisplayEnd;
+                    placed = true;
+                    break;
+                }
+            }
+
+            if (!placed)
+            {
+                item.OverlapColumn = columnsEnd.Count;
+                columnsEnd.Add(item.DisplayEnd);
+            }
+        }
+
+        var columnCount = Math.Max(1, columnsEnd.Count);
+        var availableWidth = DayColumnWidth - (DayInnerPadding * 2);
+        var blockWidth = Math.Max(46, (availableWidth - ((columnCount - 1) * OverlapGap)) / columnCount);
+
+        foreach (var item in group)
+        {
+            item.OverlapColumnCount = columnCount;
+            item.DisplayLeft = DayInnerPadding + (item.OverlapColumn * (blockWidth + OverlapGap));
+            item.DisplayWidth = blockWidth;
+            item.DisplayTop = (item.DisplayStart - rangeStart).TotalMinutes * PixelsPerMinute;
+            item.DisplayHeight = Math.Max(28, (item.DisplayEnd - item.DisplayStart).TotalMinutes * PixelsPerMinute - 2);
+            item.TimeLabel = $"{item.SegmentStart:HH:mm} - {item.SegmentEnd:HH:mm}";
+            item.IsCompact = item.DisplayHeight < 46;
+            item.ShowNote = item.DisplayHeight >= 64 && !string.IsNullOrWhiteSpace(item.SegmentNote);
+            item.ShowTime = item.DisplayHeight >= 34;
+        }
+
+        // Prevent visual overlap caused by enforced minimum height.
+        // We only adjust vertical rendering position, not the actual segment time data.
+        foreach (var colGroup in group.GroupBy(g => g.OverlapColumn))
+        {
+            var colItems = colGroup.OrderBy(i => i.DisplayTop).ToList();
+            for (var i = 1; i < colItems.Count; i++)
+            {
+                var prev = colItems[i - 1];
+                var current = colItems[i];
+                var minTop = prev.DisplayTop + prev.DisplayHeight + 2;
+                if (current.DisplayTop < minTop)
+                    current.DisplayTop = minTop;
+            }
+        }
     }
 
     private void LayoutDayItems(DateTime dayDate, List<WeekCalendarItem> items)
