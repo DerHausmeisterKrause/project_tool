@@ -45,10 +45,17 @@ public partial class App : Application
     {
         try
         {
-            Resources.MergedDictionaries.Add(new ResourceDictionary
+            var themeUri = new Uri("Themes/Theme.xaml", UriKind.Relative);
+            for (var i = Resources.MergedDictionaries.Count - 1; i >= 0; i--)
             {
-                Source = new Uri("Themes/Theme.xaml", UriKind.Relative)
-            });
+                var source = Resources.MergedDictionaries[i].Source;
+                if (source != null && source.OriginalString.Equals(themeUri.OriginalString, StringComparison.OrdinalIgnoreCase))
+                {
+                    Resources.MergedDictionaries.RemoveAt(i);
+                }
+            }
+
+            Resources.MergedDictionaries.Add(new ResourceDictionary { Source = themeUri });
         }
         catch (Exception ex)
         {
