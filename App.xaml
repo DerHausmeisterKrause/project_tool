@@ -3,14 +3,9 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:views="clr-namespace:TaskTool.Views"
              xmlns:vm="clr-namespace:TaskTool.ViewModels"
-             xmlns:conv="clr-namespace:TaskTool.Converters"
-             StartupUri="MainWindow.xaml">
+             xmlns:conv="clr-namespace:TaskTool.Converters">
     <Application.Resources>
         <ResourceDictionary>
-            <ResourceDictionary.MergedDictionaries>
-                <ResourceDictionary Source="Themes/Theme.xaml"/>
-            </ResourceDictionary.MergedDictionaries>
-
             <conv:NullToVisibilityConverter x:Key="NullToVisibilityConverter"/>
             <conv:StringEmptyToVisibilityConverter x:Key="StringEmptyToVisibilityConverter"/>
             <conv:EqualityToBooleanConverter x:Key="EqualityConverter"/>
