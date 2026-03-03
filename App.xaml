@@ -12,6 +12,30 @@
             <conv:InverseBooleanConverter x:Key="InverseBooleanConverter"/>
             <BooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter"/>
 
+            <!-- Fallback resources so app can still start if Theme.xaml fails to load -->
+            <SolidColorBrush x:Key="BgBrush" Color="#111827"/>
+            <SolidColorBrush x:Key="PanelBrush" Color="#1F2937"/>
+            <SolidColorBrush x:Key="CardBrush" Color="#0F172A"/>
+            <SolidColorBrush x:Key="SurfaceAltBrush" Color="#0F172A"/>
+            <SolidColorBrush x:Key="BorderBrushColor" Color="#334155"/>
+            <SolidColorBrush x:Key="TextBrush" Color="#E5E7EB"/>
+            <SolidColorBrush x:Key="MutedTextBrush" Color="#94A3B8"/>
+            <SolidColorBrush x:Key="AccentBrush" Color="#3B82F6"/>
+
+            <Style x:Key="CardStyle" TargetType="Border"/>
+            <Style x:Key="BadgeStyle" TargetType="Border"/>
+            <Style x:Key="SecondaryButtonStyle" TargetType="Button"/>
+            <Style x:Key="SuccessButtonStyle" TargetType="Button"/>
+            <Style x:Key="WarningButtonStyle" TargetType="Button"/>
+            <Style x:Key="DangerButtonStyle" TargetType="Button"/>
+            <Style x:Key="LinkButtonStyle" TargetType="Button"/>
+            <Style x:Key="SegmentedRadioLeftStyle" TargetType="RadioButton"/>
+            <Style x:Key="SegmentedRadioRightStyle" TargetType="RadioButton"/>
+            <Style x:Key="DayMarkerSegmentLeftStyle" TargetType="RadioButton"/>
+            <Style x:Key="DayMarkerSegmentMiddleStyle" TargetType="RadioButton"/>
+            <Style x:Key="DayMarkerSegmentRightStyle" TargetType="RadioButton"/>
+            <Style x:Key="DayMarkerChipToggleStyle" TargetType="ToggleButton"/>
+
             <DataTemplate DataType="{x:Type vm:TodayViewModel}">
                 <views:TodayView />
             </DataTemplate>
