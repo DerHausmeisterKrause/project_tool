@@ -19,18 +19,52 @@ public partial class App : Application
 
         try
         {
+            LoadThemeSafely();
             ServiceLocator.Initialize();
-            base.OnStartup(e);
+
+            var mainWindow = new MainWindow();
+            MainWindow = mainWindow;
+            mainWindow.Show();
         }
         catch (Exception ex)
         {
             _startupLogger.Error($"Fatal startup error: {ex}");
             MessageBox.Show(
-                "Die Anwendung konnte nicht gestartet werden. Details stehen in logs.txt.",
+                $"Die Anwendung konnte nicht gestartet werden. Details stehen in logs.txt.\n\n{ex.Message}",
                 "TaskTool Startfehler",
                 MessageBoxButton.OK,
                 MessageBoxImage.Error);
             Shutdown(-1);
+            return;
+        }
+
+        base.OnStartup(e);
+    }
+
+    private void LoadThemeSafely()
+    {
+        try
+        {
+            var themeUri = new Uri("Themes/Theme.xaml", UriKind.Relative);
+            for (var i = Resources.MergedDictionaries.Count - 1; i >= 0; i--)
+            {
+                var source = Resources.MergedDictionaries[i].Source;
+                if (source != null && source.OriginalString.Equals(themeUri.OriginalString, StringComparison.OrdinalIgnoreCase))
+                {
+                    Resources.MergedDictionaries.RemoveAt(i);
+                }
+            }
+
+            Resources.MergedDictionaries.Add(new ResourceDictionary { Source = themeUri });
+        }
+        catch (Exception ex)
+        {
+            _startupLogger?.Error($"Theme load failed: {ex}");
+            MessageBox.Show(
+                $"Das Theme konnte nicht geladen werden und wurde übersprungen.\n\n{ex.Message}",
+                "TaskTool Theme-Warnung",
+                MessageBoxButton.OK,
+                MessageBoxImage.Warning);
         }
     }
 
