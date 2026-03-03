@@ -21,9 +21,9 @@
                 <ColumnDefinition Width="Auto"/>
                 <ColumnDefinition Width="*"/>
             </Grid.ColumnDefinitions>
-            <TextBlock Grid.Column="0"
-                       Text="&#xE7ED;"
-                       FontFamily="Segoe MDL2 Assets"
+            <TextBlock x:Name="NotificationIcon" Grid.Column="0"
+                       Text="🔔"
+                       FontFamily="Segoe UI Emoji"
                        FontSize="18"
                        VerticalAlignment="Center"
                        Foreground="#E5E7EB"

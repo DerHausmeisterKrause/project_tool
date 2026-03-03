@@ -1,9 +1,11 @@
 using System;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
 using System.Windows.Media;
 using TaskTool.Models;
 using TaskTool.ViewModels;
+using TaskTool.Services;
 
 namespace TaskTool.Views;
 
@@ -20,8 +22,14 @@ public partial class TodayView : UserControl
         if (e.OldValue is TodayViewModel oldVm)
             oldVm.TaskBringIntoViewRequested -= OnTaskBringIntoViewRequested;
 
+        var oldMain = ServiceLocator.MainViewModel;
+        if (oldMain != null)
+            oldMain.FocusQuickAddRequested -= OnFocusQuickAddRequested;
+
         if (e.NewValue is TodayViewModel vm)
             vm.TaskBringIntoViewRequested += OnTaskBringIntoViewRequested;
+
+        ServiceLocator.MainViewModel.FocusQuickAddRequested += OnFocusQuickAddRequested;
     }
 
     private void OnTaskBringIntoViewRequested(Guid taskId)
@@ -30,6 +38,17 @@ public partial class TodayView : UserControl
         {
             var element = FindTaskElement(CurrentTasksItems, taskId) ?? FindTaskElement(CompletedTasksItems, taskId);
             element?.BringIntoView();
+        }));
+    }
+
+
+    private void OnFocusQuickAddRequested()
+    {
+        Dispatcher.BeginInvoke(new Action(() =>
+        {
+            QuickAddTextBox.Focus();
+            Keyboard.Focus(QuickAddTextBox);
+            QuickAddTextBox.SelectAll();
         }));
     }
 

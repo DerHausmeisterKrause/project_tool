@@ -25,9 +25,16 @@ public partial class ReminderWindow : Window
 
         _taskId = taskId;
         MessageText.Text = text;
-        PillBorder.BorderBrush = kind == ReminderKind.Start
-            ? new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(239, 68, 68))
-            : new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(245, 158, 11));
+        if (kind == ReminderKind.Start)
+        {
+            PillBorder.BorderBrush = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(239, 68, 68));
+            NotificationIcon.Foreground = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(248, 113, 113));
+        }
+        else
+        {
+            PillBorder.BorderBrush = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(245, 158, 11));
+            NotificationIcon.Foreground = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(251, 191, 36));
+        }
 
         Loaded += OnLoaded;
         SourceInitialized += (_, _) =>

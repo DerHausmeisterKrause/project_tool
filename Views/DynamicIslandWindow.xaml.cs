@@ -38,6 +38,25 @@ public partial class DynamicIslandWindow : Window
                 ApplySize();
             }
         };
+
+        MouseEnter += (_, _) =>
+        {
+            if (DataContext is DynamicIslandViewModel vm && !vm.IsExpanded)
+                Width = 182;
+        };
+
+        MouseLeave += (_, _) =>
+        {
+            if (DataContext is DynamicIslandViewModel vm && !vm.IsExpanded)
+                Width = 168;
+            PositionTopCenter();
+        };
+
+        Closed += (_, _) =>
+        {
+            if (DataContext is DynamicIslandViewModel vm)
+                vm.Stop();
+        };
     }
 
     private void IslandRoot_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
@@ -51,8 +70,8 @@ public partial class DynamicIslandWindow : Window
     private void ApplySize()
     {
         if (DataContext is not DynamicIslandViewModel vm) return;
-        Width = vm.IsExpanded ? 430 : 220;
-        Height = vm.IsExpanded ? 290 : 56;
+        Width = vm.IsExpanded ? 430 : 168;
+        Height = vm.IsExpanded ? 230 : 24;
         PositionTopCenter();
     }
 

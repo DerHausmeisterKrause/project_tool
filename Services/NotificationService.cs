@@ -14,7 +14,7 @@ public enum ReminderKind
     Start
 }
 
-public class NotificationService
+public class NotificationService : IDisposable
 {
     private readonly LoggerService _logger;
     private readonly SettingsService _settings;
@@ -48,6 +48,25 @@ public class NotificationService
             _islandWindow = new DynamicIslandWindow();
             _islandWindow.Closed += (_, _) => _islandWindow = null;
             _islandWindow.Show();
+        }, DispatcherPriority.Background);
+    }
+
+
+    public void AttachMainWindow(Window mainWindow)
+    {
+        mainWindow.Closed += (_, _) => Dispose();
+    }
+
+    public void Dispose()
+    {
+        _timer.Stop();
+        Application.Current.Dispatcher.BeginInvoke(() =>
+        {
+            if (_islandWindow != null)
+            {
+                _islandWindow.Close();
+                _islandWindow = null;
+            }
         }, DispatcherPriority.Background);
     }
 

@@ -31,6 +31,7 @@ public class MainViewModel : ObservableObject
 
     public bool IsTodaySelected => SelectedView is TodayViewModel;
 
+    public event Action? FocusQuickAddRequested;
 
     public void NavigateToTodayAndOpenTask(Guid taskId)
     {
@@ -40,6 +41,12 @@ public class MainViewModel : ObservableObject
             return;
 
         MessageBox.Show("Aufgabe nicht gefunden", "Kalender", MessageBoxButton.OK, MessageBoxImage.Warning);
+    }
+
+    public void NavigateToTodayAndFocusQuickAdd()
+    {
+        SelectedView = TodayViewModel;
+        FocusQuickAddRequested?.Invoke();
     }
 
     public MainViewModel(TaskService taskService, WorkDayService workDayService, SettingsService settingsService, NotificationService notifications, LoggerService logger)

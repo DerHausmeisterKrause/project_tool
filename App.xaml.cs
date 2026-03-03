@@ -24,6 +24,7 @@ public partial class App : Application
 
             var mainWindow = new MainWindow();
             MainWindow = mainWindow;
+            ServiceLocator.Notifications.AttachMainWindow(mainWindow);
             mainWindow.Show();
         }
         catch (Exception ex)
@@ -39,6 +40,22 @@ public partial class App : Application
         }
 
         base.OnStartup(e);
+    }
+
+
+    protected override void OnExit(ExitEventArgs e)
+    {
+        try
+        {
+            if (ServiceLocator.Notifications != null)
+                ServiceLocator.Notifications.Dispose();
+        }
+        catch
+        {
+            // ignore shutdown exceptions
+        }
+
+        base.OnExit(e);
     }
 
     private void LoadThemeSafely()

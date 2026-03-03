@@ -14,7 +14,7 @@
                 <TextBlock Text="Neue Aufgabe" FontWeight="SemiBold" Margin="0,0,0,8"/>
                 <Grid>
                     <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-                    <TextBox Grid.Column="0" Text="{Binding QuickAddText, UpdateSourceTrigger=PropertyChanged}" FontSize="16" Padding="14,10" Margin="0"/>
+                    <TextBox x:Name="QuickAddTextBox" Grid.Column="0" Text="{Binding QuickAddText, UpdateSourceTrigger=PropertyChanged}" FontSize="16" Padding="14,10" Margin="0"/>
                     <Button Grid.Column="1" Content="＋" Width="44" Height="44" FontSize="22" Padding="0" Command="{Binding QuickAddCommand}"/>
                 </Grid>
             </StackPanel>
