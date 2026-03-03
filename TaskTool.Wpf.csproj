@@ -12,9 +12,11 @@
     <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
     <PublishTrimmed>false</PublishTrimmed>
     <AssemblyName>TaskTool</AssemblyName>
+    <NoWin32Manifest>true</NoWin32Manifest>
   </PropertyGroup>
 
   <ItemGroup>
     <PackageReference Include="Microsoft.Data.Sqlite" Version="8.0.8" />
   </ItemGroup>
+
 </Project>
