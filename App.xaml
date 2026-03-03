@@ -21,6 +21,11 @@
             <SolidColorBrush x:Key="TextBrush" Color="#E5E7EB"/>
             <SolidColorBrush x:Key="MutedTextBrush" Color="#94A3B8"/>
             <SolidColorBrush x:Key="AccentBrush" Color="#3B82F6"/>
+            <SolidColorBrush x:Key="{x:Static SystemColors.WindowTextBrushKey}" Color="#E5E7EB"/>
+            <SolidColorBrush x:Key="{x:Static SystemColors.ControlTextBrushKey}" Color="#E5E7EB"/>
+            <SolidColorBrush x:Key="{x:Static SystemColors.GrayTextBrushKey}" Color="#CBD5E1"/>
+            <SolidColorBrush x:Key="{x:Static SystemColors.HighlightBrushKey}" Color="#3B82F6"/>
+            <SolidColorBrush x:Key="{x:Static SystemColors.HighlightTextBrushKey}" Color="#0B1220"/>
 
             <Style x:Key="ComboBoxItemDarkStyle" TargetType="ComboBoxItem">
                 <Setter Property="Foreground" Value="{StaticResource TextBrush}"/>
@@ -49,6 +54,7 @@
                 <Setter Property="Padding" Value="8,4"/>
                 <Setter Property="ItemContainerStyle" Value="{StaticResource ComboBoxItemDarkStyle}"/>
                 <Setter Property="VerticalContentAlignment" Value="Center"/>
+        <Setter Property="HorizontalContentAlignment" Value="Left"/>
             </Style>
 
             <Style TargetType="ScrollViewer">
