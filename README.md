@@ -37,10 +37,18 @@ Output liegt unter:
 Lege (lokal) die Datei `Assets/Plenaro.ico` im Projektroot ab.
 
 Was dann automatisch passiert:
-- Wenn die Datei existiert, wird sie beim Build als `ApplicationIcon` genutzt (EXE/Taskleiste).
 - Die Datei wird in Output/Publish mitkopiert (`CopyToOutputDirectory` + `CopyToPublishDirectory`).
 - Das Fenster-Icon wird zur Laufzeit geladen (`MainWindow.xaml.cs`) über:
   1. eingebettete Resource (`pack://application:,,,/Assets/Plenaro.ico`)
   2. Fallback auf `<publish>/Assets/Plenaro.ico`.
 
-Wenn die Datei fehlt, baut die App weiterhin normal mit Standard-Icon.
+Wichtig zu `CS7065` ("Symbol-Stream weist nicht das erwartete Format auf"):
+- Dieser Fehler kommt von einer ungültigen `.ico` Datei (z. B. PNG nur umbenannt in `.ico`).
+- Deshalb ist das compile-time EXE-Icon standardmäßig deaktiviert, damit Builds stabil laufen.
+
+Optional EXE/Taskleisten-Icon aktivieren (nur mit **valider** `.ico`):
+```bash
+dotnet build -c Release -p:EnableCompileTimeAppIcon=true
+```
+
+Empfehlung für die Icon-Datei: echtes Multi-Size ICO (mind. 16, 32, 48, 256 px).
