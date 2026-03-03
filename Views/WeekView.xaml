@@ -46,7 +46,7 @@
 
                     <Border Grid.Row="0" Grid.Column="0" Background="{StaticResource SurfaceAltBrush}" BorderBrush="{StaticResource BorderBrushColor}" BorderThickness="0,0,1,1" Height="58"/>
 
-                    <ItemsControl Grid.RowSpan="2" Grid.Column="1" ItemsSource="{Binding Days}" IsHitTestVisible="False" Panel.ZIndex="25">
+                    <ItemsControl x:Name="SelectedDayOverlayColumns" Grid.RowSpan="2" Grid.Column="1" ItemsSource="{Binding Days}" IsHitTestVisible="False" Panel.ZIndex="25">
                         <ItemsControl.ItemsPanel>
                             <ItemsPanelTemplate>
                                 <StackPanel Orientation="Horizontal"/>
@@ -91,7 +91,7 @@
                                         Background="{StaticResource SurfaceAltBrush}"
                                         BorderBrush="{StaticResource BorderBrushColor}"
                                         BorderThickness="1,1,1,0"
-                                        Padding="8,6">
+                                        Padding="8,6" PreviewMouseDown="DayColumn_PreviewMouseDown">
                                     <Border.Style>
                                         <Style TargetType="Border">
                                             <Setter Property="Background" Value="{StaticResource SurfaceAltBrush}"/>
@@ -118,6 +118,10 @@
                                             <Border Margin="6,0,0,0" Padding="6,1" CornerRadius="8" Background="#1D4ED8"
                                                     Visibility="{Binding IsToday, Converter={StaticResource BooleanToVisibilityConverter}}">
                                                 <TextBlock Text="Heute" FontSize="10" FontWeight="SemiBold" Foreground="#EAF2FF"/>
+                                            </Border>
+                                            <Border Margin="6,0,0,0" Padding="6,1" CornerRadius="8" Background="#2563EB"
+                                                    Visibility="{Binding IsSelected, Converter={StaticResource BooleanToVisibilityConverter}}">
+                                                <TextBlock Text="SELECTED" FontSize="10" FontWeight="Bold" Foreground="#EAF2FF"/>
                                             </Border>
                                         </WrapPanel>
                                         <WrapPanel Margin="0,2,0,2">
@@ -173,7 +177,7 @@
                         </Grid>
                     </Border>
 
-                    <ItemsControl Grid.Row="1" Grid.Column="1" ItemsSource="{Binding Days}">
+                    <ItemsControl x:Name="DaySegmentColumns" Grid.Row="1" Grid.Column="1" ItemsSource="{Binding Days}">
                         <ItemsControl.ItemsPanel>
                             <ItemsPanelTemplate>
                                 <StackPanel Orientation="Horizontal"/>
@@ -185,7 +189,7 @@
                                         Height="{Binding DataContext.CalendarBodyHeight, RelativeSource={RelativeSource AncestorType=UserControl}}"
                                         Background="#0F172A"
                                         BorderBrush="{StaticResource BorderBrushColor}"
-                                        BorderThickness="1,0,1,1">
+                                        BorderThickness="1,0,1,1" PreviewMouseDown="DayColumn_PreviewMouseDown">
                                     <Border.Style>
                                         <Style TargetType="Border">
                                             <Setter Property="BorderBrush" Value="{StaticResource BorderBrushColor}"/>
@@ -282,9 +286,9 @@
                         </ItemsControl.ItemTemplate>
                     </ItemsControl>
 
-                    <Canvas Grid.Row="1" Grid.Column="1" Height="{Binding CalendarBodyHeight}" Width="{Binding DayAreaWidth}" IsHitTestVisible="False" Panel.ZIndex="20"
+                    <Canvas x:Name="NowIndicatorCanvas" Grid.Row="1" Grid.Column="1" Height="{Binding CalendarBodyHeight}" Width="{Binding DayAreaWidth}" IsHitTestVisible="False" Panel.ZIndex="20"
                             Visibility="{Binding ShowNowIndicator, Converter={StaticResource BooleanToVisibilityConverter}}">
-                        <Rectangle Canvas.Left="{Binding DayInnerOffset}" Canvas.Top="{Binding NowLineTop}" Width="{Binding NowLineWidth}" Height="2" Fill="White" Opacity="0.85"/>
+                        <Rectangle x:Name="NowLine" Canvas.Left="{Binding DayInnerOffset}" Canvas.Top="{Binding NowLineTop}" Width="{Binding NowLineWidth}" Height="2" Fill="White" Opacity="0.85"/>
                         <Ellipse Canvas.Left="{Binding NowMarkerLeft}" Canvas.Top="{Binding NowMarkerTop}" Width="8" Height="8" Fill="White" Opacity="0.95"/>
                     </Canvas>
                 </Grid>

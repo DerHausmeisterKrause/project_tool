@@ -66,23 +66,34 @@ public class WeekViewModel : ObservableObject
         {
             if (Set(ref _selectedDate, value.Date))
             {
+                SelectedDay = _selectedDate.Date;
                 var day = Days.FirstOrDefault(d => d.DayDate.Date == _selectedDate.Date);
-                if (day != null && !ReferenceEquals(day, SelectedDay))
-                    SelectedDay = day;
+                if (day != null && !ReferenceEquals(day, SelectedDayGroup))
+                    SelectedDayGroup = day;
             }
         }
     }
 
-    private WeekDayGroup? _selectedDay;
-    public WeekDayGroup? SelectedDay
+    private DateTime _selectedDay = DateTime.Today.Date;
+    public DateTime SelectedDay
     {
         get => _selectedDay;
+        set => Set(ref _selectedDay, value.Date);
+    }
+
+    private WeekDayGroup? _selectedDayGroup;
+    public WeekDayGroup? SelectedDayGroup
+    {
+        get => _selectedDayGroup;
         set
         {
-            if (Set(ref _selectedDay, value))
+            if (Set(ref _selectedDayGroup, value))
             {
                 if (value != null && value.DayDate.Date != SelectedDate.Date)
                     Set(ref _selectedDate, value.DayDate.Date, nameof(SelectedDate));
+
+                if (value != null)
+                    Set(ref _selectedDay, value.DayDate.Date, nameof(SelectedDay));
 
                 foreach (var d in Days) d.IsSelected = d == value;
                 Raise(nameof(SelectedDayType));
@@ -97,9 +108,9 @@ public class WeekViewModel : ObservableObject
         }
     }
 
-    public string SelectedDayType => SelectedDay?.DayType ?? "Normal";
-    public bool SelectedIsHo => SelectedDay?.IsHo ?? false;
-    public bool SelectedIsBr => SelectedDay?.IsBr ?? false;
+    public string SelectedDayType => SelectedDayGroup?.DayType ?? "Normal";
+    public bool SelectedIsHo => SelectedDayGroup?.IsHo ?? false;
+    public bool SelectedIsBr => SelectedDayGroup?.IsBr ?? false;
 
     public RelayCommand PreviousWeekCommand { get; }
     public RelayCommand NextWeekCommand { get; }
@@ -132,11 +143,15 @@ public class WeekViewModel : ObservableObject
         }, d => d != null);
         OpenCalendarItemCommand = new RelayCommand<WeekCalendarItem>(OpenCalendarItem, i => i != null);
         OpenTicketUrlCommand = new RelayCommand<string>(OpenTicketUrlFromWeek, url => !string.IsNullOrWhiteSpace(url));
-        SetDayTypeNormalCommand = new RelayCommand(() => SetDayType("Normal"), () => SelectedDay != null);
-        SetDayTypeUlCommand = new RelayCommand(() => SetDayType("UL"), () => SelectedDay != null);
-        SetDayTypeAmCommand = new RelayCommand(() => SetDayType("AM"), () => SelectedDay != null);
-        ToggleHoCommand = new RelayCommand(() => { if (SelectedDay == null) return; SelectedDay.IsHo = !SelectedDay.IsHo; SaveSelectedDay(); }, () => SelectedDay != null);
-        ToggleBrCommand = new RelayCommand(() => { if (SelectedDay == null) return; SelectedDay.IsBr = !SelectedDay.IsBr; SaveSelectedDay(); }, () => SelectedDay != null);
+        SetDayTypeNormalCommand = new RelayCommand(() => SetDayType("Normal"), () => SelectedDayGroup != null);
+        SetDayTypeUlCommand = new RelayCommand(() => SetDayType("UL"), () => SelectedDayGroup != null);
+        SetDayTypeAmCommand = new RelayCommand(() => SetDayType("AM"), () => SelectedDayGroup != null);
+        ToggleHoCommand = new RelayCommand(() => { if (SelectedDayGroup == null) return; SelectedDayGroup.IsHo = !SelectedDayGroup.IsHo; SaveSelectedDay(); }, () => SelectedDayGroup != null);
+        ToggleBrCommand = new RelayCommand(() => { if (SelectedDayGroup == null) return; SelectedDayGroup.IsBr = !SelectedDayGroup.IsBr; SaveSelectedDay(); }, () => SelectedDayGroup != null);
+
+        _nowIndicatorTimer.Interval = TimeSpan.FromSeconds(30);
+        _nowIndicatorTimer.Tick += (_, _) => UpdateNowIndicator();
+        _nowIndicatorTimer.Start();
 
         _nowIndicatorTimer.Interval = TimeSpan.FromSeconds(30);
         _nowIndicatorTimer.Tick += (_, _) => UpdateNowIndicator();
@@ -184,23 +199,23 @@ public class WeekViewModel : ObservableObject
 
     private void SetDayType(string type)
     {
-        if (SelectedDay == null) return;
-        SelectedDay.DayType = type;
+        if (SelectedDayGroup == null) return;
+        SelectedDayGroup.DayType = type;
         SaveSelectedDay();
     }
 
     private void SaveSelectedDay()
     {
-        if (SelectedDay == null) return;
-        _workDays.SetDayMarkers(SelectedDay.DayDate.ToString("yyyy-MM-dd"), SelectedDay.DayType, SelectedDay.IsBr, SelectedDay.IsHo);
-        var selectedDate = SelectedDay.DayDate;
+        if (SelectedDayGroup == null) return;
+        _workDays.SetDayMarkers(SelectedDayGroup.DayDate.ToString("yyyy-MM-dd"), SelectedDayGroup.DayType, SelectedDayGroup.IsBr, SelectedDayGroup.IsHo);
+        var selectedDate = SelectedDayGroup.DayDate;
         LoadWeek();
-        SelectedDay = Days.FirstOrDefault(d => d.DayDate.Date == selectedDate.Date) ?? Days.FirstOrDefault();
+        SelectedDayGroup = Days.FirstOrDefault(d => d.DayDate.Date == selectedDate.Date) ?? Days.FirstOrDefault();
     }
 
     private void LoadWeek()
     {
-        var previousSelectionDate = SelectedDay?.DayDate;
+        var previousSelectionDate = SelectedDayGroup?.DayDate;
 
         Days.Clear();
         var from = WeekStart.Date;
@@ -287,7 +302,7 @@ public class WeekViewModel : ObservableObject
             });
         }
 
-        SelectedDay = ResolveSelectedDay(previousSelectionDate);
+        SelectedDayGroup = ResolveSelectedDay(previousSelectionDate);
         UpdateNowIndicator();
     }
 
@@ -414,8 +429,9 @@ public class WeekViewModel : ObservableObject
             item.DisplayTop = MapToCalendarY(item.DisplayStart, dayDate: rangeStart.Date);
             item.DisplayHeight = Math.Max(28, (item.DisplayEnd - item.DisplayStart).TotalMinutes * PixelsPerMinute - 2);
             item.TimeLabel = $"{item.SegmentStart:HH:mm} - {item.SegmentEnd:HH:mm}";
-            item.IsCompact = item.DisplayHeight < 46;
-            item.ShowNote = item.DisplayHeight >= 64 && !string.IsNullOrWhiteSpace(item.SegmentNote);
+            var durationMinutes = (item.DisplayEnd - item.DisplayStart).TotalMinutes;
+            item.IsCompact = durationMinutes < 30 || item.DisplayHeight < 40;
+            item.ShowNote = !item.IsCompact && item.DisplayHeight >= 64 && !string.IsNullOrWhiteSpace(item.SegmentNote);
             item.ShowTime = item.IsCompact || item.DisplayHeight >= 34;
         }
 
@@ -446,7 +462,9 @@ public class WeekViewModel : ObservableObject
         var today = DateTime.Today;
         var containsToday = today.Date >= WeekStart.Date && today.Date <= WeekStart.AddDays(6).Date;
         if (containsToday)
-            return Days.FirstOrDefault(d => d.DayDate.Date == today.Date) ?? Days.First();
+            return Days.FirstOrDefault(d => d.DayDate.Date == SelectedDay.Date)
+               ?? Days.FirstOrDefault(d => d.DayDate.Date == today.Date)
+               ?? Days.First();
 
         return Days.First();
     }
