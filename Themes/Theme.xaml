@@ -412,10 +412,6 @@
     <Style TargetType="CalendarItem" BasedOn="{StaticResource DarkCalendarItemStyle}"/>
     <Style TargetType="CalendarDayButton" BasedOn="{StaticResource DarkCalendarDayButtonStyle}"/>
     <Style TargetType="CalendarButton" BasedOn="{StaticResource DarkCalendarButtonStyle}"/>
-    <Style TargetType="CalendarTextBlock">
-        <Setter Property="Foreground" Value="{StaticResource MutedTextBrush}"/>
-    </Style>
-
     <Style x:Key="ButtonBaseStyle" TargetType="Button">
         <Setter Property="Foreground" Value="White"/>
         <Setter Property="Background" Value="{StaticResource AccentBrush}"/>
