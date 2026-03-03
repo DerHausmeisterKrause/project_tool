@@ -47,7 +47,7 @@ public class MainViewModel : ObservableObject
         TodayViewModel = new TodayViewModel(taskService, workDayService, settingsService);
         _weekViewModel = new WeekViewModel(taskService, workDayService, settingsService);
         var reports = new ReportsViewModel(taskService, workDayService, settingsService);
-        var settings = new SettingsViewModel(settingsService);
+        var settings = new SettingsViewModel(settingsService, notifications);
 
         NavigationItems = new ObservableCollection<object> { TodayViewModel, _weekViewModel, reports, settings };
         _selectedView = TodayViewModel;

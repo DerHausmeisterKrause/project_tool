@@ -428,6 +428,7 @@ public class TodayViewModel : ObservableObject
         };
         segment.PlannedMinutes = (int)(segment.EndLocal - segment.StartLocal).TotalMinutes;
         _tasks.AddSegment(segment);
+        ServiceLocator.Notifications.RefreshSchedule();
         StatusMessage = "Segment hinzugefügt.";
         LoadSegments();
         RaiseCommandStates();
@@ -444,6 +445,7 @@ public class TodayViewModel : ObservableObject
 
         segment.PlannedMinutes = (int)(segment.EndLocal - segment.StartLocal).TotalMinutes;
         _tasks.UpdateSegment(segment);
+        ServiceLocator.Notifications.RefreshSchedule();
         segment.OutlookStatus = string.IsNullOrWhiteSpace(segment.OutlookEntryId) ? "fehlt" : "vorhanden";
         StatusMessage = "Segment gespeichert.";
         RaiseCommandStates();
@@ -459,6 +461,7 @@ public class TodayViewModel : ObservableObject
         }
 
         _tasks.DeleteSegment(segment.Id);
+        ServiceLocator.Notifications.RefreshSchedule();
         StatusMessage = "Segment gelöscht.";
         LoadSegments();
     }

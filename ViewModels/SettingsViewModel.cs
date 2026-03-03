@@ -6,6 +6,7 @@ namespace TaskTool.ViewModels;
 public class SettingsViewModel : ObservableObject
 {
     private readonly SettingsService _settings;
+    private readonly NotificationService _notifications;
     public string Title => "Einstellungen";
 
     public bool OutlookSyncEnabled { get => _settings.Current.OutlookSyncEnabled; set { _settings.Current.OutlookSyncEnabled = value; Save(); } }
@@ -20,11 +21,19 @@ public class SettingsViewModel : ObservableObject
     public int SaturdayTargetMinutes { get => _settings.Current.SaturdayTargetMinutes; set { _settings.Current.SaturdayTargetMinutes = value; Save(); } }
     public int SundayTargetMinutes { get => _settings.Current.SundayTargetMinutes; set { _settings.Current.SundayTargetMinutes = value; Save(); } }
 
-    public SettingsViewModel(SettingsService settings) => _settings = settings;
+    public RelayCommand TestReminderCommand { get; }
+
+    public SettingsViewModel(SettingsService settings, NotificationService notifications)
+    {
+        _settings = settings;
+        _notifications = notifications;
+        TestReminderCommand = new RelayCommand(() => _notifications.ShowTestNotification());
+    }
 
     private void Save()
     {
         _settings.Save();
+        _notifications.RefreshSchedule();
         Raise(string.Empty);
     }
 
