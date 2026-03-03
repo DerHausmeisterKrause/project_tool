@@ -32,3 +32,15 @@ Output liegt unter:
 - Alles bleibt lokal, keine Cloud, kein Webserver.
 - Outlook-Reminder werden immer deaktiviert (`ReminderSet = false`).
 - Bei Outlook/COM Fehlern läuft die App weiter; Fehlertext erscheint in der Heute-Ansicht und im Log.
+
+## Optional: Eigenes App/Fenster-Icon (manuell)
+Wenn eure Umgebung keine Binärdateien im Repo erlaubt, legt das Icon lokal ab:
+
+1. Erstelle den Ordner `Assets/` im Projektroot (falls nicht vorhanden).
+2. Lege die Datei `Assets/Plenaro.ico` ab (empfohlen: 16/32/48/256 px).
+3. Build/Publish wie gewohnt ausführen.
+
+Verhalten:
+- **Mit** `Assets/Plenaro.ico` im Projektroot vor dem Build: wird in die App eingebettet und als Application-Icon (EXE/Taskleiste) sowie Fenster-Icon genutzt.
+- Alternativ kann `Assets/Plenaro.ico` auch neben der EXE liegen (`<publish>/Assets/Plenaro.ico`) — das Fenster lädt dieses Icon zur Laufzeit als Fallback.
+- **Ohne** Icon-Datei: Build funktioniert weiterhin, es wird das Standard-Icon verwendet.
