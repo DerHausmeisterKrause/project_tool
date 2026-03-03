@@ -39,16 +39,7 @@
                 <Setter Property="BorderThickness" Value="1"/>
                 <Setter Property="Padding" Value="8,4"/>
                 <Setter Property="ItemContainerStyle" Value="{StaticResource ComboBoxItemDarkStyle}"/>
-                <Setter Property="Resources">
-                    <Setter.Value>
-                        <ResourceDictionary>
-                            <SolidColorBrush x:Key="{x:Static SystemColors.WindowBrushKey}" Color="#0F172A"/>
-                            <SolidColorBrush x:Key="{x:Static SystemColors.ControlTextBrushKey}" Color="#E5E7EB"/>
-                            <SolidColorBrush x:Key="{x:Static SystemColors.HighlightBrushKey}" Color="#3B82F6"/>
-                            <SolidColorBrush x:Key="{x:Static SystemColors.HighlightTextBrushKey}" Color="#0B1220"/>
-                        </ResourceDictionary>
-                    </Setter.Value>
-                </Setter>
+                
             </Style>
 
             <Style x:Key="ButtonBaseStyle" TargetType="Button">
