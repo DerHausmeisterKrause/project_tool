@@ -298,54 +298,10 @@
     </Style>
 
     <Style x:Key="DarkCalendarItemStyle" TargetType="CalendarItem">
-        <Setter Property="Template">
-            <Setter.Value>
-                <ControlTemplate TargetType="CalendarItem">
-                    <Border Background="{StaticResource SurfaceAltBrush}" BorderBrush="{StaticResource BorderBrushColor}" BorderThickness="1" CornerRadius="8" Padding="8">
-                        <Grid x:Name="PART_Root">
-                            <Grid.RowDefinitions>
-                                <RowDefinition Height="Auto"/>
-                                <RowDefinition Height="Auto"/>
-                                <RowDefinition Height="*"/>
-                            </Grid.RowDefinitions>
-
-                            <Grid Grid.Row="0" Margin="0,0,0,6">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="Auto"/>
-                                    <ColumnDefinition Width="*"/>
-                                    <ColumnDefinition Width="Auto"/>
-                                </Grid.ColumnDefinitions>
-                                <Button x:Name="PART_PreviousButton" Grid.Column="0" Content="◀" Width="24" Height="24" Background="Transparent" Foreground="{StaticResource TextBrush}" BorderBrush="Transparent"/>
-                                <CalendarButton x:Name="PART_HeaderButton" Grid.Column="1" Style="{StaticResource DarkCalendarButtonStyle}" HorizontalAlignment="Center"/>
-                                <Button x:Name="PART_NextButton" Grid.Column="2" Content="▶" Width="24" Height="24" Background="Transparent" Foreground="{StaticResource TextBrush}" BorderBrush="Transparent"/>
-                            </Grid>
-
-                            <Grid Grid.Row="1" Margin="0,0,0,4">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition/><ColumnDefinition/><ColumnDefinition/><ColumnDefinition/><ColumnDefinition/><ColumnDefinition/><ColumnDefinition/>
-                                </Grid.ColumnDefinitions>
-                                <TextBlock Grid.Column="0" Text="M" HorizontalAlignment="Center" Foreground="{StaticResource MutedTextBrush}" FontSize="11" FontWeight="SemiBold"/>
-                                <TextBlock Grid.Column="1" Text="D" HorizontalAlignment="Center" Foreground="{StaticResource MutedTextBrush}" FontSize="11" FontWeight="SemiBold"/>
-                                <TextBlock Grid.Column="2" Text="M" HorizontalAlignment="Center" Foreground="{StaticResource MutedTextBrush}" FontSize="11" FontWeight="SemiBold"/>
-                                <TextBlock Grid.Column="3" Text="D" HorizontalAlignment="Center" Foreground="{StaticResource MutedTextBrush}" FontSize="11" FontWeight="SemiBold"/>
-                                <TextBlock Grid.Column="4" Text="F" HorizontalAlignment="Center" Foreground="{StaticResource MutedTextBrush}" FontSize="11" FontWeight="SemiBold"/>
-                                <TextBlock Grid.Column="5" Text="S" HorizontalAlignment="Center" Foreground="{StaticResource MutedTextBrush}" FontSize="11" FontWeight="SemiBold"/>
-                                <TextBlock Grid.Column="6" Text="S" HorizontalAlignment="Center" Foreground="{StaticResource MutedTextBrush}" FontSize="11" FontWeight="SemiBold"/>
-                            </Grid>
-
-                            <Grid x:Name="PART_MonthView" Grid.Row="2"/>
-                            <Grid x:Name="PART_YearView" Grid.Row="2" Visibility="Collapsed"/>
-                            <Border x:Name="PART_DisabledVisual" Grid.RowSpan="3" Background="#660F172A" Visibility="Collapsed" CornerRadius="8"/>
-                        </Grid>
-                    </Border>
-                    <ControlTemplate.Triggers>
-                        <Trigger Property="IsEnabled" Value="False">
-                            <Setter TargetName="PART_DisabledVisual" Property="Visibility" Value="Visible"/>
-                        </Trigger>
-                    </ControlTemplate.Triggers>
-                </ControlTemplate>
-            </Setter.Value>
-        </Setter>
+        <Setter Property="Background" Value="{StaticResource SurfaceAltBrush}"/>
+        <Setter Property="Foreground" Value="{StaticResource TextBrush}"/>
+        <Setter Property="BorderBrush" Value="{StaticResource BorderBrushColor}"/>
+        <Setter Property="BorderThickness" Value="1"/>
     </Style>
 
     <Style x:Key="DarkCalendarStyle" TargetType="Calendar">
@@ -356,20 +312,6 @@
         <Setter Property="CalendarItemStyle" Value="{StaticResource DarkCalendarItemStyle}"/>
         <Setter Property="CalendarDayButtonStyle" Value="{StaticResource DarkCalendarDayButtonStyle}"/>
         <Setter Property="CalendarButtonStyle" Value="{StaticResource DarkCalendarButtonStyle}"/>
-        <Setter Property="Template">
-            <Setter.Value>
-                <ControlTemplate TargetType="Calendar">
-                    <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="8" Padding="4">
-                        <CalendarItem x:Name="PART_CalendarItem"
-                                      Background="{TemplateBinding Background}"
-                                      Foreground="{TemplateBinding Foreground}"
-                                      BorderBrush="{TemplateBinding BorderBrush}"
-                                      BorderThickness="{TemplateBinding BorderThickness}"
-                                      Style="{TemplateBinding CalendarItemStyle}"/>
-                    </Border>
-                </ControlTemplate>
-            </Setter.Value>
-        </Setter>
     </Style>
 
     <Style x:Key="DarkDatePickerStyle" TargetType="DatePicker">
@@ -398,18 +340,35 @@
 
                             <Button x:Name="PART_Button"
                                     Grid.Column="1"
-                                    Content="▾"
+                                    FontFamily="Segoe MDL2 Assets"
+                                    Content="&#xE787;"
                                     Background="Transparent"
                                     BorderBrush="Transparent"
-                                    Foreground="{TemplateBinding Foreground}"
-                                    Focusable="False"/>
+                                    Foreground="{StaticResource MutedTextBrush}"
+                                    Focusable="False">
+                                <Button.Style>
+                                    <Style TargetType="Button">
+                                        <Setter Property="Foreground" Value="{StaticResource MutedTextBrush}"/>
+                                        <Setter Property="Background" Value="Transparent"/>
+                                        <Setter Property="BorderBrush" Value="Transparent"/>
+                                        <Style.Triggers>
+                                            <Trigger Property="IsMouseOver" Value="True">
+                                                <Setter Property="Foreground" Value="{StaticResource AccentBrush}"/>
+                                            </Trigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Button.Style>
+                            </Button>
                         </Grid>
 
                         <Popup x:Name="PART_Popup"
                                Placement="Bottom"
-                               AllowsTransparency="True"
-                               IsOpen="{Binding IsDropDownOpen, RelativeSource={RelativeSource TemplatedParent}}"
-                               PopupAnimation="Slide">
+                               PlacementTarget="{Binding ElementName=RootBorder}"
+                               StaysOpen="False"
+                               AllowsTransparency="False"
+                               IsOpen="{Binding IsDropDownOpen, RelativeSource={RelativeSource TemplatedParent}, Mode=TwoWay}"
+                               PopupAnimation="None"
+                               Focusable="False">
                             <Border Background="{StaticResource SurfaceAltBrush}" BorderBrush="{StaticResource BorderBrushColor}" BorderThickness="1" CornerRadius="8" Padding="6" Margin="0,4,0,0">
                                 <Calendar x:Name="PART_Calendar" Style="{StaticResource DarkCalendarStyle}"/>
                             </Border>
@@ -453,6 +412,9 @@
     <Style TargetType="CalendarItem" BasedOn="{StaticResource DarkCalendarItemStyle}"/>
     <Style TargetType="CalendarDayButton" BasedOn="{StaticResource DarkCalendarDayButtonStyle}"/>
     <Style TargetType="CalendarButton" BasedOn="{StaticResource DarkCalendarButtonStyle}"/>
+    <Style TargetType="CalendarTextBlock">
+        <Setter Property="Foreground" Value="{StaticResource MutedTextBrush}"/>
+    </Style>
 
     <Style x:Key="ButtonBaseStyle" TargetType="Button">
         <Setter Property="Foreground" Value="White"/>
