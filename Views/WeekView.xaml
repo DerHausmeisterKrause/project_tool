@@ -206,15 +206,15 @@
                                             </ItemsControl.ItemContainerStyle>
                                             <ItemsControl.ItemTemplate>
                                                 <DataTemplate>
-                                                    <Border Width="{Binding DisplayWidth}" Height="{Binding DisplayHeight}" Background="#1E293B" BorderBrush="{StaticResource BorderBrushColor}" BorderThickness="1" CornerRadius="8" Padding="6" ToolTip="{Binding TooltipText}">
+                                                    <Border Width="{Binding DisplayWidth}" Height="{Binding DisplayHeight}" Background="#223347" BorderBrush="{StaticResource BorderBrushColor}" BorderThickness="1" CornerRadius="9" Padding="8,6" ToolTip="{Binding TooltipText}">
                                                         <Border.Style>
                                                             <Style TargetType="Border">
                                                                 <Setter Property="BorderBrush" Value="{StaticResource BorderBrushColor}"/>
-                                                                <Setter Property="Background" Value="#1E293B"/>
+                                                                <Setter Property="Background" Value="#223347"/>
                                                                 <Style.Triggers>
                                                                     <Trigger Property="IsMouseOver" Value="True">
                                                                         <Setter Property="BorderBrush" Value="{StaticResource AccentBrush}"/>
-                                                                        <Setter Property="Background" Value="#25354A"/>
+                                                                        <Setter Property="Background" Value="#29415A"/>
                                                                     </Trigger>
                                                                 </Style.Triggers>
                                                             </Style>
@@ -228,10 +228,10 @@
                                                                 <RowDefinition Height="*"/>
                                                                 <RowDefinition Height="Auto"/>
                                                             </Grid.RowDefinitions>
-                                                            <TextBlock Grid.Row="0" Text="{Binding TaskTitle}" FontWeight="SemiBold" FontSize="11" Foreground="{StaticResource TextBrush}" TextTrimming="CharacterEllipsis"/>
-                                                            <TextBlock Grid.Row="1" Text="{Binding SegmentNote}" Foreground="{StaticResource MutedTextBrush}" FontSize="10" TextWrapping="Wrap" TextTrimming="CharacterEllipsis"
+                                                            <TextBlock Grid.Row="0" Text="{Binding TaskTitle}" FontWeight="SemiBold" FontSize="12" Foreground="{StaticResource TextBrush}" TextTrimming="CharacterEllipsis"/>
+                                                            <TextBlock Grid.Row="1" Text="{Binding SegmentNote}" Foreground="{StaticResource MutedTextBrush}" FontSize="11" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis"
                                                                        Visibility="{Binding ShowNote, Converter={StaticResource BooleanToVisibilityConverter}}"/>
-                                                            <TextBlock Grid.Row="2" Text="{Binding TimeLabel}" Foreground="{StaticResource TextBrush}" FontSize="10"
+                                                            <TextBlock Grid.Row="2" Text="{Binding TimeLabel}" Foreground="{StaticResource TextBrush}" FontSize="11"
                                                                        Visibility="{Binding ShowTime, Converter={StaticResource BooleanToVisibilityConverter}}"/>
                                                         </Grid>
                                                     </Border>

@@ -13,7 +13,7 @@ public class WeekViewModel : ObservableObject
     private readonly SettingsService _settings;
 
     private const int CalendarStartHour = 6;
-    private const int CalendarEndHour = 20;
+    private const int CalendarEndHour = 18;
     private const double PixelsPerMinuteConst = 1.2;
     private const double DayColumnWidthConst = 220;
     private const double DayInnerPadding = 4;
@@ -343,11 +343,26 @@ public class WeekViewModel : ObservableObject
             item.DisplayLeft = DayInnerPadding + (item.OverlapColumn * (blockWidth + OverlapGap));
             item.DisplayWidth = blockWidth;
             item.DisplayTop = (item.DisplayStart - rangeStart).TotalMinutes * PixelsPerMinute;
-            item.DisplayHeight = Math.Max(24, (item.DisplayEnd - item.DisplayStart).TotalMinutes * PixelsPerMinute - 2);
+            item.DisplayHeight = Math.Max(28, (item.DisplayEnd - item.DisplayStart).TotalMinutes * PixelsPerMinute - 2);
             item.TimeLabel = $"{item.SegmentStart:HH:mm} - {item.SegmentEnd:HH:mm}";
-            item.IsCompact = item.DisplayHeight < 42;
-            item.ShowNote = item.DisplayHeight >= 58 && !string.IsNullOrWhiteSpace(item.SegmentNote);
-            item.ShowTime = item.DisplayHeight >= 32;
+            item.IsCompact = item.DisplayHeight < 46;
+            item.ShowNote = item.DisplayHeight >= 64 && !string.IsNullOrWhiteSpace(item.SegmentNote);
+            item.ShowTime = item.DisplayHeight >= 34;
+        }
+
+        // Prevent visual overlap caused by enforced minimum height.
+        // We only adjust vertical rendering position, not the actual segment time data.
+        foreach (var colGroup in group.GroupBy(g => g.OverlapColumn))
+        {
+            var colItems = colGroup.OrderBy(i => i.DisplayTop).ToList();
+            for (var i = 1; i < colItems.Count; i++)
+            {
+                var prev = colItems[i - 1];
+                var current = colItems[i];
+                var minTop = prev.DisplayTop + prev.DisplayHeight + 2;
+                if (current.DisplayTop < minTop)
+                    current.DisplayTop = minTop;
+            }
         }
     }
 

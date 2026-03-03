@@ -41,6 +41,14 @@
     <Style TargetType="UserControl"><Setter Property="Background" Value="{StaticResource BgBrush}"/></Style>
     <Style TargetType="Grid"><Setter Property="Background" Value="Transparent"/></Style>
     <Style TargetType="TextBlock"><Setter Property="Foreground" Value="{StaticResource TextBrush}"/></Style>
+    <Style TargetType="ToolTip">
+        <Setter Property="Background" Value="{StaticResource SurfaceAltBrush}"/>
+        <Setter Property="Foreground" Value="{StaticResource TextBrush}"/>
+        <Setter Property="BorderBrush" Value="{StaticResource BorderBrushColor}"/>
+        <Setter Property="BorderThickness" Value="1"/>
+        <Setter Property="Padding" Value="10,8"/>
+        <Setter Property="FontSize" Value="12"/>
+    </Style>
     <Style TargetType="ListBox"><Setter Property="Background" Value="Transparent"/><Setter Property="BorderBrush" Value="Transparent"/></Style>
     <Style TargetType="ListBoxItem"><Setter Property="Background" Value="Transparent"/><Setter Property="Foreground" Value="{StaticResource TextBrush}"/></Style>
 
