@@ -512,4 +512,16 @@
         <Setter Property="Margin" Value="0,0,6,0"/>
         <Setter Property="VerticalAlignment" Value="Center"/>
     </Style>
+
+
+    <Style x:Key="IslandPillButtonStyle" TargetType="Button" BasedOn="{StaticResource SecondaryButtonStyle}">
+        <Setter Property="Height" Value="32"/>
+        <Setter Property="Padding" Value="10,4"/>
+        <Setter Property="MinWidth" Value="68"/>
+        <Setter Property="Background" Value="#1E293B"/>
+        <Setter Property="BorderBrush" Value="#334155"/>
+        <Setter Property="BorderThickness" Value="1"/>
+        <Setter Property="Foreground" Value="#E2E8F0"/>
+    </Style>
+
 </ResourceDictionary>

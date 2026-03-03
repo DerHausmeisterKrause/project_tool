@@ -1,6 +1,8 @@
 using System;
+using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Input;
+using System.Windows.Interop;
 using System.Windows.Media.Animation;
 using System.Windows.Threading;
 using TaskTool.Services;
@@ -9,6 +11,9 @@ namespace TaskTool.Views;
 
 public partial class ReminderWindow : Window
 {
+
+    private const int GwlExstyle = -20;
+    private const int WsExToolwindow = 0x00000080;
     private readonly DispatcherTimer _hideTimer;
     private readonly Guid _taskId;
 
@@ -25,6 +30,12 @@ public partial class ReminderWindow : Window
             : new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(245, 158, 11));
 
         Loaded += OnLoaded;
+        SourceInitialized += (_, _) =>
+        {
+            var hwnd = new WindowInteropHelper(this).Handle;
+            var exStyle = GetWindowLong(hwnd, GwlExstyle);
+            SetWindowLong(hwnd, GwlExstyle, exStyle | WsExToolwindow);
+        };
         MouseLeftButtonUp += OnMouseLeftButtonUp;
 
         _hideTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(8) };

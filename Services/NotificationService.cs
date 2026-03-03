@@ -23,6 +23,7 @@ public class NotificationService
     private readonly HashSet<string> _firedKeys = new();
 
     private DateTime _lastCheck;
+    private DynamicIslandWindow? _islandWindow;
 
     public NotificationService(LoggerService logger, SettingsService settings, TaskService tasks)
     {
@@ -33,8 +34,21 @@ public class NotificationService
         _timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(20) };
         _timer.Tick += (_, _) => CheckReminders();
         _timer.Start();
+        EnsureIslandWindow();
 
         _logger.Info("Notification scheduler started.");
+    }
+
+
+    private void EnsureIslandWindow()
+    {
+        Application.Current.Dispatcher.BeginInvoke(() =>
+        {
+            if (_islandWindow != null) return;
+            _islandWindow = new DynamicIslandWindow();
+            _islandWindow.Closed += (_, _) => _islandWindow = null;
+            _islandWindow.Show();
+        }, DispatcherPriority.Background);
     }
 
     public void RefreshSchedule()
