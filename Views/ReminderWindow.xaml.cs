@@ -1,23 +1,112 @@
+using System;
+using System.Runtime.InteropServices;
 using System.Windows;
+using System.Windows.Input;
+using System.Windows.Interop;
+using System.Windows.Media.Animation;
+using System.Windows.Threading;
+using TaskTool.Services;
 
 namespace TaskTool.Views;
 
 public partial class ReminderWindow : Window
 {
-    public event EventHandler? SnoozeRequested;
 
-    public ReminderWindow(string title, DateTime start)
+    private const int GwlExstyle = -20;
+    private const int WsExToolwindow = 0x00000080;
+    private readonly DispatcherTimer _hideTimer;
+    private readonly Guid _taskId;
+
+    public event EventHandler<Guid>? NotificationClicked;
+
+    public ReminderWindow(string text, ReminderKind kind, Guid taskId)
     {
         InitializeComponent();
-        TaskLabel.Text = title;
-        StartLabel.Text = $"Start: {start:HH:mm}";
+
+        _taskId = taskId;
+        MessageText.Text = text;
+        if (kind == ReminderKind.Start)
+        {
+            PillBorder.BorderBrush = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(239, 68, 68));
+            NotificationIcon.Foreground = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(248, 113, 113));
+        }
+        else
+        {
+            PillBorder.BorderBrush = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(245, 158, 11));
+            NotificationIcon.Foreground = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(251, 191, 36));
+        }
+
+        Loaded += OnLoaded;
+        SourceInitialized += (_, _) =>
+        {
+            var hwnd = new WindowInteropHelper(this).Handle;
+            var exStyle = GetWindowLong(hwnd, GwlExstyle);
+            SetWindowLong(hwnd, GwlExstyle, exStyle | WsExToolwindow);
+        };
+        MouseLeftButtonUp += OnMouseLeftButtonUp;
+
+        _hideTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(8) };
+        _hideTimer.Tick += (_, _) => BeginHide();
     }
 
-    private void Snooze_Click(object sender, RoutedEventArgs e)
+    private void OnLoaded(object sender, RoutedEventArgs e)
     {
-        SnoozeRequested?.Invoke(this, EventArgs.Empty);
-        Close();
+        PositionTopCenter();
+        BeginShow();
+        _hideTimer.Start();
     }
 
-    private void Close_Click(object sender, RoutedEventArgs e) => Close();
+    private void PositionTopCenter()
+    {
+        Left = SystemParameters.WorkArea.Left + (SystemParameters.WorkArea.Width - Width) / 2;
+        Top = SystemParameters.WorkArea.Top + 12;
+    }
+
+    private void BeginShow()
+    {
+        var sb = new Storyboard();
+
+        var fade = new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(220));
+        Storyboard.SetTarget(fade, PillBorder);
+        Storyboard.SetTargetProperty(fade, new PropertyPath(UIElement.OpacityProperty));
+
+        var slide = new DoubleAnimation(Top - 8, Top, TimeSpan.FromMilliseconds(220));
+        Storyboard.SetTarget(slide, this);
+        Storyboard.SetTargetProperty(slide, new PropertyPath(Window.TopProperty));
+
+        sb.Children.Add(fade);
+        sb.Children.Add(slide);
+        sb.Begin();
+    }
+
+    private void BeginHide()
+    {
+        _hideTimer.Stop();
+        var sb = new Storyboard();
+
+        var fade = new DoubleAnimation(1, 0, TimeSpan.FromMilliseconds(220));
+        Storyboard.SetTarget(fade, PillBorder);
+        Storyboard.SetTargetProperty(fade, new PropertyPath(UIElement.OpacityProperty));
+
+        var slide = new DoubleAnimation(Top, Top - 8, TimeSpan.FromMilliseconds(220));
+        Storyboard.SetTarget(slide, this);
+        Storyboard.SetTargetProperty(slide, new PropertyPath(Window.TopProperty));
+
+        sb.Children.Add(fade);
+        sb.Children.Add(slide);
+        sb.Completed += (_, _) => Close();
+        sb.Begin();
+    }
+
+    private void OnMouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+    {
+        NotificationClicked?.Invoke(this, _taskId);
+        BeginHide();
+    }
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern int GetWindowLong(IntPtr hWnd, int nIndex);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern int SetWindowLong(IntPtr hWnd, int nIndex, int dwNewLong);
 }
