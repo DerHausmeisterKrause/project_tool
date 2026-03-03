@@ -9,7 +9,6 @@ public class TaskService
     private readonly DatabaseService _db;
     private readonly LoggerService _logger;
     private readonly OutlookInteropService _outlook;
-    private readonly SettingsService _settings;
 
     public string LastError { get; private set; } = string.Empty;
 
@@ -18,7 +17,6 @@ public class TaskService
         _db = db;
         _logger = logger;
         _outlook = outlook;
-        _settings = settings;
     }
 
     public List<TaskItem> GetTasksForDay(DateTime day)
@@ -67,8 +65,8 @@ public class TaskService
         using var conn = new SqliteConnection(_db.ConnectionString);
         conn.Open();
         using var cmd = conn.CreateCommand();
-        cmd.CommandText = @"INSERT INTO tasks (id,title,description,ticket_url,start_local,end_local,status,priority,tags,outlook_entry_id,ticket_minutes_booked,created_utc,updated_utc)
-VALUES ($id,$title,$desc,$url,$start,$end,$status,$priority,$tags,$entry,$ticket,$created,$updated)";
+        cmd.CommandText = @"INSERT INTO tasks (id,title,description,ticket_url,start_local,end_local,status,priority,tags,outlook_entry_id,ticket_minutes_booked,ticket_seconds_booked,created_utc,updated_utc)
+VALUES ($id,$title,$desc,$url,$start,$end,$status,$priority,$tags,$entry,$ticket,$ticketSeconds,$created,$updated)";
         BindTask(cmd, task);
         cmd.ExecuteNonQuery();
         return task;
@@ -80,18 +78,32 @@ VALUES ($id,$title,$desc,$url,$start,$end,$status,$priority,$tags,$entry,$ticket
         using var conn = new SqliteConnection(_db.ConnectionString);
         conn.Open();
         using var cmd = conn.CreateCommand();
-        cmd.CommandText = @"UPDATE tasks SET title=$title,description=$desc,ticket_url=$url,start_local=$start,end_local=$end,status=$status,priority=$priority,tags=$tags,outlook_entry_id=$entry,ticket_minutes_booked=$ticket,updated_utc=$updated WHERE id=$id";
+        cmd.CommandText = @"UPDATE tasks SET title=$title,description=$desc,ticket_url=$url,start_local=$start,end_local=$end,status=$status,priority=$priority,tags=$tags,outlook_entry_id=$entry,ticket_minutes_booked=$ticket,ticket_seconds_booked=$ticketSeconds,updated_utc=$updated WHERE id=$id";
         BindTask(cmd, task);
         cmd.ExecuteNonQuery();
     }
 
     public void DeleteTask(TaskItem task)
     {
-        var deleteResult = _outlook.DeleteBlock(task.OutlookEntryId);
-        if (!deleteResult.ok) LastError = deleteResult.error;
+        var segments = GetSegments(task.Id);
+        foreach (var segment in segments)
+        {
+            if (!DeleteSegmentOutlook(segment) && string.IsNullOrWhiteSpace(LastError) == false)
+            {
+                _logger.Error($"Segment outlook delete failed for segment {segment.Id}: {LastError}");
+            }
+        }
 
         using var conn = new SqliteConnection(_db.ConnectionString);
         conn.Open();
+
+        using (var segCmd = conn.CreateCommand())
+        {
+            segCmd.CommandText = "DELETE FROM task_segments WHERE task_id=$id";
+            segCmd.Parameters.AddWithValue("$id", task.Id.ToString());
+            segCmd.ExecuteNonQuery();
+        }
+
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "DELETE FROM tasks WHERE id=$id";
         cmd.Parameters.AddWithValue("$id", task.Id.ToString());
@@ -112,10 +124,29 @@ VALUES ($id,$title,$desc,$url,$start,$end,$status,$priority,$tags,$entry,$ticket
 
     public void StartTimer(TaskItem task)
     {
-        task.Status = TaskStatus.Running;
-        UpdateTask(task);
         using var conn = new SqliteConnection(_db.ConnectionString);
         conn.Open();
+
+        using (var closeOthers = conn.CreateCommand())
+        {
+            closeOthers.CommandText = "UPDATE time_logs SET end_utc=$e,note='auto-stop' WHERE end_utc IS NULL AND task_id <> $id";
+            closeOthers.Parameters.AddWithValue("$e", DateTime.UtcNow.ToString("O"));
+            closeOthers.Parameters.AddWithValue("$id", task.Id.ToString());
+            closeOthers.ExecuteNonQuery();
+        }
+
+        using (var resetStatuses = conn.CreateCommand())
+        {
+            resetStatuses.CommandText = "UPDATE tasks SET status=$planned WHERE status=$running AND id<>$id";
+            resetStatuses.Parameters.AddWithValue("$planned", TaskStatus.Planned.ToString());
+            resetStatuses.Parameters.AddWithValue("$running", TaskStatus.Running.ToString());
+            resetStatuses.Parameters.AddWithValue("$id", task.Id.ToString());
+            resetStatuses.ExecuteNonQuery();
+        }
+
+        task.Status = TaskStatus.Running;
+        UpdateTask(task);
+
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "INSERT INTO time_logs (task_id,start_utc,note) VALUES ($id,$s,$n)";
         cmd.Parameters.AddWithValue("$id", task.Id.ToString());
@@ -126,24 +157,34 @@ VALUES ($id,$title,$desc,$url,$start,$end,$status,$priority,$tags,$entry,$ticket
 
     public void PauseTimer(TaskItem task)
     {
-        StopOpenLog(task.Id, "pause");
+        var elapsedSeconds = CloseOpenLogAndGetElapsedSeconds(task.Id, "pause");
+        if (elapsedSeconds > 0)
+            task.TicketSecondsBooked = Math.Max(0, task.TicketSecondsBooked + elapsedSeconds);
+
+        task.TicketMinutesBooked = (int)(task.TicketSecondsBooked / 60);
+
         task.Status = TaskStatus.Planned;
         UpdateTask(task);
     }
 
     public void StopTimer(TaskItem task)
     {
-        StopOpenLog(task.Id, "stop");
+        var elapsedSeconds = CloseOpenLogAndGetElapsedSeconds(task.Id, "stop");
+        if (elapsedSeconds > 0)
+            task.TicketSecondsBooked = Math.Max(0, task.TicketSecondsBooked + elapsedSeconds);
+
+        task.TicketMinutesBooked = (int)(task.TicketSecondsBooked / 60);
+
         if (task.Status == TaskStatus.Running)
-        {
             task.Status = TaskStatus.Planned;
-            UpdateTask(task);
-        }
+
+        UpdateTask(task);
     }
 
     public void AddTicketMinutes(TaskItem task, int minutes)
     {
-        task.TicketMinutesBooked += minutes;
+        task.TicketSecondsBooked = Math.Max(0, task.TicketSecondsBooked + (minutes * 60L));
+        task.TicketMinutesBooked = (int)(task.TicketSecondsBooked / 60);
         UpdateTask(task);
     }
 
@@ -165,6 +206,22 @@ VALUES ($id,$title,$desc,$url,$start,$end,$status,$priority,$tags,$entry,$ticket
             if (end > start) total += end - start;
         }
         return total;
+    }
+
+
+    public TimeSpan GetOpenSessionDuration(Guid taskId)
+    {
+        using var conn = new SqliteConnection(_db.ConnectionString);
+        conn.Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT start_utc FROM time_logs WHERE task_id=$id AND end_utc IS NULL ORDER BY id DESC LIMIT 1";
+        cmd.Parameters.AddWithValue("$id", taskId.ToString());
+        var value = cmd.ExecuteScalar()?.ToString();
+        if (string.IsNullOrWhiteSpace(value) || !DateTime.TryParse(value, out var startUtc))
+            return TimeSpan.Zero;
+
+        var elapsed = DateTime.UtcNow - startUtc.ToUniversalTime();
+        return elapsed > TimeSpan.Zero ? elapsed : TimeSpan.Zero;
     }
 
     public int GetMonthTicketMinutes(DateTime month)
@@ -215,41 +272,41 @@ ORDER BY ticket_minutes_booked DESC, title ASC LIMIT $max";
             .ToList();
     }
 
-    public bool SyncOutlookBlocker(TaskItem task)
+
+    public List<(TaskItem Task, TaskSegment Segment)> GetSegmentsForRange(DateTime fromInclusive, DateTime toExclusive)
     {
-        LastError = string.Empty;
-        if (!_settings.Current.OutlookSyncEnabled)
-        {
-            LastError = "Outlook Sync ist deaktiviert.";
-            return false;
-        }
+        var result = new List<(TaskItem Task, TaskSegment Segment)>();
+        var tasks = GetAllTasks().ToDictionary(t => t.Id, t => t);
 
-        if (!task.StartLocal.HasValue || !task.EndLocal.HasValue)
-        {
-            LastError = "Für Blocker-Sync sind Start und Ende erforderlich.";
-            return false;
-        }
-
-        var body = $"{task.Description}\n{task.TicketUrl}\nTaskID: {task.Id}";
-        var result = _outlook.UpsertBlock(task.OutlookEntryId, task.Title, body, task.StartLocal.Value, task.EndLocal.Value);
-        if (!result.ok)
-        {
-            LastError = $"Outlook Sync Fehler: {result.error}";
-            return false;
-        }
-
-        task.OutlookEntryId = result.entryId;
         using var conn = new SqliteConnection(_db.ConnectionString);
         conn.Open();
         using var cmd = conn.CreateCommand();
-        cmd.CommandText = "UPDATE tasks SET outlook_entry_id=$e, updated_utc=$u WHERE id=$id";
-        cmd.Parameters.AddWithValue("$e", task.OutlookEntryId);
-        cmd.Parameters.AddWithValue("$u", DateTime.UtcNow.ToString("O"));
-        cmd.Parameters.AddWithValue("$id", task.Id.ToString());
-        cmd.ExecuteNonQuery();
-        return true;
-    }
+        cmd.CommandText = "SELECT id,task_id,start_local,end_local,planned_minutes,note,outlook_entry_id FROM task_segments WHERE datetime(start_local)>=datetime($from) AND datetime(start_local)<datetime($to) ORDER BY start_local";
+        cmd.Parameters.AddWithValue("$from", fromInclusive.ToString("s"));
+        cmd.Parameters.AddWithValue("$to", toExclusive.ToString("s"));
+        using var r = cmd.ExecuteReader();
+        while (r.Read())
+        {
+            var taskId = Guid.Parse(r["task_id"].ToString()!);
+            if (!tasks.TryGetValue(taskId, out var task))
+                continue;
 
+            var segment = new TaskSegment
+            {
+                Id = Convert.ToInt64(r["id"]),
+                TaskId = taskId,
+                StartLocal = DateTime.Parse(r["start_local"].ToString()!),
+                EndLocal = DateTime.Parse(r["end_local"].ToString()!),
+                PlannedMinutes = Convert.ToInt32(r["planned_minutes"]),
+                Note = r["note"]?.ToString() ?? string.Empty,
+                OutlookEntryId = r["outlook_entry_id"]?.ToString() ?? string.Empty
+            };
+
+            result.Add((task, segment));
+        }
+
+        return result;
+    }
 
     public bool TestOutlookConnection()
     {
@@ -263,33 +320,6 @@ ORDER BY ticket_minutes_booked DESC, title ASC LIMIT $max";
 
         return true;
     }
-    public bool DeleteOutlookBlocker(TaskItem task)
-    {
-        LastError = string.Empty;
-        if (string.IsNullOrWhiteSpace(task.OutlookEntryId))
-        {
-            LastError = "Kein Outlook Blocker vorhanden.";
-            return false;
-        }
-
-        var result = _outlook.DeleteBlock(task.OutlookEntryId);
-        if (!result.ok)
-        {
-            LastError = $"Outlook Delete Fehler: {result.error}";
-            return false;
-        }
-
-        task.OutlookEntryId = string.Empty;
-        using var conn = new SqliteConnection(_db.ConnectionString);
-        conn.Open();
-        using var cmd = conn.CreateCommand();
-        cmd.CommandText = "UPDATE tasks SET outlook_entry_id='', updated_utc=$u WHERE id=$id";
-        cmd.Parameters.AddWithValue("$u", DateTime.UtcNow.ToString("O"));
-        cmd.Parameters.AddWithValue("$id", task.Id.ToString());
-        cmd.ExecuteNonQuery();
-        return true;
-    }
-
 
     public List<TaskSegment> GetSegments(Guid taskId)
     {
@@ -297,7 +327,7 @@ ORDER BY ticket_minutes_booked DESC, title ASC LIMIT $max";
         using var conn = new SqliteConnection(_db.ConnectionString);
         conn.Open();
         using var cmd = conn.CreateCommand();
-        cmd.CommandText = "SELECT id,task_id,start_local,end_local,planned_minutes,outlook_entry_id FROM task_segments WHERE task_id=$id ORDER BY start_local";
+        cmd.CommandText = "SELECT id,task_id,start_local,end_local,planned_minutes,note,outlook_entry_id FROM task_segments WHERE task_id=$id ORDER BY start_local";
         cmd.Parameters.AddWithValue("$id", taskId.ToString());
         using var r = cmd.ExecuteReader();
         while (r.Read())
@@ -309,6 +339,7 @@ ORDER BY ticket_minutes_booked DESC, title ASC LIMIT $max";
                 StartLocal = DateTime.Parse(r["start_local"].ToString()!),
                 EndLocal = DateTime.Parse(r["end_local"].ToString()!),
                 PlannedMinutes = Convert.ToInt32(r["planned_minutes"]),
+                Note = r["note"]?.ToString() ?? string.Empty,
                 OutlookEntryId = r["outlook_entry_id"]?.ToString() ?? string.Empty
             });
         }
@@ -320,25 +351,48 @@ ORDER BY ticket_minutes_booked DESC, title ASC LIMIT $max";
         using var conn = new SqliteConnection(_db.ConnectionString);
         conn.Open();
         using var cmd = conn.CreateCommand();
-        cmd.CommandText = "INSERT INTO task_segments(task_id,start_local,end_local,planned_minutes,outlook_entry_id) VALUES ($t,$s,$e,$p,$o)";
+        cmd.CommandText = "INSERT INTO task_segments(task_id,start_local,end_local,planned_minutes,note,outlook_entry_id) VALUES ($t,$s,$e,$p,$n,$o)";
         cmd.Parameters.AddWithValue("$t", segment.TaskId.ToString());
         cmd.Parameters.AddWithValue("$s", segment.StartLocal.ToString("s"));
         cmd.Parameters.AddWithValue("$e", segment.EndLocal.ToString("s"));
-        cmd.Parameters.AddWithValue("$p", segment.PlannedMinutes);
+        cmd.Parameters.AddWithValue("$p", (int)(segment.EndLocal - segment.StartLocal).TotalMinutes);
+        cmd.Parameters.AddWithValue("$n", segment.Note);
         cmd.Parameters.AddWithValue("$o", segment.OutlookEntryId);
+        cmd.ExecuteNonQuery();
+
+        using var idCmd = conn.CreateCommand();
+        idCmd.CommandText = "SELECT last_insert_rowid()";
+        segment.Id = Convert.ToInt64(idCmd.ExecuteScalar());
+    }
+
+    public void UpdateSegment(TaskSegment segment)
+    {
+        using var conn = new SqliteConnection(_db.ConnectionString);
+        conn.Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "UPDATE task_segments SET start_local=$s,end_local=$e,planned_minutes=$p,note=$n WHERE id=$id";
+        cmd.Parameters.AddWithValue("$s", segment.StartLocal.ToString("s"));
+        cmd.Parameters.AddWithValue("$e", segment.EndLocal.ToString("s"));
+        cmd.Parameters.AddWithValue("$p", (int)(segment.EndLocal - segment.StartLocal).TotalMinutes);
+        cmd.Parameters.AddWithValue("$n", segment.Note);
+        cmd.Parameters.AddWithValue("$id", segment.Id);
+        cmd.ExecuteNonQuery();
+    }
+
+    public void DeleteSegment(long segmentId)
+    {
+        using var conn = new SqliteConnection(_db.ConnectionString);
+        conn.Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "DELETE FROM task_segments WHERE id=$id";
+        cmd.Parameters.AddWithValue("$id", segmentId);
         cmd.ExecuteNonQuery();
     }
 
     public bool SyncSegmentOutlook(TaskSegment segment, string title, string description, string ticketUrl)
     {
         LastError = string.Empty;
-        if (!_settings.Current.OutlookSyncEnabled)
-        {
-            LastError = "Outlook Sync ist deaktiviert.";
-            return false;
-        }
-
-        var body = $"{description}\n{ticketUrl}\nSegmentID: {segment.Id}\nTaskID: {segment.TaskId}";
+        var body = $"{description}\n{ticketUrl}\nTaskID: {segment.TaskId}\nSegmentID: {segment.Id}\nNotiz: {segment.Note}";
         var result = _outlook.UpsertBlock(segment.OutlookEntryId, title, body, segment.StartLocal, segment.EndLocal);
         if (!result.ok)
         {
@@ -395,16 +449,36 @@ ORDER BY ticket_minutes_booked DESC, title ASC LIMIT $max";
         return TimeSpan.TryParse(text, out duration);
     }
 
-    private void StopOpenLog(Guid taskId, string note)
+    private long CloseOpenLogAndGetElapsedSeconds(Guid taskId, string note)
     {
         using var conn = new SqliteConnection(_db.ConnectionString);
         conn.Open();
-        using var cmd = conn.CreateCommand();
-        cmd.CommandText = "UPDATE time_logs SET end_utc=$e,note=$n WHERE id=(SELECT id FROM time_logs WHERE task_id=$id AND end_utc IS NULL ORDER BY id DESC LIMIT 1)";
-        cmd.Parameters.AddWithValue("$e", DateTime.UtcNow.ToString("O"));
-        cmd.Parameters.AddWithValue("$n", note);
-        cmd.Parameters.AddWithValue("$id", taskId.ToString());
-        cmd.ExecuteNonQuery();
+
+        DateTime? startUtc = null;
+        using (var read = conn.CreateCommand())
+        {
+            read.CommandText = "SELECT start_utc FROM time_logs WHERE task_id=$id AND end_utc IS NULL ORDER BY id DESC LIMIT 1";
+            read.Parameters.AddWithValue("$id", taskId.ToString());
+            var value = read.ExecuteScalar()?.ToString();
+            if (DateTime.TryParse(value, out var parsed))
+                startUtc = parsed.ToUniversalTime();
+        }
+
+        using (var cmd = conn.CreateCommand())
+        {
+            cmd.CommandText = "UPDATE time_logs SET end_utc=$e,note=$n WHERE id=(SELECT id FROM time_logs WHERE task_id=$id AND end_utc IS NULL ORDER BY id DESC LIMIT 1)";
+            cmd.Parameters.AddWithValue("$e", DateTime.UtcNow.ToString("O"));
+            cmd.Parameters.AddWithValue("$n", note);
+            cmd.Parameters.AddWithValue("$id", taskId.ToString());
+            cmd.ExecuteNonQuery();
+        }
+
+        if (!startUtc.HasValue)
+            return 0;
+
+        var elapsed = DateTime.UtcNow - startUtc.Value;
+        var seconds = (long)Math.Floor(elapsed.TotalSeconds);
+        return Math.Max(0, seconds);
     }
 
     private static TaskItem MapTask(SqliteDataReader reader)
@@ -422,6 +496,7 @@ ORDER BY ticket_minutes_booked DESC, title ASC LIMIT $max";
             Tags = reader["tags"]?.ToString() ?? string.Empty,
             OutlookEntryId = reader["outlook_entry_id"]?.ToString() ?? string.Empty,
             TicketMinutesBooked = Convert.ToInt32(reader["ticket_minutes_booked"]),
+            TicketSecondsBooked = reader["ticket_seconds_booked"] == DBNull.Value ? Convert.ToInt64(reader["ticket_minutes_booked"]) * 60L : Convert.ToInt64(reader["ticket_seconds_booked"]),
             CreatedUtc = DateTime.Parse(reader["created_utc"].ToString()!),
             UpdatedUtc = DateTime.Parse(reader["updated_utc"].ToString()!)
         };
@@ -439,7 +514,12 @@ ORDER BY ticket_minutes_booked DESC, title ASC LIMIT $max";
         cmd.Parameters.AddWithValue("$priority", task.Priority ?? (object)DBNull.Value);
         cmd.Parameters.AddWithValue("$tags", task.Tags);
         cmd.Parameters.AddWithValue("$entry", task.OutlookEntryId);
+        if (task.TicketSecondsBooked <= 0 && task.TicketMinutesBooked > 0)
+            task.TicketSecondsBooked = task.TicketMinutesBooked * 60L;
+        task.TicketMinutesBooked = (int)(Math.Max(0, task.TicketSecondsBooked) / 60);
+
         cmd.Parameters.AddWithValue("$ticket", task.TicketMinutesBooked);
+        cmd.Parameters.AddWithValue("$ticketSeconds", task.TicketSecondsBooked);
         cmd.Parameters.AddWithValue("$created", task.CreatedUtc.ToString("O"));
         cmd.Parameters.AddWithValue("$updated", task.UpdatedUtc.ToString("O"));
     }
