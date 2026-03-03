@@ -12,6 +12,7 @@
     <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
     <PublishTrimmed>false</PublishTrimmed>
     <AssemblyName>TaskTool</AssemblyName>
+    <ApplicationIcon Condition="Exists('Assets\Plenaro.ico')">Assets\Plenaro.ico</ApplicationIcon>
   </PropertyGroup>
 
   <ItemGroup>
