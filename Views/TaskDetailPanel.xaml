@@ -3,6 +3,34 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              Visibility="{Binding SelectedTask, Converter={StaticResource NullToVisibilityConverter}}"
              Background="{StaticResource BgBrush}">
+    <UserControl.Resources>
+        <DataTemplate x:Key="SegmentTimeItemTemplate">
+            <TextBlock Text="{Binding}" Foreground="{StaticResource TextBrush}"/>
+        </DataTemplate>
+
+        <Style x:Key="SegmentTimeComboBoxStyle" TargetType="ComboBox" BasedOn="{StaticResource {x:Type ComboBox}}">
+            <Setter Property="Background" Value="{StaticResource SurfaceAltBrush}"/>
+            <Setter Property="Foreground" Value="{StaticResource TextBrush}"/>
+            <Setter Property="TextElement.Foreground" Value="{StaticResource TextBrush}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource BorderBrushColor}"/>
+            <Setter Property="ItemTemplate" Value="{StaticResource SegmentTimeItemTemplate}"/>
+        </Style>
+
+        <Style TargetType="DatePickerTextBox" BasedOn="{StaticResource {x:Type DatePickerTextBox}}">
+            <Setter Property="Background" Value="{StaticResource SurfaceAltBrush}"/>
+            <Setter Property="Foreground" Value="{StaticResource TextBrush}"/>
+            <Setter Property="TextElement.Foreground" Value="{StaticResource TextBrush}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource BorderBrushColor}"/>
+        </Style>
+
+        <Style x:Key="SegmentDatePickerStyle" TargetType="DatePicker" BasedOn="{StaticResource {x:Type DatePicker}}">
+            <Setter Property="Background" Value="{StaticResource SurfaceAltBrush}"/>
+            <Setter Property="Foreground" Value="{StaticResource TextBrush}"/>
+            <Setter Property="TextElement.Foreground" Value="{StaticResource TextBrush}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource BorderBrushColor}"/>
+        </Style>
+    </UserControl.Resources>
+
     <ScrollViewer VerticalScrollBarVisibility="Auto" Background="Transparent">
         <StackPanel>
             <Border Style="{StaticResource CardStyle}">
@@ -66,9 +94,9 @@
                                     <ColumnDefinition Width="90"/>
                                     <ColumnDefinition Width="90"/>
                                 </Grid.ColumnDefinitions>
-                                <DatePicker Grid.Column="0" SelectedDate="{Binding NewSegmentDate, UpdateSourceTrigger=PropertyChanged}"/>
-                                <ComboBox Grid.Column="1" Margin="6,0,0,0" Background="{StaticResource SurfaceAltBrush}" Foreground="{StaticResource TextBrush}" BorderBrush="{StaticResource BorderBrushColor}" ItemsSource="{Binding TimeOptions}" SelectedItem="{Binding NewSegmentStartTime, UpdateSourceTrigger=PropertyChanged}"/>
-                                <ComboBox Grid.Column="2" Margin="6,0,0,0" Background="{StaticResource SurfaceAltBrush}" Foreground="{StaticResource TextBrush}" BorderBrush="{StaticResource BorderBrushColor}" ItemsSource="{Binding TimeOptions}" SelectedItem="{Binding NewSegmentEndTime, UpdateSourceTrigger=PropertyChanged}"/>
+                                <DatePicker Grid.Column="0" Style="{StaticResource SegmentDatePickerStyle}" SelectedDate="{Binding NewSegmentDate, UpdateSourceTrigger=PropertyChanged}"/>
+                                <ComboBox Grid.Column="1" Margin="6,0,0,0" Style="{StaticResource SegmentTimeComboBoxStyle}" ItemsSource="{Binding TimeOptions}" SelectedItem="{Binding NewSegmentStartTime, UpdateSourceTrigger=PropertyChanged}"/>
+                                <ComboBox Grid.Column="2" Margin="6,0,0,0" Style="{StaticResource SegmentTimeComboBoxStyle}" ItemsSource="{Binding TimeOptions}" SelectedItem="{Binding NewSegmentEndTime, UpdateSourceTrigger=PropertyChanged}"/>
                             </Grid>
                             <TextBlock Text="Kurzbeschreibung" Foreground="{StaticResource MutedTextBrush}" Margin="0,8,0,2"/>
                             <TextBox Margin="0,0,0,0" Text="{Binding NewSegmentNote, UpdateSourceTrigger=PropertyChanged}"/>
@@ -93,9 +121,9 @@
                                                 <ColumnDefinition Width="90"/>
                                                 <ColumnDefinition Width="90"/>
                                             </Grid.ColumnDefinitions>
-                                            <DatePicker Grid.Column="0" SelectedDate="{Binding SegmentDate, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
-                                            <ComboBox Grid.Column="1" Margin="6,0,0,0" Background="{StaticResource SurfaceAltBrush}" Foreground="{StaticResource TextBrush}" BorderBrush="{StaticResource BorderBrushColor}" ItemsSource="{Binding DataContext.TimeOptions, RelativeSource={RelativeSource AncestorType=ItemsControl}}" SelectedItem="{Binding StartTimeText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
-                                            <ComboBox Grid.Column="2" Margin="6,0,0,0" Background="{StaticResource SurfaceAltBrush}" Foreground="{StaticResource TextBrush}" BorderBrush="{StaticResource BorderBrushColor}" ItemsSource="{Binding DataContext.TimeOptions, RelativeSource={RelativeSource AncestorType=ItemsControl}}" SelectedItem="{Binding EndTimeText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
+                                            <DatePicker Grid.Column="0" Style="{StaticResource SegmentDatePickerStyle}" SelectedDate="{Binding SegmentDate, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
+                                            <ComboBox Grid.Column="1" Margin="6,0,0,0" Style="{StaticResource SegmentTimeComboBoxStyle}" ItemsSource="{Binding DataContext.TimeOptions, RelativeSource={RelativeSource AncestorType=ItemsControl}}" SelectedItem="{Binding StartTimeText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
+                                            <ComboBox Grid.Column="2" Margin="6,0,0,0" Style="{StaticResource SegmentTimeComboBoxStyle}" ItemsSource="{Binding DataContext.TimeOptions, RelativeSource={RelativeSource AncestorType=ItemsControl}}" SelectedItem="{Binding EndTimeText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
                                         </Grid>
 
                                         <TextBlock Text="Kurzbeschreibung" Foreground="{StaticResource MutedTextBrush}" Margin="0,8,0,2"/>
