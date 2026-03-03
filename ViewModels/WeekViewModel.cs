@@ -186,6 +186,7 @@ public class WeekViewModel : ObservableObject
         if (item == null) return;
 
         SelectedDate = item.SegmentStart.Date;
+        ServiceLocator.MainViewModel.NavigateToTodayAndOpenTask(item.TaskId);
     }
 
     private void OpenTicketUrlFromWeek(string? url)

@@ -116,7 +116,7 @@
 
                 <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto" Background="Transparent"
                               Visibility="{Binding ShowCurrentTasks, Converter={StaticResource BooleanToVisibilityConverter}}">
-                    <ItemsControl ItemsSource="{Binding CurrentTasks}">
+                    <ItemsControl x:Name="CurrentTasksItems" ItemsSource="{Binding CurrentTasks}">
                         <ItemsControl.ItemTemplate>
                             <DataTemplate>
                                 <Border>
@@ -155,7 +155,7 @@
 
                 <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto" Background="Transparent"
                               Visibility="{Binding ShowCompletedTaskList, Converter={StaticResource BooleanToVisibilityConverter}}">
-                    <ItemsControl ItemsSource="{Binding CompletedTasks}">
+                    <ItemsControl x:Name="CompletedTasksItems" ItemsSource="{Binding CompletedTasks}">
                         <ItemsControl.ItemTemplate>
                             <DataTemplate>
                                 <Border Style="{StaticResource CardStyle}" Opacity="0.7">

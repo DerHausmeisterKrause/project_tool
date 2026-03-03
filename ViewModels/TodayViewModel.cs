@@ -22,6 +22,8 @@ public class TodayViewModel : ObservableObject
     public ObservableCollection<TaskSegment> Segments { get; } = new();
     public ObservableCollection<string> TimeOptions { get; } = new(Enumerable.Range(0, 96).Select(i => TimeSpan.FromMinutes(i * 15).ToString(@"hh\:mm")));
 
+    public event Action<Guid>? TaskBringIntoViewRequested;
+
     private TaskItem? _selectedTask;
     public TaskItem? SelectedTask
     {
@@ -628,6 +630,42 @@ public class TodayViewModel : ObservableObject
         var runningPart = _tasks.GetOpenSessionDuration(SelectedTask.Id);
         var total = booked + runningPart;
         TimerDisplay = $"{(int)total.TotalHours:00}:{total.Minutes:00}:{total.Seconds:00}";
+    }
+
+
+    public bool NavigateToTask(Guid taskId)
+    {
+        Load();
+
+        var inCurrent = CurrentTasks.FirstOrDefault(t => t.Id == taskId);
+        if (inCurrent != null)
+        {
+            ShowCompletedTasks = false;
+            SelectedTask = inCurrent;
+            TaskBringIntoViewRequested?.Invoke(taskId);
+            return true;
+        }
+
+        var inCompleted = CompletedTasks.FirstOrDefault(t => t.Id == taskId);
+        if (inCompleted != null)
+        {
+            ShowCompletedTasks = true;
+            SelectedTask = inCompleted;
+            TaskBringIntoViewRequested?.Invoke(taskId);
+            return true;
+        }
+
+        var task = _tasks.GetAllTasks().FirstOrDefault(t => t.Id == taskId);
+        if (task == null)
+            return false;
+
+        ShowCompletedTasks = task.Status == TaskStatus.Done;
+        Load();
+        SelectedTask = CurrentTasks.FirstOrDefault(t => t.Id == taskId)
+                    ?? CompletedTasks.FirstOrDefault(t => t.Id == taskId)
+                    ?? task;
+        TaskBringIntoViewRequested?.Invoke(taskId);
+        return SelectedTask != null && SelectedTask.Id == taskId;
     }
 
     public override string ToString() => Title;
