@@ -13,9 +13,9 @@
                         <TextBox Text="{Binding OutlookCategoryName}" Width="260"/>
                         <TextBlock Text="Reminder Vorlauf Minuten" Foreground="{StaticResource MutedTextBrush}"/>
                         <TextBox Text="{Binding ReminderLeadMinutes}" Width="120"/>
+                        <Button Content="Reminder Overlay testen" Width="220" Margin="0,8,0,0" Command="{Binding TestReminderCommand}"/>
                         <TextBlock Text="Datum/Zeit Format" Foreground="{StaticResource MutedTextBrush}"/>
                         <TextBox Text="{Binding DateTimeFormat}" Width="220"/>
-                        <CheckBox Content="Tasks dürfen über mehrere Tage geplant werden" IsChecked="{Binding AllowMultiDayTaskPlanning}" Margin="0,8,0,0"/>
                     </StackPanel>
                 </Border>
 
