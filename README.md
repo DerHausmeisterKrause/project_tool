@@ -32,3 +32,15 @@ Output liegt unter:
 - Alles bleibt lokal, keine Cloud, kein Webserver.
 - Outlook-Reminder werden immer deaktiviert (`ReminderSet = false`).
 - Bei Outlook/COM Fehlern läuft die App weiter; Fehlertext erscheint in der Heute-Ansicht und im Log.
+
+## Optional: Eigenes App/Fenster-Icon (manuell)
+Lege (lokal) die Datei `Assets/Plenaro.ico` im Projektroot ab.
+
+Was dann automatisch passiert:
+- Wenn die Datei existiert, wird sie beim Build als `ApplicationIcon` genutzt (EXE/Taskleiste).
+- Die Datei wird in Output/Publish mitkopiert (`CopyToOutputDirectory` + `CopyToPublishDirectory`).
+- Das Fenster-Icon wird zur Laufzeit geladen (`MainWindow.xaml.cs`) über:
+  1. eingebettete Resource (`pack://application:,,,/Assets/Plenaro.ico`)
+  2. Fallback auf `<publish>/Assets/Plenaro.ico`.
+
+Wenn die Datei fehlt, baut die App weiterhin normal mit Standard-Icon.
