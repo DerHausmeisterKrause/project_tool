@@ -22,19 +22,166 @@
             <SolidColorBrush x:Key="MutedTextBrush" Color="#94A3B8"/>
             <SolidColorBrush x:Key="AccentBrush" Color="#3B82F6"/>
 
-            <Style x:Key="CardStyle" TargetType="Border"/>
-            <Style x:Key="BadgeStyle" TargetType="Border"/>
-            <Style x:Key="SecondaryButtonStyle" TargetType="Button"/>
-            <Style x:Key="SuccessButtonStyle" TargetType="Button"/>
-            <Style x:Key="WarningButtonStyle" TargetType="Button"/>
-            <Style x:Key="DangerButtonStyle" TargetType="Button"/>
-            <Style x:Key="LinkButtonStyle" TargetType="Button"/>
-            <Style x:Key="SegmentedRadioLeftStyle" TargetType="RadioButton"/>
-            <Style x:Key="SegmentedRadioRightStyle" TargetType="RadioButton"/>
-            <Style x:Key="DayMarkerSegmentLeftStyle" TargetType="RadioButton"/>
-            <Style x:Key="DayMarkerSegmentMiddleStyle" TargetType="RadioButton"/>
-            <Style x:Key="DayMarkerSegmentRightStyle" TargetType="RadioButton"/>
-            <Style x:Key="DayMarkerChipToggleStyle" TargetType="ToggleButton"/>
+            <Style x:Key="ButtonBaseStyle" TargetType="Button">
+                <Setter Property="Foreground" Value="White"/>
+                <Setter Property="Background" Value="{StaticResource AccentBrush}"/>
+                <Setter Property="BorderBrush" Value="Transparent"/>
+                <Setter Property="Padding" Value="12,8"/>
+                <Setter Property="Margin" Value="0,0,8,8"/>
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="Button">
+                            <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="1" CornerRadius="10">
+                                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            </Border>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+                <Style.Triggers>
+                    <Trigger Property="IsEnabled" Value="False">
+                        <Setter Property="Foreground" Value="#9CA3AF"/>
+                        <Setter Property="Background" Value="#374151"/>
+                    </Trigger>
+                </Style.Triggers>
+            </Style>
+            <Style TargetType="Button" BasedOn="{StaticResource ButtonBaseStyle}"/>
+            <Style x:Key="SecondaryButtonStyle" TargetType="Button" BasedOn="{StaticResource ButtonBaseStyle}">
+                <Setter Property="Background" Value="#334155"/>
+            </Style>
+            <Style x:Key="SuccessButtonStyle" TargetType="Button" BasedOn="{StaticResource ButtonBaseStyle}">
+                <Setter Property="Background" Value="#059669"/>
+            </Style>
+            <Style x:Key="WarningButtonStyle" TargetType="Button" BasedOn="{StaticResource ButtonBaseStyle}">
+                <Setter Property="Background" Value="#92400E"/>
+            </Style>
+            <Style x:Key="DangerButtonStyle" TargetType="Button" BasedOn="{StaticResource ButtonBaseStyle}">
+                <Setter Property="Background" Value="#B91C1C"/>
+            </Style>
+            <Style x:Key="LinkButtonStyle" TargetType="Button" BasedOn="{StaticResource SecondaryButtonStyle}">
+                <Setter Property="Height" Value="30"/>
+                <Setter Property="Padding" Value="10,4"/>
+                <Setter Property="Margin" Value="0,6,0,0"/>
+                <Setter Property="HorizontalAlignment" Value="Left"/>
+            </Style>
+
+            <Style x:Key="TogglePillStyle" TargetType="ToggleButton">
+                <Setter Property="Foreground" Value="{StaticResource TextBrush}"/>
+                <Setter Property="Background" Value="#1F2937"/>
+                <Setter Property="BorderBrush" Value="{StaticResource BorderBrushColor}"/>
+                <Setter Property="BorderThickness" Value="1"/>
+                <Setter Property="Padding" Value="10,4"/>
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="ToggleButton">
+                            <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="999">
+                                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            </Border>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+                <Style.Triggers>
+                    <Trigger Property="IsChecked" Value="True">
+                        <Setter Property="Background" Value="{StaticResource AccentBrush}"/>
+                        <Setter Property="Foreground" Value="#0B1220"/>
+                        <Setter Property="BorderBrush" Value="{StaticResource AccentBrush}"/>
+                    </Trigger>
+                </Style.Triggers>
+            </Style>
+            <Style x:Key="DayMarkerChipToggleStyle" TargetType="ToggleButton" BasedOn="{StaticResource TogglePillStyle}">
+                <Setter Property="Height" Value="30"/>
+                <Setter Property="MinWidth" Value="62"/>
+                <Setter Property="Padding" Value="14,4"/>
+                <Setter Property="Margin" Value="0,0,10,0"/>
+            </Style>
+
+            <Style x:Key="SegmentedRadioLeftStyle" TargetType="RadioButton">
+                <Setter Property="Foreground" Value="{StaticResource TextBrush}"/>
+                <Setter Property="Background" Value="{StaticResource SurfaceAltBrush}"/>
+                <Setter Property="BorderBrush" Value="{StaticResource BorderBrushColor}"/>
+                <Setter Property="BorderThickness" Value="1"/>
+                <Setter Property="Padding" Value="12,6"/>
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="RadioButton">
+                            <Border x:Name="RootBorder" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="1" CornerRadius="10,0,0,10">
+                                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            </Border>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsChecked" Value="True">
+                                    <Setter TargetName="RootBorder" Property="Background" Value="{StaticResource AccentBrush}"/>
+                                    <Setter TargetName="RootBorder" Property="BorderBrush" Value="{StaticResource AccentBrush}"/>
+                                    <Setter Property="Foreground" Value="#0B1220"/>
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
+            <Style x:Key="SegmentedRadioRightStyle" TargetType="RadioButton" BasedOn="{StaticResource SegmentedRadioLeftStyle}">
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="RadioButton">
+                            <Border x:Name="RootBorder" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="0,1,1,1" CornerRadius="0,10,10,0">
+                                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            </Border>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsChecked" Value="True">
+                                    <Setter TargetName="RootBorder" Property="Background" Value="{StaticResource AccentBrush}"/>
+                                    <Setter TargetName="RootBorder" Property="BorderBrush" Value="{StaticResource AccentBrush}"/>
+                                    <Setter Property="Foreground" Value="#0B1220"/>
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
+
+            <Style x:Key="DayMarkerSegmentBaseStyle" TargetType="RadioButton">
+                <Setter Property="Foreground" Value="{StaticResource TextBrush}"/>
+                <Setter Property="Background" Value="{StaticResource SurfaceAltBrush}"/>
+                <Setter Property="BorderBrush" Value="{StaticResource BorderBrushColor}"/>
+                <Setter Property="BorderThickness" Value="1"/>
+                <Setter Property="Height" Value="30"/>
+                <Setter Property="MinWidth" Value="90"/>
+                <Setter Property="Padding" Value="16,4"/>
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="RadioButton">
+                            <Border x:Name="RootBorder" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}">
+                                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            </Border>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsChecked" Value="True">
+                                    <Setter TargetName="RootBorder" Property="Background" Value="{StaticResource AccentBrush}"/>
+                                    <Setter TargetName="RootBorder" Property="BorderBrush" Value="{StaticResource AccentBrush}"/>
+                                    <Setter Property="Foreground" Value="#0B1220"/>
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
+            <Style x:Key="DayMarkerSegmentLeftStyle" TargetType="RadioButton" BasedOn="{StaticResource DayMarkerSegmentBaseStyle}"/>
+            <Style x:Key="DayMarkerSegmentMiddleStyle" TargetType="RadioButton" BasedOn="{StaticResource DayMarkerSegmentBaseStyle}"/>
+            <Style x:Key="DayMarkerSegmentRightStyle" TargetType="RadioButton" BasedOn="{StaticResource DayMarkerSegmentBaseStyle}"/>
+
+            <Style x:Key="CardStyle" TargetType="Border">
+                <Setter Property="Background" Value="{StaticResource CardBrush}"/>
+                <Setter Property="BorderBrush" Value="{StaticResource BorderBrushColor}"/>
+                <Setter Property="BorderThickness" Value="1"/>
+                <Setter Property="CornerRadius" Value="14"/>
+                <Setter Property="Padding" Value="14"/>
+                <Setter Property="Margin" Value="0,0,0,12"/>
+            </Style>
+            <Style x:Key="BadgeStyle" TargetType="Border">
+                <Setter Property="Background" Value="#1E293B"/>
+                <Setter Property="BorderBrush" Value="{StaticResource BorderBrushColor}"/>
+                <Setter Property="BorderThickness" Value="1"/>
+                <Setter Property="CornerRadius" Value="999"/>
+                <Setter Property="Padding" Value="8,2"/>
+                <Setter Property="Margin" Value="0,0,6,0"/>
+                <Setter Property="VerticalAlignment" Value="Center"/>
+            </Style>
 
             <DataTemplate DataType="{x:Type vm:TodayViewModel}">
                 <views:TodayView />
