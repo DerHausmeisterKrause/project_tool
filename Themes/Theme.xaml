@@ -28,6 +28,10 @@
     <SolidColorBrush x:Key="{x:Static SystemColors.GrayTextBrushKey}" Color="#CBD5E1"/>
     <SolidColorBrush x:Key="{x:Static SystemColors.HighlightBrushKey}" Color="#3B82F6"/>
     <SolidColorBrush x:Key="{x:Static SystemColors.HighlightTextBrushKey}" Color="#0B1220"/>
+    <SolidColorBrush x:Key="{x:Static SystemColors.WindowBrushKey}" Color="#0F172A"/>
+    <SolidColorBrush x:Key="{x:Static SystemColors.ControlBrushKey}" Color="#0F172A"/>
+    <SolidColorBrush x:Key="{x:Static SystemColors.ControlLightBrushKey}" Color="#1F2937"/>
+    <SolidColorBrush x:Key="{x:Static SystemColors.ControlDarkBrushKey}" Color="#334155"/>
 
     <Style TargetType="Window">
         <Setter Property="Background" Value="{StaticResource BgBrush}"/>
