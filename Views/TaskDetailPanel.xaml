@@ -66,7 +66,10 @@
                                     <ColumnDefinition Width="90"/>
                                     <ColumnDefinition Width="90"/>
                                 </Grid.ColumnDefinitions>
-                                <DatePicker Grid.Column="0" Style="{StaticResource DarkIconDatePickerStyle}" SelectedDate="{Binding NewSegmentDate, UpdateSourceTrigger=PropertyChanged}"/>
+                                <DatePicker Grid.Column="0"
+                                            Style="{StaticResource DarkIconDatePickerStyle}"
+                                            CalendarStyle="{StaticResource DarkCalendarStyle}"
+                                            SelectedDate="{Binding NewSegmentDate, UpdateSourceTrigger=PropertyChanged}"/>
                                 <ComboBox Grid.Column="1" Margin="6,0,0,0" Style="{StaticResource DarkComboBoxStyle}" ItemsSource="{Binding TimeOptions}" SelectedItem="{Binding NewSegmentStartTime, UpdateSourceTrigger=PropertyChanged}"/>
                                 <ComboBox Grid.Column="2" Margin="6,0,0,0" Style="{StaticResource DarkComboBoxStyle}" ItemsSource="{Binding TimeOptions}" SelectedItem="{Binding NewSegmentEndTime, UpdateSourceTrigger=PropertyChanged}"/>
                             </Grid>
@@ -93,7 +96,10 @@
                                                 <ColumnDefinition Width="90"/>
                                                 <ColumnDefinition Width="90"/>
                                             </Grid.ColumnDefinitions>
-                                            <DatePicker Grid.Column="0" Style="{StaticResource DarkIconDatePickerStyle}" SelectedDate="{Binding SegmentDate, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
+                                            <DatePicker Grid.Column="0"
+                                                        Style="{StaticResource DarkIconDatePickerStyle}"
+                                                        CalendarStyle="{StaticResource DarkCalendarStyle}"
+                                                        SelectedDate="{Binding SegmentDate, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
                                             <ComboBox Grid.Column="1" Margin="6,0,0,0" Style="{StaticResource DarkComboBoxStyle}" ItemsSource="{Binding DataContext.TimeOptions, RelativeSource={RelativeSource AncestorType=ItemsControl}}" SelectedItem="{Binding StartTimeText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
                                             <ComboBox Grid.Column="2" Margin="6,0,0,0" Style="{StaticResource DarkComboBoxStyle}" ItemsSource="{Binding DataContext.TimeOptions, RelativeSource={RelativeSource AncestorType=ItemsControl}}" SelectedItem="{Binding EndTimeText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
                                         </Grid>
