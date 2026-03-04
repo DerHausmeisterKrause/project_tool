@@ -21,17 +21,18 @@
             BorderBrush="#3A4455"
             BorderThickness="1"
             Padding="10,7"
-            ClipToBounds="True"
+            ClipToBounds="False"
             MouseLeftButtonUp="IslandRoot_MouseLeftButtonUp">
         <Border.Effect>
             <DropShadowEffect BlurRadius="20" ShadowDepth="0" Opacity="0.32" Color="#000000"/>
         </Border.Effect>
 
-        <Grid x:Name="ContentHost" VerticalAlignment="Stretch" HorizontalAlignment="Stretch">
+        <Grid x:Name="ContentHost" VerticalAlignment="Stretch" HorizontalAlignment="Stretch" MinHeight="0">
 
             <!-- Eigenständiger NotificationOverlay Modus -->
             <Border x:Name="NotificationOverlay"
                     Margin="0"
+                    MinHeight="0"
                     VerticalAlignment="Stretch"
                     HorizontalAlignment="Stretch"
                     CornerRadius="12"

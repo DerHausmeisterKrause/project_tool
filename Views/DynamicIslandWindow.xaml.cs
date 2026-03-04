@@ -22,8 +22,8 @@ public partial class DynamicIslandWindow : Window
     private const double PeekWidth = 220;
     private const double ExpandedWidth = 456;
     private const double PeekHeight = 32;
-    private const double ExpandedHeight = 300;
-    private const double NotificationHeight = 126;
+    private const double ExpandedHeightNormal = 300;
+    private const double ExpandedHeightNotification = 170;
     private const double EdgeMargin = 10;
     private const double SafeVisibleMargin = 12;
     private const int DragThrottleMs = 16;
@@ -36,6 +36,10 @@ public partial class DynamicIslandWindow : Window
 
     private IslandState _state = IslandState.Hidden;
     private Storyboard? _stateStoryboard;
+    private bool _isStateTransitionInProgress;
+    private IslandState? _queuedState;
+    private string _queuedReason = string.Empty;
+    private bool _hasAppliedInitialState;
 
     private bool _isDragging;
     private Point _dragOffsetInWindow;
@@ -54,7 +58,7 @@ public partial class DynamicIslandWindow : Window
         Loaded += (_, _) =>
         {
             _dockAnchor = LoadDockAnchor();
-            SetState(IslandState.Peek, "Loaded", animate: false);
+            SetState(IslandState.Peek, "Loaded");
         };
 
         PreviewKeyDown += (_, evt) =>
@@ -159,7 +163,7 @@ public partial class DynamicIslandWindow : Window
         CaptureMouse();
         Cursor = Cursors.SizeAll;
 
-        SetState(IslandState.Dragging, "Drag Start", animate: false);
+        SetState(IslandState.Dragging, "Drag Start");
         e.Handled = true;
     }
 
@@ -266,35 +270,84 @@ public partial class DynamicIslandWindow : Window
         return IslandState.Peek;
     }
 
-    private void SetState(IslandState newState, string reason, bool animate = true)
+    private void SetState(IslandState newState, string reason)
     {
-        if (_isDragging && newState != IslandState.Dragging)
+        if (_isStateTransitionInProgress)
+        {
+            _queuedState = newState;
+            _queuedReason = reason;
+            return;
+        }
+
+        if (_state == newState && _hasAppliedInitialState)
             return;
 
+        _isStateTransitionInProgress = true;
         StopStateAnimation();
 
-        var rect = GetTargetRect(newState);
-        var doAnimate = animate && newState != IslandState.Hidden && newState != IslandState.Dragging;
+        var startRect = GetSafeCurrentRect();
+        Left = startRect.Left;
+        Top = startRect.Top;
+        Width = startRect.Width;
+        Height = startRect.Height;
 
-        if (!doAnimate)
+        var targetRect = GetTargetRect(newState);
+        var animate = ShouldAnimateTransition(newState);
+
+        if (!animate)
         {
-            ApplyRectHard(rect, newState);
-            Log($"State -> {newState} ({reason})");
+            CompleteStateTransition(newState, targetRect, reason);
             return;
         }
 
         var duration = TimeSpan.FromMilliseconds(170);
         _stateStoryboard = new Storyboard();
-        AddAnimation(_stateStoryboard, this, LeftProperty, rect.Left, duration);
-        AddAnimation(_stateStoryboard, this, TopProperty, rect.Top, duration);
-        AddAnimation(_stateStoryboard, this, WidthProperty, rect.Width, duration);
-        AddAnimation(_stateStoryboard, this, HeightProperty, rect.Height, duration);
-        _stateStoryboard.Completed += (_, _) =>
-        {
-            ApplyRectHard(rect, newState);
-            Log($"State -> {newState} ({reason})");
-        };
+        AddAnimation(_stateStoryboard, this, LeftProperty, targetRect.Left, duration);
+        AddAnimation(_stateStoryboard, this, TopProperty, targetRect.Top, duration);
+        AddAnimation(_stateStoryboard, this, WidthProperty, targetRect.Width, duration);
+        AddAnimation(_stateStoryboard, this, HeightProperty, targetRect.Height, duration);
+        _stateStoryboard.Completed += (_, _) => CompleteStateTransition(newState, targetRect, reason);
         _stateStoryboard.Begin(this, true);
+    }
+
+    private bool ShouldAnimateTransition(IslandState newState)
+    {
+        if (!_hasAppliedInitialState)
+            return false;
+
+        if (_isDragging)
+            return false;
+
+        if (newState is IslandState.Hidden or IslandState.Dragging)
+            return false;
+
+        return true;
+    }
+
+    private Rect GetSafeCurrentRect()
+    {
+        if (Width > 1 && Height > 1)
+            return new Rect(Left, Top, Width, Height);
+
+        return CalculateHomePeekRect(_dockAnchor, _dockOffset);
+    }
+
+    private void CompleteStateTransition(IslandState state, Rect targetRect, string reason)
+    {
+        ApplyRectHard(targetRect, state);
+        Log($"State -> {state} ({reason})");
+
+        _hasAppliedInitialState = true;
+        _isStateTransitionInProgress = false;
+
+        if (_queuedState.HasValue)
+        {
+            var queuedState = _queuedState.Value;
+            var queuedReason = _queuedReason;
+            _queuedState = null;
+            _queuedReason = string.Empty;
+            SetState(queuedState, queuedReason);
+        }
     }
 
     private Rect GetTargetRect(IslandState state)
@@ -305,8 +358,8 @@ public partial class DynamicIslandWindow : Window
         {
             IslandState.Hidden => _homePeekRect,
             IslandState.Peek => _homePeekRect,
-            IslandState.Expanded => CalculateVisibleRect(_dockAnchor, ExpandedWidth, ExpandedHeight),
-            IslandState.NotificationOverlay => CalculateVisibleRect(_dockAnchor, ExpandedWidth, NotificationHeight),
+            IslandState.Expanded => CalculateVisibleRect(_dockAnchor, ExpandedWidth, ExpandedHeightNormal),
+            IslandState.NotificationOverlay => CalculateVisibleRect(_dockAnchor, ExpandedWidth, ExpandedHeightNotification),
             IslandState.Dragging => new Rect(Left, Top, Width, Height),
             _ => _homePeekRect
         };
@@ -379,12 +432,23 @@ public partial class DynamicIslandWindow : Window
         else if (!IsVisible)
             Show();
 
+        var hostMinHeight = state switch
+        {
+            IslandState.NotificationOverlay => ExpandedHeightNotification,
+            IslandState.Expanded => ExpandedHeightNormal,
+            _ => 0d
+        };
+
+        ContentHost.MinHeight = hostMinHeight;
+        ExpandedContentHost.MinHeight = Math.Max(120, hostMinHeight);
+        NotificationOverlay.MinHeight = state == IslandState.NotificationOverlay ? ExpandedHeightNotification : 0;
+
         _state = state;
         Log($"Rect applied State={state} Target=({rect.Left:F1},{rect.Top:F1},{rect.Width:F1},{rect.Height:F1}) Actual=({Left:F1},{Top:F1},{Width:F1},{Height:F1})");
 
         Dispatcher.BeginInvoke(() =>
         {
-            Log($"ContentHost Expanded vis={ExpandedContentHost.Visibility} size={ExpandedContentHost.ActualWidth:F1}x{ExpandedContentHost.ActualHeight:F1}; Notification vis={NotificationOverlay.Visibility} size={NotificationOverlay.ActualWidth:F1}x{NotificationOverlay.ActualHeight:F1}");
+            Log($"Layout WindowActual={ActualWidth:F1}x{ActualHeight:F1} ContentHost={ContentHost.ActualWidth:F1}x{ContentHost.ActualHeight:F1} NotificationRoot={NotificationOverlay.ActualWidth:F1}x{NotificationOverlay.ActualHeight:F1} ExpandedHost={ExpandedContentHost.ActualWidth:F1}x{ExpandedContentHost.ActualHeight:F1}");
         }, System.Windows.Threading.DispatcherPriority.Background);
     }
 
