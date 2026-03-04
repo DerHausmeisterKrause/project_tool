@@ -86,12 +86,12 @@ public partial class DynamicIslandWindow : Window
             if (DataContext is DynamicIslandViewModel vm)
                 vm.IsExpanded = false;
 
-            SetState(IslandState.Peek, "Window Deactivated");
+            if (_state is IslandState.Expanded or IslandState.NotificationOverlay)
+                SetState(IslandState.Peek, "Window Deactivated");
         };
 
 
-        if (Application.Current != null)
-            InputManager.Current.PreNotifyInput += OnPreNotifyInput;
+        LostMouseCapture += (_, _) => ReleaseDragCaptureIfNeeded();
 
         Closed += (_, _) =>
         {
@@ -101,8 +101,6 @@ public partial class DynamicIslandWindow : Window
                 vm.Stop();
             }
 
-            if (Application.Current != null)
-                InputManager.Current.PreNotifyInput -= OnPreNotifyInput;
 
             _instanceCounter = Math.Max(0, _instanceCounter - 1);
             Log($"DynamicIslandWindow closed. InstanceCount={_instanceCounter}");
@@ -135,6 +133,30 @@ public partial class DynamicIslandWindow : Window
         {
             vm.IsExpanded = false;
             SetState(IslandState.Peek, "Left Click Close");
+        }
+
+        e.Handled = true;
+    }
+
+    private void NotificationOpenButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (DataContext is not DynamicIslandViewModel vm)
+            return;
+
+        vm.OpenNotificationCommand.Execute(null);
+        e.Handled = true;
+    }
+
+    private void NotificationCloseButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (DataContext is not DynamicIslandViewModel vm)
+            return;
+
+        vm.DismissNotificationCommand.Execute(null);
+        if (!vm.HasNotification)
+        {
+            vm.IsExpanded = false;
+            SetState(IslandState.Peek, "Notification Close Button");
         }
 
         e.Handled = true;
@@ -184,7 +206,6 @@ public partial class DynamicIslandWindow : Window
         Left = newLeft;
         Top = newTop;
 
-        Log($"Drag move Left={Left:F0} Top={Top:F0}");
     }
 
     private void Window_MouseRightButtonUp(object sender, MouseButtonEventArgs e)
@@ -192,9 +213,7 @@ public partial class DynamicIslandWindow : Window
         if (!_isDragging)
             return;
 
-        _isDragging = false;
-        ReleaseMouseCapture();
-        Cursor = Cursors.Arrow;
+        ReleaseDragCaptureIfNeeded();
 
         _dockAnchor = CalculateNearestDockAnchor();
         _dockOffset = new Vector(0, 0);
@@ -205,31 +224,21 @@ public partial class DynamicIslandWindow : Window
         e.Handled = true;
     }
 
+    private void ReleaseDragCaptureIfNeeded()
+    {
+        if (!_isDragging)
+            return;
+
+        _isDragging = false;
+        if (IsMouseCaptured)
+            ReleaseMouseCapture();
+        Cursor = Cursors.Arrow;
+    }
+
     private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
         if (e.PropertyName is nameof(DynamicIslandViewModel.IsExpanded) or nameof(DynamicIslandViewModel.ActiveNotification))
             SetState(ResolveTargetStateFromVm(), $"VM Change: {e.PropertyName}");
-    }
-
-    private void OnPreNotifyInput(object? sender, NotifyInputEventArgs e)
-    {
-        if (_isDragging || _state != IslandState.Expanded || DataContext is not DynamicIslandViewModel vm || vm.HasNotification)
-            return;
-
-        if (e.StagingItem.Input is not MouseButtonEventArgs mouseEvent)
-            return;
-
-        if (mouseEvent.ChangedButton != MouseButton.Left || mouseEvent.ButtonState != MouseButtonState.Pressed)
-            return;
-
-        if (IsFromButton(mouseEvent.OriginalSource as DependencyObject))
-            return;
-
-        if (IsDescendantOfThisWindow(mouseEvent.OriginalSource as DependencyObject))
-            return;
-
-        vm.IsExpanded = false;
-        SetState(IslandState.Peek, "Click Away");
     }
 
     private static bool IsFromButton(DependencyObject? source)
@@ -237,18 +246,6 @@ public partial class DynamicIslandWindow : Window
         while (source != null)
         {
             if (source is ButtonBase)
-                return true;
-            source = VisualTreeHelper.GetParent(source);
-        }
-
-        return false;
-    }
-
-    private bool IsDescendantOfThisWindow(DependencyObject? source)
-    {
-        while (source != null)
-        {
-            if (ReferenceEquals(source, this))
                 return true;
             source = VisualTreeHelper.GetParent(source);
         }
@@ -444,12 +441,6 @@ public partial class DynamicIslandWindow : Window
         NotificationOverlay.MinHeight = state == IslandState.NotificationOverlay ? ExpandedHeightNotification : 0;
 
         _state = state;
-        Log($"Rect applied State={state} Target=({rect.Left:F1},{rect.Top:F1},{rect.Width:F1},{rect.Height:F1}) Actual=({Left:F1},{Top:F1},{Width:F1},{Height:F1})");
-
-        Dispatcher.BeginInvoke(() =>
-        {
-            Log($"Layout WindowActual={ActualWidth:F1}x{ActualHeight:F1} ContentHost={ContentHost.ActualWidth:F1}x{ContentHost.ActualHeight:F1} NotificationRoot={NotificationOverlay.ActualWidth:F1}x{NotificationOverlay.ActualHeight:F1} ExpandedHost={ExpandedContentHost.ActualWidth:F1}x{ExpandedContentHost.ActualHeight:F1}");
-        }, System.Windows.Threading.DispatcherPriority.Background);
     }
 
     private void StopStateAnimation()

@@ -21,15 +21,15 @@
             BorderBrush="#3A4455"
             BorderThickness="1"
             Padding="10,7"
+            IsHitTestVisible="True"
             ClipToBounds="False"
             MouseLeftButtonUp="IslandRoot_MouseLeftButtonUp">
         <Border.Effect>
-            <DropShadowEffect BlurRadius="20" ShadowDepth="0" Opacity="0.32" Color="#000000"/>
+            <DropShadowEffect BlurRadius="20" ShadowDepth="0" Opacity="0.28" Color="#000000"/>
         </Border.Effect>
 
-        <Grid x:Name="ContentHost" VerticalAlignment="Stretch" HorizontalAlignment="Stretch" MinHeight="0">
+        <Grid x:Name="ContentHost" VerticalAlignment="Stretch" HorizontalAlignment="Stretch" MinHeight="0" IsHitTestVisible="True">
 
-            <!-- Eigenständiger NotificationOverlay Modus -->
             <Border x:Name="NotificationOverlay"
                     Margin="0"
                     MinHeight="0"
@@ -38,8 +38,9 @@
                     CornerRadius="12"
                     Padding="10,8"
                     Panel.ZIndex="4"
-                    Background="#E6121721"
-                    BorderThickness="2"
+                    IsHitTestVisible="True"
+                    Background="#F0121721"
+                    BorderThickness="1.5"
                     Visibility="{Binding HasNotification, Converter={StaticResource BooleanToVisibilityConverter}}">
                 <Border.Style>
                     <Style TargetType="Border">
@@ -51,30 +52,42 @@
                         </Style.Triggers>
                     </Style>
                 </Border.Style>
-                <Grid>
+
+                <Grid VerticalAlignment="Stretch" HorizontalAlignment="Stretch">
                     <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="40"/>
                         <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
                     </Grid.ColumnDefinitions>
-                    <TextBlock Grid.Column="0"
-                               Text="🔔"
-                               FontFamily="Segoe UI Emoji"
-                               FontSize="18"
-                               VerticalAlignment="Center"
-                               Foreground="#E5E7EB"
-                               Margin="0,0,10,0"/>
-                    <StackPanel Grid.Column="1">
-                        <TextBlock Text="Benachrichtigung" Foreground="#E5E7EB" FontWeight="SemiBold"/>
-                        <TextBlock Text="{Binding NotificationText}" TextWrapping="Wrap" Foreground="#F8FAFC" Margin="0,4,0,8"/>
-                        <UniformGrid Columns="2">
-                            <Button Content="🔗 Öffnen" Command="{Binding OpenNotificationCommand}" Style="{StaticResource IslandPillButtonStyle}" Margin="2"/>
-                            <Button Content="✖ Schließen" Command="{Binding DismissNotificationCommand}" Style="{StaticResource IslandPillButtonStyle}" Margin="2"/>
-                        </UniformGrid>
+
+                    <Border Grid.Column="0"
+                            Width="32"
+                            Height="32"
+                            CornerRadius="16"
+                            VerticalAlignment="Center"
+                            Background="#233B4454">
+                        <TextBlock Text="🔔"
+                                   FontFamily="Segoe UI Emoji"
+                                   FontSize="16"
+                                   VerticalAlignment="Center"
+                                   HorizontalAlignment="Center"
+                                   Foreground="#E5E7EB"/>
+                    </Border>
+
+                    <StackPanel Grid.Column="1" Margin="8,0,10,0" VerticalAlignment="Center">
+                        <TextBlock Text="Benachrichtigung" Foreground="#CBD5E1" FontWeight="SemiBold" FontSize="12"/>
+                        <TextBlock Text="{Binding NotificationText}" TextWrapping="Wrap" Foreground="#F8FAFC" Margin="0,2,0,0" FontSize="13"/>
+                    </StackPanel>
+
+                    <StackPanel Grid.Column="2" Orientation="Vertical" VerticalAlignment="Center">
+                        <Button x:Name="NotificationOpenButton" Content="🔗 Öffnen" Click="NotificationOpenButton_Click"
+                                Style="{StaticResource IslandPillButtonStyle}" Margin="0,0,0,6" MinHeight="30" MinWidth="92"/>
+                        <Button x:Name="NotificationCloseButton" Content="✖ Schließen" Click="NotificationCloseButton_Click"
+                                Style="{StaticResource IslandPillButtonStyle}" MinHeight="30" MinWidth="92"/>
                     </StackPanel>
                 </Grid>
             </Border>
 
-            <!-- Normaler Expanded Modus (getrennt vom NotificationOverlay) -->
             <StackPanel x:Name="ExpandedContentHost" Margin="0" Panel.ZIndex="2" MinHeight="120" Opacity="1" VerticalAlignment="Stretch" HorizontalAlignment="Stretch">
                 <StackPanel.Style>
                     <Style TargetType="StackPanel">
