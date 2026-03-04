@@ -24,6 +24,7 @@ public partial class DynamicIslandWindow : Window
     private const double ExpandedHeight = 300;
     private const double NotificationHeight = 126;
     private const double EdgeMargin = 10;
+    private const double SafeVisibleMargin = 12;
     private const int DragThrottleMs = 16;
 
     private static int _instanceCounter;
@@ -38,6 +39,7 @@ public partial class DynamicIslandWindow : Window
     private bool _isDragging;
     private Point _dragOffsetInWindow;
     private DateTime _lastDragMoveAt = DateTime.MinValue;
+    private bool _hoverExpanded;
 
     public DynamicIslandWindow()
     {
@@ -100,6 +102,7 @@ public partial class DynamicIslandWindow : Window
         if (_isDragging || DataContext is not DynamicIslandViewModel vm)
             return;
 
+        _hoverExpanded = false;
         vm.ToggleExpandCommand.Execute(null);
         SetState(ResolveTargetStateFromVm(), "Left Click Toggle");
         e.Handled = true;
@@ -107,19 +110,32 @@ public partial class DynamicIslandWindow : Window
 
     private void Window_MouseEnter(object sender, MouseEventArgs e)
     {
-        if (_isDragging)
+        if (_isDragging || DataContext is not DynamicIslandViewModel vm)
             return;
 
-        if (ResolveTargetStateFromVm() == IslandState.Peek)
-            SetState(IslandState.Expanded, "Mouse Enter Peek");
+        if (!vm.IsExpanded && !vm.HasNotification)
+        {
+            _hoverExpanded = true;
+            vm.IsExpanded = true;
+        }
+
+        SetState(ResolveTargetStateFromVm(), "Mouse Enter");
     }
 
     private void Window_MouseLeave(object sender, MouseEventArgs e)
     {
-        if (_isDragging)
+        if (_isDragging || DataContext is not DynamicIslandViewModel vm)
             return;
 
-        if (DataContext is DynamicIslandViewModel vm && !vm.IsExpanded && !vm.HasNotification)
+        if (_hoverExpanded && !vm.HasNotification)
+        {
+            _hoverExpanded = false;
+            vm.IsExpanded = false;
+            SetState(IslandState.Peek, "Mouse Leave HoverCollapse");
+            return;
+        }
+
+        if (!vm.IsExpanded && !vm.HasNotification)
             SetState(IslandState.Peek, "Mouse Leave");
     }
 
@@ -229,21 +245,41 @@ public partial class DynamicIslandWindow : Window
 
         return state switch
         {
-            IslandState.Hidden => new Rect(_homePeekRect.Left, _homePeekRect.Top, _homePeekRect.Width, _homePeekRect.Height),
+            IslandState.Hidden => _homePeekRect,
             IslandState.Peek => _homePeekRect,
-            IslandState.Expanded => CalculateStateRect(_homePeekRect, ExpandedWidth, ExpandedHeight),
-            IslandState.NotificationOverlay => CalculateStateRect(_homePeekRect, ExpandedWidth, NotificationHeight),
+            IslandState.Expanded => CalculateVisibleRect(_dockAnchor, ExpandedWidth, ExpandedHeight),
+            IslandState.NotificationOverlay => CalculateVisibleRect(_dockAnchor, ExpandedWidth, NotificationHeight),
             IslandState.Dragging => new Rect(Left, Top, Width, Height),
             _ => _homePeekRect
         };
     }
 
-    private static Rect CalculateStateRect(Rect basePeekRect, double targetWidth, double targetHeight)
+    private static Rect CalculateVisibleRect(DockAnchor anchor, double targetWidth, double targetHeight)
     {
-        var widthDelta = targetWidth - basePeekRect.Width;
-        var heightDelta = targetHeight - basePeekRect.Height;
-        var left = basePeekRect.Left - (widthDelta / 2d);
-        var top = basePeekRect.Top - (heightDelta / 2d);
+        var area = SystemParameters.WorkArea;
+
+        var centerLeft = area.Left + ((area.Width - targetWidth) / 2d);
+        var leftEdge = area.Left + EdgeMargin;
+        var rightEdge = area.Right - targetWidth - EdgeMargin;
+        var topEdge = area.Top + SafeVisibleMargin;
+        var bottomEdge = area.Bottom - targetHeight - SafeVisibleMargin;
+
+        var left = anchor switch
+        {
+            DockAnchor.TopLeft or DockAnchor.BottomLeft => leftEdge,
+            DockAnchor.TopRight or DockAnchor.BottomRight => rightEdge,
+            _ => centerLeft
+        };
+
+        var top = anchor switch
+        {
+            DockAnchor.BottomLeft or DockAnchor.BottomCenter or DockAnchor.BottomRight => bottomEdge,
+            _ => topEdge
+        };
+
+        left = Math.Max(area.Left + EdgeMargin, Math.Min(left, area.Right - targetWidth - EdgeMargin));
+        top = Math.Max(area.Top + SafeVisibleMargin, Math.Min(top, area.Bottom - targetHeight - SafeVisibleMargin));
+
         return new Rect(left, top, targetWidth, targetHeight);
     }
 
@@ -286,6 +322,12 @@ public partial class DynamicIslandWindow : Window
             Show();
 
         _state = state;
+        Log($"Rect applied State={state} Target=({rect.Left:F1},{rect.Top:F1},{rect.Width:F1},{rect.Height:F1}) Actual=({Left:F1},{Top:F1},{Width:F1},{Height:F1})");
+
+        Dispatcher.BeginInvoke(() =>
+        {
+            Log($"ContentHost Expanded vis={ExpandedContentHost.Visibility} size={ExpandedContentHost.ActualWidth:F1}x{ExpandedContentHost.ActualHeight:F1}; Notification vis={NotificationOverlay.Visibility} size={NotificationOverlay.ActualWidth:F1}x{NotificationOverlay.ActualHeight:F1}");
+        }, System.Windows.Threading.DispatcherPriority.Background);
     }
 
     private void StopStateAnimation()

@@ -79,7 +79,7 @@
             </Border>
 
             <!-- Normaler Expanded Modus (getrennt vom NotificationOverlay) -->
-            <StackPanel Grid.Row="1" Margin="0,8,0,0" Panel.ZIndex="2">
+            <StackPanel x:Name="ExpandedContentHost" Grid.Row="1" Margin="0,8,0,0" Panel.ZIndex="2" MinHeight="120" Opacity="1">
                 <StackPanel.Style>
                     <Style TargetType="StackPanel">
                         <Setter Property="Visibility" Value="Collapsed"/>
