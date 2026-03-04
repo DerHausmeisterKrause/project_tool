@@ -5,6 +5,7 @@ using System.Linq;
 using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Input;
+using System.Windows.Controls.Primitives;
 using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
@@ -39,7 +40,6 @@ public partial class DynamicIslandWindow : Window
     private bool _isDragging;
     private Point _dragOffsetInWindow;
     private DateTime _lastDragMoveAt = DateTime.MinValue;
-    private bool _hoverExpanded;
 
     public DynamicIslandWindow()
     {
@@ -55,6 +55,16 @@ public partial class DynamicIslandWindow : Window
         {
             _dockAnchor = LoadDockAnchor();
             SetState(IslandState.Peek, "Loaded", animate: false);
+        };
+
+        PreviewKeyDown += (_, evt) =>
+        {
+            if (evt.Key == Key.Escape && _state == IslandState.Expanded && DataContext is DynamicIslandViewModel vm && !vm.HasNotification)
+            {
+                vm.IsExpanded = false;
+                SetState(IslandState.Peek, "Esc Close");
+                evt.Handled = true;
+            }
         };
 
         SourceInitialized += (_, _) =>
@@ -75,6 +85,10 @@ public partial class DynamicIslandWindow : Window
             SetState(IslandState.Peek, "Window Deactivated");
         };
 
+
+        if (Application.Current != null)
+            InputManager.Current.PreNotifyInput += OnPreNotifyInput;
+
         Closed += (_, _) =>
         {
             if (DataContext is DynamicIslandViewModel vm)
@@ -82,6 +96,9 @@ public partial class DynamicIslandWindow : Window
                 vm.PropertyChanged -= OnViewModelPropertyChanged;
                 vm.Stop();
             }
+
+            if (Application.Current != null)
+                InputManager.Current.PreNotifyInput -= OnPreNotifyInput;
 
             _instanceCounter = Math.Max(0, _instanceCounter - 1);
             Log($"DynamicIslandWindow closed. InstanceCount={_instanceCounter}");
@@ -102,41 +119,37 @@ public partial class DynamicIslandWindow : Window
         if (_isDragging || DataContext is not DynamicIslandViewModel vm)
             return;
 
-        _hoverExpanded = false;
-        vm.ToggleExpandCommand.Execute(null);
-        SetState(ResolveTargetStateFromVm(), "Left Click Toggle");
+        if (IsFromButton(e.OriginalSource as DependencyObject))
+            return;
+
+        if (_state == IslandState.Peek)
+        {
+            vm.IsExpanded = true;
+            SetState(IslandState.Expanded, "Left Click Open");
+        }
+        else if (_state == IslandState.Expanded && !vm.HasNotification)
+        {
+            vm.IsExpanded = false;
+            SetState(IslandState.Peek, "Left Click Close");
+        }
+
         e.Handled = true;
     }
 
     private void Window_MouseEnter(object sender, MouseEventArgs e)
     {
-        if (_isDragging || DataContext is not DynamicIslandViewModel vm)
+        if (_isDragging)
             return;
 
-        if (!vm.IsExpanded && !vm.HasNotification)
-        {
-            _hoverExpanded = true;
-            vm.IsExpanded = true;
-        }
-
-        SetState(ResolveTargetStateFromVm(), "Mouse Enter");
+        IslandRoot.Opacity = 1.0;
     }
 
     private void Window_MouseLeave(object sender, MouseEventArgs e)
     {
-        if (_isDragging || DataContext is not DynamicIslandViewModel vm)
+        if (_isDragging)
             return;
 
-        if (_hoverExpanded && !vm.HasNotification)
-        {
-            _hoverExpanded = false;
-            vm.IsExpanded = false;
-            SetState(IslandState.Peek, "Mouse Leave HoverCollapse");
-            return;
-        }
-
-        if (!vm.IsExpanded && !vm.HasNotification)
-            SetState(IslandState.Peek, "Mouse Leave");
+        IslandRoot.Opacity = 0.96;
     }
 
     private void Window_MouseRightButtonDown(object sender, MouseButtonEventArgs e)
@@ -192,6 +205,51 @@ public partial class DynamicIslandWindow : Window
     {
         if (e.PropertyName is nameof(DynamicIslandViewModel.IsExpanded) or nameof(DynamicIslandViewModel.ActiveNotification))
             SetState(ResolveTargetStateFromVm(), $"VM Change: {e.PropertyName}");
+    }
+
+    private void OnPreNotifyInput(object? sender, NotifyInputEventArgs e)
+    {
+        if (_isDragging || _state != IslandState.Expanded || DataContext is not DynamicIslandViewModel vm || vm.HasNotification)
+            return;
+
+        if (e.StagingItem.Input is not MouseButtonEventArgs mouseEvent)
+            return;
+
+        if (mouseEvent.ChangedButton != MouseButton.Left || mouseEvent.ButtonState != MouseButtonState.Pressed)
+            return;
+
+        if (IsFromButton(mouseEvent.OriginalSource as DependencyObject))
+            return;
+
+        if (IsDescendantOfThisWindow(mouseEvent.OriginalSource as DependencyObject))
+            return;
+
+        vm.IsExpanded = false;
+        SetState(IslandState.Peek, "Click Away");
+    }
+
+    private static bool IsFromButton(DependencyObject? source)
+    {
+        while (source != null)
+        {
+            if (source is ButtonBase)
+                return true;
+            source = VisualTreeHelper.GetParent(source);
+        }
+
+        return false;
+    }
+
+    private bool IsDescendantOfThisWindow(DependencyObject? source)
+    {
+        while (source != null)
+        {
+            if (ReferenceEquals(source, this))
+                return true;
+            source = VisualTreeHelper.GetParent(source);
+        }
+
+        return false;
     }
 
     private IslandState ResolveTargetStateFromVm()

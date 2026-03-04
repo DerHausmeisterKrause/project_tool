@@ -27,18 +27,13 @@
             <DropShadowEffect BlurRadius="20" ShadowDepth="0" Opacity="0.32" Color="#000000"/>
         </Border.Effect>
 
-        <Grid>
-            <Grid.RowDefinitions>
-                <RowDefinition Height="Auto"/>
-                <RowDefinition Height="Auto"/>
-            </Grid.RowDefinitions>
-
-            <Grid Grid.Row="0" Height="18"/>
+        <Grid x:Name="ContentHost" VerticalAlignment="Stretch" HorizontalAlignment="Stretch">
 
             <!-- Eigenständiger NotificationOverlay Modus -->
-            <Border Grid.Row="1"
-                    x:Name="NotificationOverlay"
-                    Margin="0,8,0,0"
+            <Border x:Name="NotificationOverlay"
+                    Margin="0"
+                    VerticalAlignment="Stretch"
+                    HorizontalAlignment="Stretch"
                     CornerRadius="12"
                     Padding="10,8"
                     Panel.ZIndex="4"
@@ -79,7 +74,7 @@
             </Border>
 
             <!-- Normaler Expanded Modus (getrennt vom NotificationOverlay) -->
-            <StackPanel x:Name="ExpandedContentHost" Grid.Row="1" Margin="0,8,0,0" Panel.ZIndex="2" MinHeight="120" Opacity="1">
+            <StackPanel x:Name="ExpandedContentHost" Margin="0" Panel.ZIndex="2" MinHeight="120" Opacity="1" VerticalAlignment="Stretch" HorizontalAlignment="Stretch">
                 <StackPanel.Style>
                     <Style TargetType="StackPanel">
                         <Setter Property="Visibility" Value="Collapsed"/>
@@ -95,7 +90,7 @@
                     </Style>
                 </StackPanel.Style>
 
-                <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,0,0,6">
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,6,0,6">
                     <TextBlock Text="🎯" FontFamily="Segoe UI Emoji" FontSize="14" Margin="0,0,6,0"/>
                     <TextBlock Text="{Binding TaskTitle}" Foreground="#E2E8F0" FontWeight="SemiBold" FontSize="13" TextTrimming="CharacterEllipsis" MaxWidth="280"/>
                 </StackPanel>
