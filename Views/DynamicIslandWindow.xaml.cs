@@ -387,17 +387,14 @@ public partial class DynamicIslandWindow : Window
             DockAnchor.TopRight or DockAnchor.BottomRight => rightEdge,
             _ => centerLeft
         };
-        _stateStoryboard.Begin(this, true);
-    }
-
-    private Rect ResolveCurrentOrFallbackRect()
-        => Width > 1 && Height > 1 ? new Rect(Left, Top, Width, Height) : ResolvePeekRect();
 
         var top = anchor switch
         {
             DockAnchor.BottomLeft or DockAnchor.BottomCenter or DockAnchor.BottomRight => bottomEdge,
             _ => topEdge
         };
+        _stateStoryboard.Begin(this, true);
+    }
 
         left = Math.Max(area.Left + EdgeMargin, Math.Min(left, area.Right - targetWidth - EdgeMargin));
         top = Math.Max(area.Top + SafeVisibleMargin, Math.Min(top, area.Bottom - targetHeight - SafeVisibleMargin));
@@ -407,7 +404,9 @@ public partial class DynamicIslandWindow : Window
 
     // Backward-compatible helper name kept to avoid stale partial-build/compiler cache collisions.
     private Rect CalculateVisibleRect(DockAnchor anchor, double targetWidth, double targetHeight)
-        => CalculateAnchoredVisibleRect(anchor, targetWidth, targetHeight);
+    {
+        return CalculateAnchoredVisibleRect(anchor, targetWidth, targetHeight);
+    }
 
     private Rect CalculatePeekRect(DockAnchor anchor, Vector offset)
     {
@@ -429,6 +428,8 @@ public partial class DynamicIslandWindow : Window
             DockAnchor.BottomRight => (rightVisible, bottomHalfHidden),
             _ => (centerX, topHalfHidden)
         };
+        _stateStoryboard.Begin(this, true);
+    }
 
         left += offset.X;
         top += offset.Y;
