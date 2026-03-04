@@ -27,6 +27,7 @@ public partial class DynamicIslandWindow : Window
     private const double EdgeMargin = 10;
     private const double SafeVisibleMargin = 12;
     private const int DragThrottleMs = 16;
+    private const double NotificationShadowSafePadding = 12;
 
     private static int _instanceCounter;
 
@@ -317,6 +318,9 @@ public partial class DynamicIslandWindow : Window
                 _queuedStableState = null;
                 SetState(queued, "Queued state");
             }
+
+            _instanceCounter = Math.Max(0, _instanceCounter - 1);
+            Log($"DynamicIslandWindow closed. InstanceCount={_instanceCounter}");
         };
         _stateStoryboard.Begin(this, true);
     }
@@ -349,10 +353,21 @@ public partial class DynamicIslandWindow : Window
             - padding.Left - padding.Right);
 
         ContentHost.Measure(new Size(availableWidth, double.PositiveInfinity));
-        var desiredContentHeight = ContentHost.DesiredSize.Height;
+        NotificationOverlay.Measure(new Size(availableWidth, double.PositiveInfinity));
+        var desiredContentHeight = Math.Max(ContentHost.DesiredSize.Height, NotificationOverlay.DesiredSize.Height);
 
-        // Safety headroom avoids last-pixel clipping from DPI rounding during animation end.
-        var target = Math.Ceiling(desiredContentHeight + nonContentHeight + 4);
+        var shadowExtra = NotificationShadowSafePadding;
+        if (IslandRoot.Effect is DropShadowEffect shadow)
+            shadowExtra = Math.Max(NotificationShadowSafePadding, Math.Ceiling(Math.Abs(shadow.ShadowDepth) + (shadow.BlurRadius * 0.6)));
+
+        var target = Math.Ceiling(desiredContentHeight + nonContentHeight + shadowExtra);
+
+#if DEBUG
+        Log($"MeasureNotificationExpandedHeight desiredContent={desiredContentHeight:F1} overlayDesired={NotificationOverlay.DesiredSize.Height:F1} " +
+            $"overlayActual={NotificationOverlay.ActualHeight:F1} hostActual={ContentHost.ActualHeight:F1} windowActual={ActualHeight:F1} " +
+            $"nonContent={nonContentHeight:F1} shadowExtra={shadowExtra:F1} target={target:F1}");
+#endif
+
         return Math.Max(ExpandedHeightNotificationMin, target);
     }
 
@@ -372,6 +387,11 @@ public partial class DynamicIslandWindow : Window
             DockAnchor.TopRight or DockAnchor.BottomRight => rightEdge,
             _ => centerLeft
         };
+        _stateStoryboard.Begin(this, true);
+    }
+
+    private Rect ResolveCurrentOrFallbackRect()
+        => Width > 1 && Height > 1 ? new Rect(Left, Top, Width, Height) : ResolvePeekRect();
 
         var top = anchor switch
         {

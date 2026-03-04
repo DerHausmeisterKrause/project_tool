@@ -16,7 +16,8 @@
         MouseRightButtonDown="Window_MouseRightButtonDown"
         MouseRightButtonUp="Window_MouseRightButtonUp"
         MouseMove="Window_MouseMove">
-    <Border x:Name="IslandRoot"
+    <Grid x:Name="WindowRoot" ClipToBounds="False">
+    <Border x:Name="IslandRoot" Margin="0,0,0,14"
             CornerRadius="18"
             Background="#EA0A0F17"
             BorderBrush="#3A4455"
@@ -134,4 +135,5 @@
             </StackPanel>
         </Grid>
     </Border>
+    </Grid>
 </Window>
