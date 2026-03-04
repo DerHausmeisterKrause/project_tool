@@ -318,6 +318,9 @@ public partial class DynamicIslandWindow : Window
                 _queuedStableState = null;
                 SetState(queued, "Queued state");
             }
+
+            _instanceCounter = Math.Max(0, _instanceCounter - 1);
+            Log($"DynamicIslandWindow closed. InstanceCount={_instanceCounter}");
         };
         _stateStoryboard.Begin(this, true);
     }
@@ -390,6 +393,8 @@ public partial class DynamicIslandWindow : Window
             DockAnchor.BottomLeft or DockAnchor.BottomCenter or DockAnchor.BottomRight => bottomEdge,
             _ => topEdge
         };
+        _stateStoryboard.Begin(this, true);
+    }
 
         left = Math.Max(area.Left + EdgeMargin, Math.Min(left, area.Right - targetWidth - EdgeMargin));
         top = Math.Max(area.Top + SafeVisibleMargin, Math.Min(top, area.Bottom - targetHeight - SafeVisibleMargin));
@@ -423,6 +428,8 @@ public partial class DynamicIslandWindow : Window
             DockAnchor.BottomRight => (rightVisible, bottomHalfHidden),
             _ => (centerX, topHalfHidden)
         };
+        _stateStoryboard.Begin(this, true);
+    }
 
         left += offset.X;
         top += offset.Y;
