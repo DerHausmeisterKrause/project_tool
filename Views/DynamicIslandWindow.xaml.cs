@@ -287,14 +287,14 @@ public partial class DynamicIslandWindow : Window
         StopStateAnimation();
         _isTransitionActive = true;
 
-        var startRect = GetCurrentOrFallbackRect();
+        var startRect = ResolveCurrentOrFallbackRect();
         ApplyRect(startRect);
 
         var willOpen = targetState == InteractionState.Expanded;
         _state = willOpen ? InteractionState.AnimatingOpen : InteractionState.AnimatingClose;
         Log($"State -> {_state} ({reason})");
 
-        var targetRect = willOpen ? GetExpandedRect() : GetPeekRect();
+        var targetRect = willOpen ? ResolveExpandedRect() : ResolvePeekRect();
         var duration = TimeSpan.FromMilliseconds(170);
 
         _stateStoryboard = new Storyboard();
@@ -378,36 +378,57 @@ public partial class DynamicIslandWindow : Window
         _stateStoryboard.Begin(this, true);
     }
 
-    private Rect GetCurrentOrFallbackRect()
-        => Width > 1 && Height > 1 ? new Rect(Left, Top, Width, Height) : GetPeekRect();
+    private Rect ResolveCurrentOrFallbackRect()
+        => Width > 1 && Height > 1 ? new Rect(Left, Top, Width, Height) : ResolvePeekRect();
 
-    private Rect GetPeekRect() => CalculatePeekRect(_dockAnchor, _dockOffset);
+    private Rect ResolvePeekRect() => CalculatePeekRect(_dockAnchor, _dockOffset);
 
-    private Rect GetExpandedRect()
+    private Rect ResolveExpandedRect()
     {
         var hasNotification = (DataContext as DynamicIslandViewModel)?.HasNotification == true;
-        var targetHeight = hasNotification ? GetNotificationExpandedHeight() : ExpandedHeightNormal;
-        return CalculateVisibleRect(_dockAnchor, ExpandedWidth, targetHeight);
+        var targetHeight = hasNotification ? MeasureNotificationExpandedHeight() : ExpandedHeightNormal;
+        return CalculateAnchoredVisibleRect(_dockAnchor, ExpandedWidth, targetHeight);
     }
 
-    private double GetNotificationExpandedHeight()
+    private double MeasureNotificationExpandedHeight()
     {
         if ((DataContext as DynamicIslandViewModel)?.HasNotification != true)
             return ExpandedHeightNotificationMin;
 
         UpdateLayout();
-        var padding = IslandRoot.Padding.Top + IslandRoot.Padding.Bottom;
-        var availableWidth = Math.Max(120, ExpandedWidth - IslandRoot.Padding.Left - IslandRoot.Padding.Right);
-        NotificationOverlay.Measure(new Size(availableWidth, double.PositiveInfinity));
-        var desired = NotificationOverlay.DesiredSize.Height;
 
-        var target = Math.Ceiling(desired + padding);
+        var border = IslandRoot.BorderThickness;
+        var padding = IslandRoot.Padding;
+        var nonContentHeight = border.Top + border.Bottom + padding.Top + padding.Bottom;
+        var availableWidth = Math.Max(120,
+            ExpandedWidth
+            - border.Left - border.Right
+            - padding.Left - padding.Right);
+
+        ContentHost.Measure(new Size(availableWidth, double.PositiveInfinity));
+        var desiredContentHeight = ContentHost.DesiredSize.Height;
+
+        // Safety headroom avoids last-pixel clipping from DPI rounding during animation end.
+        var target = Math.Ceiling(desiredContentHeight + nonContentHeight + 4);
         return Math.Max(ExpandedHeightNotificationMin, target);
     }
 
-    private Rect CalculateVisibleRect(DockAnchor anchor, double targetWidth, double targetHeight)
+    private Rect CalculateAnchoredVisibleRect(DockAnchor anchor, double targetWidth, double targetHeight)
     {
         var area = GetCurrentWorkingAreaDip();
+
+        var centerLeft = area.Left + ((area.Width - targetWidth) / 2d);
+        var leftEdge = area.Left + EdgeMargin;
+        var rightEdge = area.Right - targetWidth - EdgeMargin;
+        var topEdge = area.Top + SafeVisibleMargin;
+        var bottomEdge = area.Bottom - targetHeight - SafeVisibleMargin;
+
+        var left = anchor switch
+        {
+            DockAnchor.TopLeft or DockAnchor.BottomLeft => leftEdge,
+            DockAnchor.TopRight or DockAnchor.BottomRight => rightEdge,
+            _ => centerLeft
+        };
 
         var top = anchor switch
         {
@@ -467,7 +488,7 @@ public partial class DynamicIslandWindow : Window
         var hasNotification = (DataContext as DynamicIslandViewModel)?.HasNotification == true;
         if (state == InteractionState.Expanded && hasNotification)
         {
-            var nHeight = GetNotificationExpandedHeight();
+            var nHeight = MeasureNotificationExpandedHeight();
             ContentHost.MinHeight = Math.Max(0, nHeight - nonContentHeight);
             NotificationOverlay.MinHeight = 0;
             ExpandedContentHost.MinHeight = 0;
