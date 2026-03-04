@@ -318,6 +318,9 @@ public partial class DynamicIslandWindow : Window
                 _queuedStableState = null;
                 SetState(queued, "Queued state");
             }
+
+            _instanceCounter = Math.Max(0, _instanceCounter - 1);
+            Log($"DynamicIslandWindow closed. InstanceCount={_instanceCounter}");
         };
         _stateStoryboard.Begin(this, true);
     }
@@ -384,6 +387,11 @@ public partial class DynamicIslandWindow : Window
             DockAnchor.TopRight or DockAnchor.BottomRight => rightEdge,
             _ => centerLeft
         };
+        _stateStoryboard.Begin(this, true);
+    }
+
+    private Rect ResolveCurrentOrFallbackRect()
+        => Width > 1 && Height > 1 ? new Rect(Left, Top, Width, Height) : ResolvePeekRect();
 
         var top = anchor switch
         {
