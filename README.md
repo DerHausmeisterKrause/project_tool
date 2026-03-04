@@ -52,3 +52,7 @@ dotnet build -c Release -p:EnableCompileTimeAppIcon=true
 ```
 
 Empfehlung für die Icon-Datei: echtes Multi-Size ICO (mind. 16, 32, 48, 256 px).
+
+
+## License
+MIT
