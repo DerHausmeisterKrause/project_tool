@@ -23,6 +23,7 @@ public partial class DynamicIslandWindow : Window
     private const double PeekWidth = 220;
     private const double ExpandedWidth = 456;
     private const double PeekHeight = 32;
+    private const double PeekHiddenRatio = 0.28;
     private const double ExpandedHeightNormal = 286;
     private const double ExpandedHeightNotificationMin = 108;
     private const double EdgeMargin = 10;
@@ -405,8 +406,9 @@ public partial class DynamicIslandWindow : Window
         var centerX = area.Left + ((area.Width - PeekWidth) / 2);
         var leftVisible = area.Left + EdgeMargin;
         var rightVisible = area.Right - PeekWidth - EdgeMargin;
-        var topHalfHidden = area.Top - (PeekHeight / 2);
-        var bottomHalfHidden = area.Bottom - (PeekHeight / 2);
+        var hiddenPeekOffset = PeekHeight * PeekHiddenRatio;
+        var topHalfHidden = area.Top - hiddenPeekOffset;
+        var bottomHalfHidden = area.Bottom - hiddenPeekOffset;
 
         (double left, double top) = anchor switch
         {
