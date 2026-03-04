@@ -42,6 +42,17 @@ public class SettingsService
     {
         if (settings.FridayTargetMinutes <= 0)
             settings.FridayTargetMinutes = 300;
+
+        if (string.IsNullOrWhiteSpace(settings.DynamicIslandDockPosition))
+            settings.DynamicIslandDockPosition = "TopCenter";
+
+        var validDockPositions = new[]
+        {
+            "TopCenter", "TopLeft", "TopRight", "LeftCenter", "RightCenter", "BottomLeft", "BottomCenter", "BottomRight"
+        };
+
+        if (!validDockPositions.Contains(settings.DynamicIslandDockPosition, StringComparer.OrdinalIgnoreCase))
+            settings.DynamicIslandDockPosition = "TopCenter";
     }
 
     public void Save()

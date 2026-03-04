@@ -20,6 +20,7 @@ public class SettingsViewModel : ObservableObject
     public int FridayTargetMinutes { get => _settings.Current.FridayTargetMinutes; set { _settings.Current.FridayTargetMinutes = value; Save(); } }
     public int SaturdayTargetMinutes { get => _settings.Current.SaturdayTargetMinutes; set { _settings.Current.SaturdayTargetMinutes = value; Save(); } }
     public int SundayTargetMinutes { get => _settings.Current.SundayTargetMinutes; set { _settings.Current.SundayTargetMinutes = value; Save(); } }
+    public bool DynamicIslandEnabled { get => _settings.Current.DynamicIslandEnabled; set { _settings.Current.DynamicIslandEnabled = value; Save(); } }
 
     public RelayCommand TestReminderCommand { get; }
 
@@ -33,7 +34,7 @@ public class SettingsViewModel : ObservableObject
     private void Save()
     {
         _settings.Save();
-        _notifications.RefreshSchedule();
+        _notifications.HandleSettingsChanged();
         Raise(string.Empty);
     }
 
