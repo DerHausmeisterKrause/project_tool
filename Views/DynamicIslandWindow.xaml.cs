@@ -23,8 +23,10 @@ public partial class DynamicIslandWindow : Window
     private const double PeekWidth = 220;
     private const double ExpandedWidth = 456;
     private const double PeekHeight = 32;
+    private const double PeekHiddenRatio = 0.28;
     private const double ExpandedHeightNormal = 286;
-    private const double ExpandedHeightNotificationMin = 108;
+    private const double ExpandedHeightNotificationMin = 132;
+    private const double NotificationContentSafeExtraHeight = 24;
     private const double EdgeMargin = 10;
     private const double SafeVisibleMargin = 12;
     private const int DragThrottleMs = 16;
@@ -41,6 +43,7 @@ public partial class DynamicIslandWindow : Window
     private InteractionState? _queuedStableState;
 
     private bool _isDragging;
+    private bool _isClosing;
     private Point _dragOffsetInWindow;
     private DateTime _lastDragMoveAt = DateTime.MinValue;
 
@@ -93,6 +96,13 @@ public partial class DynamicIslandWindow : Window
 
         LostMouseCapture += (_, _) => ReleaseDragCaptureIfNeeded();
 
+        Closing += (_, _) =>
+        {
+            _isClosing = true;
+            _queuedStableState = null;
+            StopStateAnimation();
+        };
+
         Closed += (_, _) =>
         {
             if (DataContext is DynamicIslandViewModel vm)
@@ -108,7 +118,7 @@ public partial class DynamicIslandWindow : Window
 
     public void EnqueueNotification(Guid taskId, string text, ReminderKind kind)
     {
-        if (DataContext is not DynamicIslandViewModel vm)
+        if (_isClosing || Dispatcher.HasShutdownStarted || !IsLoaded || DataContext is not DynamicIslandViewModel vm)
             return;
 
         vm.EnqueueNotification(taskId, text, kind);
@@ -139,7 +149,7 @@ public partial class DynamicIslandWindow : Window
 
     private void NotificationOpenButton_Click(object sender, RoutedEventArgs e)
     {
-        if (DataContext is not DynamicIslandViewModel vm)
+        if (_isClosing || Dispatcher.HasShutdownStarted || DataContext is not DynamicIslandViewModel vm)
             return;
 
         vm.OpenNotificationCommand.Execute(null);
@@ -153,7 +163,7 @@ public partial class DynamicIslandWindow : Window
 
     private void NotificationCloseButton_Click(object sender, RoutedEventArgs e)
     {
-        if (DataContext is not DynamicIslandViewModel vm)
+        if (_isClosing || Dispatcher.HasShutdownStarted || DataContext is not DynamicIslandViewModel vm)
             return;
 
         vm.DismissNotificationCommand.Execute(null);
@@ -172,7 +182,7 @@ public partial class DynamicIslandWindow : Window
 
     private void Window_MouseEnter(object sender, MouseEventArgs e)
     {
-        if (_isDragging)
+        if (_isDragging || _isClosing || Dispatcher.HasShutdownStarted)
             return;
 
         IslandRoot.Opacity = 1.0;
@@ -180,7 +190,7 @@ public partial class DynamicIslandWindow : Window
 
     private void Window_MouseLeave(object sender, MouseEventArgs e)
     {
-        if (_isDragging)
+        if (_isDragging || _isClosing || Dispatcher.HasShutdownStarted)
             return;
 
         IslandRoot.Opacity = 0.96;
@@ -188,6 +198,9 @@ public partial class DynamicIslandWindow : Window
 
     private void Window_MouseRightButtonDown(object sender, MouseButtonEventArgs e)
     {
+        if (_isClosing || Dispatcher.HasShutdownStarted)
+            return;
+
         _isDragging = true;
         _dragOffsetInWindow = e.GetPosition(this);
         CaptureMouse();
@@ -244,7 +257,7 @@ public partial class DynamicIslandWindow : Window
         if (e.PropertyName is not (nameof(DynamicIslandViewModel.IsExpanded) or nameof(DynamicIslandViewModel.ActiveNotification)))
             return;
 
-        if (DataContext is not DynamicIslandViewModel vm)
+        if (_isClosing || Dispatcher.HasShutdownStarted || DataContext is not DynamicIslandViewModel vm)
             return;
 
         var target = vm.IsExpanded || vm.HasNotification
@@ -269,7 +282,7 @@ public partial class DynamicIslandWindow : Window
     // (Window/VM/Event-Race + parallele Animationen). Diese Methode ist der einzige State-Writer.
     private void SetState(InteractionState requestedState, string reason)
     {
-        if (_isDragging)
+        if (_isClosing || Dispatcher.HasShutdownStarted || _isDragging || !IsLoaded)
             return;
 
         if (_isTransitionActive)
@@ -320,6 +333,12 @@ public partial class DynamicIslandWindow : Window
                 SetState(queued, "Queued state");
             }
         };
+        if (_isClosing || Dispatcher.HasShutdownStarted)
+        {
+            _isTransitionActive = false;
+            return;
+        }
+
         _stateStoryboard.Begin(this, true);
     }
 
@@ -358,7 +377,7 @@ public partial class DynamicIslandWindow : Window
         if (IslandRoot.Effect is DropShadowEffect shadow)
             shadowExtra = Math.Max(NotificationShadowSafePadding, Math.Ceiling(Math.Abs(shadow.ShadowDepth) + (shadow.BlurRadius * 0.6)));
 
-        var target = Math.Ceiling(desiredContentHeight + nonContentHeight + shadowExtra);
+        var target = Math.Ceiling(desiredContentHeight + nonContentHeight + shadowExtra + NotificationContentSafeExtraHeight);
 
 #if DEBUG
         Log($"MeasureNotificationExpandedHeight desiredContent={desiredContentHeight:F1} overlayDesired={NotificationOverlay.DesiredSize.Height:F1} " +
@@ -405,8 +424,9 @@ public partial class DynamicIslandWindow : Window
         var centerX = area.Left + ((area.Width - PeekWidth) / 2);
         var leftVisible = area.Left + EdgeMargin;
         var rightVisible = area.Right - PeekWidth - EdgeMargin;
-        var topHalfHidden = area.Top - (PeekHeight / 2);
-        var bottomHalfHidden = area.Bottom - (PeekHeight / 2);
+        var hiddenPeekOffset = PeekHeight * PeekHiddenRatio;
+        var topHalfHidden = area.Top - hiddenPeekOffset;
+        var bottomHalfHidden = area.Bottom - hiddenPeekOffset;
 
         (double left, double top) = anchor switch
         {
@@ -426,13 +446,21 @@ public partial class DynamicIslandWindow : Window
 
     private void ApplyRect(Rect rect)
     {
+        if (_isClosing || Dispatcher.HasShutdownStarted)
+            return;
+
         Left = rect.Left;
         Top = rect.Top;
         Width = rect.Width;
         Height = rect.Height;
 
-        if (!IsVisible)
+        if (!IsLoaded || !IsVisible)
+        {
+            if (_isClosing || Dispatcher.HasShutdownStarted)
+                return;
+
             Show();
+        }
     }
 
     private void ApplyHostHeights(InteractionState state)
@@ -446,7 +474,7 @@ public partial class DynamicIslandWindow : Window
         {
             var nHeight = MeasureNotificationExpandedHeight();
             ContentHost.MinHeight = Math.Max(0, nHeight - nonContentHeight);
-            NotificationOverlay.MinHeight = 0;
+            NotificationOverlay.MinHeight = ExpandedHeightNotificationMin;
             ExpandedContentHost.MinHeight = 0;
             return;
         }
