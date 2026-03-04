@@ -34,7 +34,7 @@
 
             <Border x:Name="NotificationOverlay"
                     Margin="0"
-                    MinHeight="0"
+                    MinHeight="132"
                     VerticalAlignment="Top"
                     HorizontalAlignment="Stretch"
                     CornerRadius="12"
