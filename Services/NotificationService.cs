@@ -34,23 +34,42 @@ public class NotificationService : IDisposable
         _timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(20) };
         _timer.Tick += (_, _) => CheckReminders();
         _timer.Start();
-        EnsureIslandWindow();
+        HandleSettingsChanged();
 
         _logger.Info("Notification scheduler started.");
     }
 
-
-    private void EnsureIslandWindow()
+    public void HandleSettingsChanged()
     {
+        RefreshSchedule();
+
         Application.Current.Dispatcher.BeginInvoke(() =>
         {
-            if (_islandWindow != null) return;
-            _islandWindow = new DynamicIslandWindow();
-            _islandWindow.Closed += (_, _) => _islandWindow = null;
-            _islandWindow.Show();
+            if (_settings.Current.DynamicIslandEnabled)
+                EnsureIslandWindow();
+            else
+                CloseIslandWindow();
         }, DispatcherPriority.Background);
     }
 
+    private void EnsureIslandWindow()
+    {
+        if (_islandWindow != null)
+            return;
+
+        _islandWindow = new DynamicIslandWindow();
+        _islandWindow.Closed += (_, _) => _islandWindow = null;
+        _islandWindow.Show();
+    }
+
+    private void CloseIslandWindow()
+    {
+        if (_islandWindow == null)
+            return;
+
+        _islandWindow.Close();
+        _islandWindow = null;
+    }
 
     public void AttachMainWindow(Window mainWindow)
     {
@@ -60,14 +79,7 @@ public class NotificationService : IDisposable
     public void Dispose()
     {
         _timer.Stop();
-        Application.Current.Dispatcher.BeginInvoke(() =>
-        {
-            if (_islandWindow != null)
-            {
-                _islandWindow.Close();
-                _islandWindow = null;
-            }
-        }, DispatcherPriority.Background);
+        Application.Current.Dispatcher.BeginInvoke(() => CloseIslandWindow(), DispatcherPriority.Background);
     }
 
     public void RefreshSchedule()
@@ -86,12 +98,12 @@ public class NotificationService : IDisposable
 
             if (task == null)
             {
-                ShowOverlay(Guid.Empty, "Test Benachrichtigung (keine Aufgabe vorhanden)", ReminderKind.Lead);
+                ShowNotification(Guid.Empty, "Test Benachrichtigung (keine Aufgabe vorhanden)", ReminderKind.Lead);
                 return;
             }
 
             var lead = Math.Max(1, _settings.Current.ReminderLeadMinutes);
-            ShowOverlay(task.Id, $"{task.Title} in {lead} Minuten", ReminderKind.Lead);
+            ShowNotification(task.Id, $"{task.Title} in {lead} Minuten", ReminderKind.Lead);
         }
         catch (Exception ex)
         {
@@ -128,9 +140,7 @@ public class NotificationService : IDisposable
                 }
 
                 if (ShouldFire(start, now))
-                {
                     Fire(task.Id, segment.Id, start, ReminderKind.Start, $"{task.Title} jetzt");
-                }
             }
 
             _lastCheck = now;
@@ -155,13 +165,20 @@ public class NotificationService : IDisposable
         if (!_firedKeys.Add(key)) return;
 
         _logger.Info($"Reminder fired: {key}");
-        ShowOverlay(taskId, text, kind);
+        ShowNotification(taskId, text, kind);
     }
 
-    private void ShowOverlay(Guid taskId, string text, ReminderKind kind)
+    private void ShowNotification(Guid taskId, string text, ReminderKind kind)
     {
         Application.Current.Dispatcher.BeginInvoke(() =>
         {
+            if (_settings.Current.DynamicIslandEnabled)
+            {
+                EnsureIslandWindow();
+                _islandWindow?.EnqueueNotification(taskId, text, kind);
+                return;
+            }
+
             var overlay = new ReminderWindow(text, kind, taskId);
             overlay.NotificationClicked += (_, id) => ActivateMainWindowAndOpenTask(id);
             overlay.Show();
