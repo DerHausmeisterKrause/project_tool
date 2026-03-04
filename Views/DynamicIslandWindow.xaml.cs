@@ -4,8 +4,8 @@ using System.ComponentModel;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Windows;
-using System.Windows.Input;
 using System.Windows.Controls.Primitives;
+using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
@@ -22,8 +22,8 @@ public partial class DynamicIslandWindow : Window
     private const double PeekWidth = 220;
     private const double ExpandedWidth = 456;
     private const double PeekHeight = 32;
-    private const double ExpandedHeightNormal = 300;
-    private const double ExpandedHeightNotification = 170;
+    private const double ExpandedHeightNormal = 286;
+    private const double ExpandedHeightNotification = 118;
     private const double EdgeMargin = 10;
     private const double SafeVisibleMargin = 12;
     private const int DragThrottleMs = 16;
@@ -32,14 +32,11 @@ public partial class DynamicIslandWindow : Window
 
     private DockAnchor _dockAnchor;
     private Vector _dockOffset = new(0, 0);
-    private Rect _homePeekRect;
 
-    private IslandState _state = IslandState.Hidden;
     private Storyboard? _stateStoryboard;
-    private bool _isStateTransitionInProgress;
-    private IslandState? _queuedState;
-    private string _queuedReason = string.Empty;
-    private bool _hasAppliedInitialState;
+    private bool _isTransitionActive;
+    private InteractionState _state = InteractionState.Collapsed;
+    private InteractionState? _queuedStableState;
 
     private bool _isDragging;
     private Point _dragOffsetInWindow;
@@ -58,15 +55,16 @@ public partial class DynamicIslandWindow : Window
         Loaded += (_, _) =>
         {
             _dockAnchor = LoadDockAnchor();
-            SetState(IslandState.Peek, "Loaded");
+            SetState(InteractionState.Collapsed, "Loaded");
         };
 
         PreviewKeyDown += (_, evt) =>
         {
-            if (evt.Key == Key.Escape && _state == IslandState.Expanded && DataContext is DynamicIslandViewModel vm && !vm.HasNotification)
+            if (evt.Key == Key.Escape)
             {
-                vm.IsExpanded = false;
-                SetState(IslandState.Peek, "Esc Close");
+                SetState(InteractionState.Collapsed, "Esc Close");
+                if (DataContext is DynamicIslandViewModel vm)
+                    vm.IsExpanded = false;
                 evt.Handled = true;
             }
         };
@@ -83,13 +81,13 @@ public partial class DynamicIslandWindow : Window
             if (_isDragging)
                 return;
 
-            if (DataContext is DynamicIslandViewModel vm)
-                vm.IsExpanded = false;
-
-            if (_state is IslandState.Expanded or IslandState.NotificationOverlay)
-                SetState(IslandState.Peek, "Window Deactivated");
+            if (_state is InteractionState.Expanded or InteractionState.AnimatingOpen)
+            {
+                if (DataContext is DynamicIslandViewModel vm)
+                    vm.IsExpanded = false;
+                SetState(InteractionState.Collapsed, "Window Deactivated");
+            }
         };
-
 
         LostMouseCapture += (_, _) => ReleaseDragCaptureIfNeeded();
 
@@ -100,7 +98,6 @@ public partial class DynamicIslandWindow : Window
                 vm.PropertyChanged -= OnViewModelPropertyChanged;
                 vm.Stop();
             }
-
 
             _instanceCounter = Math.Max(0, _instanceCounter - 1);
             Log($"DynamicIslandWindow closed. InstanceCount={_instanceCounter}");
@@ -113,7 +110,7 @@ public partial class DynamicIslandWindow : Window
             return;
 
         vm.EnqueueNotification(taskId, text, kind);
-        SetState(IslandState.NotificationOverlay, "Notification Enqueued");
+        SetState(InteractionState.Expanded, "Notification Enqueued");
     }
 
     private void IslandRoot_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
@@ -124,15 +121,15 @@ public partial class DynamicIslandWindow : Window
         if (IsFromButton(e.OriginalSource as DependencyObject))
             return;
 
-        if (_state == IslandState.Peek)
+        if (_state is InteractionState.Collapsed or InteractionState.AnimatingClose)
         {
             vm.IsExpanded = true;
-            SetState(IslandState.Expanded, "Left Click Open");
+            SetState(InteractionState.Expanded, "Left Click Open");
         }
-        else if (_state == IslandState.Expanded && !vm.HasNotification)
+        else if (_state is InteractionState.Expanded && !vm.HasNotification)
         {
             vm.IsExpanded = false;
-            SetState(IslandState.Peek, "Left Click Close");
+            SetState(InteractionState.Collapsed, "Left Click Close");
         }
 
         e.Handled = true;
@@ -144,6 +141,11 @@ public partial class DynamicIslandWindow : Window
             return;
 
         vm.OpenNotificationCommand.Execute(null);
+        if (!vm.HasNotification)
+        {
+            vm.IsExpanded = false;
+            SetState(InteractionState.Collapsed, "Notification Open Button");
+        }
         e.Handled = true;
     }
 
@@ -156,7 +158,11 @@ public partial class DynamicIslandWindow : Window
         if (!vm.HasNotification)
         {
             vm.IsExpanded = false;
-            SetState(IslandState.Peek, "Notification Close Button");
+            SetState(InteractionState.Collapsed, "Notification Close Button");
+        }
+        else
+        {
+            SetState(InteractionState.Expanded, "Notification Next Item");
         }
 
         e.Handled = true;
@@ -184,8 +190,8 @@ public partial class DynamicIslandWindow : Window
         _dragOffsetInWindow = e.GetPosition(this);
         CaptureMouse();
         Cursor = Cursors.SizeAll;
-
-        SetState(IslandState.Dragging, "Drag Start");
+        StopStateAnimation();
+        _state = InteractionState.Collapsed;
         e.Handled = true;
     }
 
@@ -200,12 +206,8 @@ public partial class DynamicIslandWindow : Window
         _lastDragMoveAt = now;
 
         var mouseScreen = GetMouseScreenDip();
-        var newLeft = mouseScreen.X - _dragOffsetInWindow.X;
-        var newTop = mouseScreen.Y - _dragOffsetInWindow.Y;
-
-        Left = newLeft;
-        Top = newTop;
-
+        Left = mouseScreen.X - _dragOffsetInWindow.X;
+        Top = mouseScreen.Y - _dragOffsetInWindow.Y;
     }
 
     private void Window_MouseRightButtonUp(object sender, MouseButtonEventArgs e)
@@ -214,13 +216,13 @@ public partial class DynamicIslandWindow : Window
             return;
 
         ReleaseDragCaptureIfNeeded();
-
         _dockAnchor = CalculateNearestDockAnchor();
         _dockOffset = new Vector(0, 0);
         SaveDockAnchor(_dockAnchor);
 
-        Log($"Drag end -> Snap {_dockAnchor}");
-        SetState(IslandState.Peek, "Drag End Snap");
+        if (DataContext is DynamicIslandViewModel vm)
+            vm.IsExpanded = false;
+        SetState(InteractionState.Collapsed, "Drag End Snap");
         e.Handled = true;
     }
 
@@ -237,8 +239,16 @@ public partial class DynamicIslandWindow : Window
 
     private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
-        if (e.PropertyName is nameof(DynamicIslandViewModel.IsExpanded) or nameof(DynamicIslandViewModel.ActiveNotification))
-            SetState(ResolveTargetStateFromVm(), $"VM Change: {e.PropertyName}");
+        if (e.PropertyName is not (nameof(DynamicIslandViewModel.IsExpanded) or nameof(DynamicIslandViewModel.ActiveNotification)))
+            return;
+
+        if (DataContext is not DynamicIslandViewModel vm)
+            return;
+
+        var target = vm.IsExpanded || vm.HasNotification
+            ? InteractionState.Expanded
+            : InteractionState.Collapsed;
+        SetState(target, $"VM Change: {e.PropertyName}");
     }
 
     private static bool IsFromButton(DependencyObject? source)
@@ -253,113 +263,74 @@ public partial class DynamicIslandWindow : Window
         return false;
     }
 
-    private IslandState ResolveTargetStateFromVm()
+    // Root cause: sporadische Open/Close-Fehler wurden durch konkurrierende Trigger verursacht
+    // (Window/VM/Event-Race + parallele Animationen). Diese Methode ist der einzige State-Writer.
+    private void SetState(InteractionState requestedState, string reason)
     {
-        if (DataContext is not DynamicIslandViewModel vm)
-            return IslandState.Hidden;
+        if (_isDragging)
+            return;
 
-        if (vm.HasNotification)
-            return IslandState.NotificationOverlay;
-
-        if (vm.IsExpanded)
-            return IslandState.Expanded;
-
-        return IslandState.Peek;
-    }
-
-    private void SetState(IslandState newState, string reason)
-    {
-        if (_isStateTransitionInProgress)
+        if (_isTransitionActive)
         {
-            _queuedState = newState;
-            _queuedReason = reason;
+            if (requestedState is InteractionState.Collapsed or InteractionState.Expanded)
+                _queuedStableState = requestedState;
             return;
         }
 
-        if (_state == newState && _hasAppliedInitialState)
+        if (requestedState == InteractionState.AnimatingOpen || requestedState == InteractionState.AnimatingClose)
             return;
 
-        _isStateTransitionInProgress = true;
+        var targetState = requestedState;
+        if (_state == targetState)
+            return;
+
         StopStateAnimation();
+        _isTransitionActive = true;
 
-        var startRect = GetSafeCurrentRect();
-        Left = startRect.Left;
-        Top = startRect.Top;
-        Width = startRect.Width;
-        Height = startRect.Height;
+        var startRect = GetCurrentOrFallbackRect();
+        ApplyRect(startRect);
 
-        var targetRect = GetTargetRect(newState);
-        var animate = ShouldAnimateTransition(newState);
+        var willOpen = targetState == InteractionState.Expanded;
+        _state = willOpen ? InteractionState.AnimatingOpen : InteractionState.AnimatingClose;
+        Log($"State -> {_state} ({reason})");
 
-        if (!animate)
-        {
-            CompleteStateTransition(newState, targetRect, reason);
-            return;
-        }
-
+        var targetRect = willOpen ? GetExpandedRect() : GetPeekRect();
         var duration = TimeSpan.FromMilliseconds(170);
+
         _stateStoryboard = new Storyboard();
         AddAnimation(_stateStoryboard, this, LeftProperty, targetRect.Left, duration);
         AddAnimation(_stateStoryboard, this, TopProperty, targetRect.Top, duration);
         AddAnimation(_stateStoryboard, this, WidthProperty, targetRect.Width, duration);
         AddAnimation(_stateStoryboard, this, HeightProperty, targetRect.Height, duration);
-        _stateStoryboard.Completed += (_, _) => CompleteStateTransition(newState, targetRect, reason);
+        _stateStoryboard.Completed += (_, _) =>
+        {
+            StopStateAnimation();
+            ApplyRect(targetRect);
+            ApplyHostHeights(targetState);
+            _state = targetState;
+            _isTransitionActive = false;
+            Log($"State -> {_state} ({reason})");
+
+            if (_queuedStableState.HasValue)
+            {
+                var queued = _queuedStableState.Value;
+                _queuedStableState = null;
+                SetState(queued, "Queued state");
+            }
+        };
         _stateStoryboard.Begin(this, true);
     }
 
-    private bool ShouldAnimateTransition(IslandState newState)
+    private Rect GetCurrentOrFallbackRect()
+        => Width > 1 && Height > 1 ? new Rect(Left, Top, Width, Height) : GetPeekRect();
+
+    private Rect GetPeekRect() => CalculatePeekRect(_dockAnchor, _dockOffset);
+
+    private Rect GetExpandedRect()
     {
-        if (!_hasAppliedInitialState)
-            return false;
-
-        if (_isDragging)
-            return false;
-
-        if (newState is IslandState.Hidden or IslandState.Dragging)
-            return false;
-
-        return true;
-    }
-
-    private Rect GetSafeCurrentRect()
-    {
-        if (Width > 1 && Height > 1)
-            return new Rect(Left, Top, Width, Height);
-
-        return CalculateHomePeekRect(_dockAnchor, _dockOffset);
-    }
-
-    private void CompleteStateTransition(IslandState state, Rect targetRect, string reason)
-    {
-        ApplyRectHard(targetRect, state);
-        Log($"State -> {state} ({reason})");
-
-        _hasAppliedInitialState = true;
-        _isStateTransitionInProgress = false;
-
-        if (_queuedState.HasValue)
-        {
-            var queuedState = _queuedState.Value;
-            var queuedReason = _queuedReason;
-            _queuedState = null;
-            _queuedReason = string.Empty;
-            SetState(queuedState, queuedReason);
-        }
-    }
-
-    private Rect GetTargetRect(IslandState state)
-    {
-        _homePeekRect = CalculateHomePeekRect(_dockAnchor, _dockOffset);
-
-        return state switch
-        {
-            IslandState.Hidden => _homePeekRect,
-            IslandState.Peek => _homePeekRect,
-            IslandState.Expanded => CalculateVisibleRect(_dockAnchor, ExpandedWidth, ExpandedHeightNormal),
-            IslandState.NotificationOverlay => CalculateVisibleRect(_dockAnchor, ExpandedWidth, ExpandedHeightNotification),
-            IslandState.Dragging => new Rect(Left, Top, Width, Height),
-            _ => _homePeekRect
-        };
+        var hasNotification = (DataContext as DynamicIslandViewModel)?.HasNotification == true;
+        var targetHeight = hasNotification ? ExpandedHeightNotification : ExpandedHeightNormal;
+        return CalculateVisibleRect(_dockAnchor, ExpandedWidth, targetHeight);
     }
 
     private static Rect CalculateVisibleRect(DockAnchor anchor, double targetWidth, double targetHeight)
@@ -391,7 +362,7 @@ public partial class DynamicIslandWindow : Window
         return new Rect(left, top, targetWidth, targetHeight);
     }
 
-    private static Rect CalculateHomePeekRect(DockAnchor anchor, Vector offset)
+    private static Rect CalculatePeekRect(DockAnchor anchor, Vector offset)
     {
         var area = SystemParameters.WorkArea;
 
@@ -417,30 +388,39 @@ public partial class DynamicIslandWindow : Window
         return new Rect(left, top, PeekWidth, PeekHeight);
     }
 
-    private void ApplyRectHard(Rect rect, IslandState state)
+    private void ApplyRect(Rect rect)
     {
         Left = rect.Left;
         Top = rect.Top;
         Width = rect.Width;
         Height = rect.Height;
 
-        if (state == IslandState.Hidden)
-            Hide();
-        else if (!IsVisible)
+        if (!IsVisible)
             Show();
+    }
 
-        var hostMinHeight = state switch
+    private void ApplyHostHeights(InteractionState state)
+    {
+        var hasNotification = (DataContext as DynamicIslandViewModel)?.HasNotification == true;
+        if (state == InteractionState.Expanded && hasNotification)
         {
-            IslandState.NotificationOverlay => ExpandedHeightNotification,
-            IslandState.Expanded => ExpandedHeightNormal,
-            _ => 0d
-        };
+            ContentHost.MinHeight = ExpandedHeightNotification;
+            NotificationOverlay.MinHeight = ExpandedHeightNotification;
+            ExpandedContentHost.MinHeight = 0;
+            return;
+        }
 
-        ContentHost.MinHeight = hostMinHeight;
-        ExpandedContentHost.MinHeight = Math.Max(120, hostMinHeight);
-        NotificationOverlay.MinHeight = state == IslandState.NotificationOverlay ? ExpandedHeightNotification : 0;
+        if (state == InteractionState.Expanded)
+        {
+            ContentHost.MinHeight = ExpandedHeightNormal;
+            ExpandedContentHost.MinHeight = 120;
+            NotificationOverlay.MinHeight = 0;
+            return;
+        }
 
-        _state = state;
+        ContentHost.MinHeight = 0;
+        NotificationOverlay.MinHeight = 0;
+        ExpandedContentHost.MinHeight = 0;
     }
 
     private void StopStateAnimation()
@@ -525,7 +505,9 @@ public partial class DynamicIslandWindow : Window
 
     private static void Log(string message)
     {
+#if DEBUG
         try { ServiceLocator.Logger.Info($"[DynamicIslandWindow] {message}"); } catch { }
+#endif
     }
 
     [DllImport("user32.dll", SetLastError = true)]
@@ -545,11 +527,10 @@ public enum DockAnchor
     BottomRight
 }
 
-public enum IslandState
+public enum InteractionState
 {
-    Hidden,
-    Peek,
+    Collapsed,
     Expanded,
-    NotificationOverlay,
-    Dragging
+    AnimatingOpen,
+    AnimatingClose
 }
