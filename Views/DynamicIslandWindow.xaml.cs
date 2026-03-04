@@ -317,6 +317,63 @@ public partial class DynamicIslandWindow : Window
                 _queuedStableState = null;
                 SetState(queued, "Queued state");
             }
+
+            _instanceCounter = Math.Max(0, _instanceCounter - 1);
+            Log($"DynamicIslandWindow closed. InstanceCount={_instanceCounter}");
+        };
+        _stateStoryboard.Begin(this, true);
+    }
+
+    private Rect GetCurrentOrFallbackRect()
+        => Width > 1 && Height > 1 ? new Rect(Left, Top, Width, Height) : GetPeekRect();
+
+    private Rect GetPeekRect() => CalculatePeekRect(_dockAnchor, _dockOffset);
+
+    private Rect GetExpandedRect()
+    {
+        var hasNotification = (DataContext as DynamicIslandViewModel)?.HasNotification == true;
+        var targetHeight = hasNotification ? GetNotificationExpandedHeight() : ExpandedHeightNormal;
+        return CalculateVisibleRect(_dockAnchor, ExpandedWidth, targetHeight);
+    }
+
+    private double GetNotificationExpandedHeight()
+    {
+        if ((DataContext as DynamicIslandViewModel)?.HasNotification != true)
+            return ExpandedHeightNotificationMin;
+
+        UpdateLayout();
+
+        var border = IslandRoot.BorderThickness;
+        var padding = IslandRoot.Padding;
+        var nonContentHeight = border.Top + border.Bottom + padding.Top + padding.Bottom;
+        var availableWidth = Math.Max(120,
+            ExpandedWidth
+            - border.Left - border.Right
+            - padding.Left - padding.Right);
+
+        ContentHost.Measure(new Size(availableWidth, double.PositiveInfinity));
+        var desiredContentHeight = ContentHost.DesiredSize.Height;
+
+        // Safety headroom avoids last-pixel clipping from DPI rounding during animation end.
+        var target = Math.Ceiling(desiredContentHeight + nonContentHeight + 4);
+        return Math.Max(ExpandedHeightNotificationMin, target);
+    }
+
+    private Rect CalculateVisibleRect(DockAnchor anchor, double targetWidth, double targetHeight)
+    {
+        var area = GetCurrentWorkingAreaDip();
+
+        var centerLeft = area.Left + ((area.Width - targetWidth) / 2d);
+        var leftEdge = area.Left + EdgeMargin;
+        var rightEdge = area.Right - targetWidth - EdgeMargin;
+        var topEdge = area.Top + SafeVisibleMargin;
+        var bottomEdge = area.Bottom - targetHeight - SafeVisibleMargin;
+
+        var left = anchor switch
+        {
+            DockAnchor.TopLeft or DockAnchor.BottomLeft => leftEdge,
+            DockAnchor.TopRight or DockAnchor.BottomRight => rightEdge,
+            _ => centerLeft
         };
         _stateStoryboard.Begin(this, true);
     }
@@ -351,19 +408,6 @@ public partial class DynamicIslandWindow : Window
     private Rect CalculateVisibleRect(DockAnchor anchor, double targetWidth, double targetHeight)
     {
         var area = GetCurrentWorkingAreaDip();
-
-        var centerLeft = area.Left + ((area.Width - targetWidth) / 2d);
-        var leftEdge = area.Left + EdgeMargin;
-        var rightEdge = area.Right - targetWidth - EdgeMargin;
-        var topEdge = area.Top + SafeVisibleMargin;
-        var bottomEdge = area.Bottom - targetHeight - SafeVisibleMargin;
-
-        var left = anchor switch
-        {
-            DockAnchor.TopLeft or DockAnchor.BottomLeft => leftEdge,
-            DockAnchor.TopRight or DockAnchor.BottomRight => rightEdge,
-            _ => centerLeft
-        };
 
         var top = anchor switch
         {
@@ -416,11 +460,15 @@ public partial class DynamicIslandWindow : Window
 
     private void ApplyHostHeights(InteractionState state)
     {
+        var border = IslandRoot.BorderThickness;
+        var padding = IslandRoot.Padding;
+        var nonContentHeight = border.Top + border.Bottom + padding.Top + padding.Bottom;
+
         var hasNotification = (DataContext as DynamicIslandViewModel)?.HasNotification == true;
         if (state == InteractionState.Expanded && hasNotification)
         {
             var nHeight = GetNotificationExpandedHeight();
-            ContentHost.MinHeight = nHeight;
+            ContentHost.MinHeight = Math.Max(0, nHeight - nonContentHeight);
             NotificationOverlay.MinHeight = 0;
             ExpandedContentHost.MinHeight = 0;
             return;
@@ -428,7 +476,7 @@ public partial class DynamicIslandWindow : Window
 
         if (state == InteractionState.Expanded)
         {
-            ContentHost.MinHeight = ExpandedHeightNormal;
+            ContentHost.MinHeight = Math.Max(0, ExpandedHeightNormal - nonContentHeight);
             ExpandedContentHost.MinHeight = 120;
             NotificationOverlay.MinHeight = 0;
             return;

@@ -29,7 +29,7 @@
             <DropShadowEffect BlurRadius="20" ShadowDepth="0" Opacity="0.28" Color="#000000"/>
         </Border.Effect>
 
-        <Grid x:Name="ContentHost" VerticalAlignment="Top" HorizontalAlignment="Stretch" MinHeight="0" IsHitTestVisible="True">
+        <Grid x:Name="ContentHost" VerticalAlignment="Top" HorizontalAlignment="Stretch" MinHeight="0" IsHitTestVisible="True" ClipToBounds="False">
 
             <Border x:Name="NotificationOverlay"
                     Margin="0"
@@ -40,6 +40,7 @@
                     Padding="15"
                     Panel.ZIndex="4"
                     IsHitTestVisible="True"
+                    ClipToBounds="False"
                     Background="#F0111724"
                     BorderThickness="1"
                     Visibility="{Binding HasNotification, Converter={StaticResource BooleanToVisibilityConverter}}">
@@ -77,7 +78,7 @@
 
                     <StackPanel Grid.Column="1" Margin="10,0,12,0" VerticalAlignment="Top" HorizontalAlignment="Stretch">
                         <TextBlock Text="Benachrichtigung" Foreground="#BFC9D8" FontWeight="SemiBold" FontSize="13"/>
-                        <TextBlock Text="{Binding NotificationText}" TextWrapping="Wrap" Foreground="#E6EAF2" Margin="0,2,0,0" FontSize="14"/>
+                        <TextBlock Text="{Binding NotificationText}" TextWrapping="WrapWithOverflow" Foreground="#E6EAF2" Margin="0,2,0,0" FontSize="14"/>
                     </StackPanel>
 
                     <StackPanel Grid.Column="2" Orientation="Vertical" VerticalAlignment="Top">
