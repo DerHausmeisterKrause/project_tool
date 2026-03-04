@@ -23,7 +23,7 @@ public partial class DynamicIslandWindow : Window
     private const double ExpandedWidth = 456;
     private const double PeekHeight = 32;
     private const double ExpandedHeightNormal = 286;
-    private const double ExpandedHeightNotification = 118;
+    private const double ExpandedHeightNotification = 108;
     private const double EdgeMargin = 10;
     private const double SafeVisibleMargin = 12;
     private const int DragThrottleMs = 16;
@@ -335,7 +335,7 @@ public partial class DynamicIslandWindow : Window
 
     private static Rect CalculateVisibleRect(DockAnchor anchor, double targetWidth, double targetHeight)
     {
-        var area = SystemParameters.WorkArea;
+        var area = GetCurrentWorkingArea();
 
         var centerLeft = area.Left + ((area.Width - targetWidth) / 2d);
         var leftEdge = area.Left + EdgeMargin;
@@ -364,7 +364,7 @@ public partial class DynamicIslandWindow : Window
 
     private static Rect CalculatePeekRect(DockAnchor anchor, Vector offset)
     {
-        var area = SystemParameters.WorkArea;
+        var area = GetCurrentWorkingArea();
 
         var centerX = area.Left + ((area.Width - PeekWidth) / 2);
         var leftVisible = area.Left + EdgeMargin;
@@ -421,6 +421,27 @@ public partial class DynamicIslandWindow : Window
         ContentHost.MinHeight = 0;
         NotificationOverlay.MinHeight = 0;
         ExpandedContentHost.MinHeight = 0;
+    }
+
+    private static Rect GetCurrentWorkingArea()
+    {
+        var point = new NativePoint
+        {
+            X = (int)SystemParameters.WorkArea.Left + (int)(SystemParameters.WorkArea.Width / 2),
+            Y = (int)SystemParameters.WorkArea.Top + (int)(SystemParameters.WorkArea.Height / 2)
+        };
+
+        var cursorScreen = GetCursorPos(out var cursor) ? cursor : point;
+        var monitor = MonitorFromPoint(cursorScreen, MonitorDefaulttonearest);
+        if (monitor == IntPtr.Zero)
+            return SystemParameters.WorkArea;
+
+        var info = new MonitorInfoEx { CbSize = Marshal.SizeOf<MonitorInfoEx>() };
+        if (!GetMonitorInfo(monitor, ref info))
+            return SystemParameters.WorkArea;
+
+        var wa = info.RcWork;
+        return new Rect(wa.Left, wa.Top, wa.Right - wa.Left, wa.Bottom - wa.Top);
     }
 
     private void StopStateAnimation()
@@ -510,8 +531,46 @@ public partial class DynamicIslandWindow : Window
 #endif
     }
 
+    private const int MonitorDefaulttonearest = 2;
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct NativePoint
+    {
+        public int X;
+        public int Y;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct NativeRect
+    {
+        public int Left;
+        public int Top;
+        public int Right;
+        public int Bottom;
+    }
+
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Auto)]
+    private struct MonitorInfoEx
+    {
+        public int CbSize;
+        public NativeRect RcMonitor;
+        public NativeRect RcWork;
+        public int DwFlags;
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 32)]
+        public string SzDevice;
+    }
+
     [DllImport("user32.dll", SetLastError = true)]
     private static extern int GetWindowLong(IntPtr hWnd, int nIndex);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern bool GetCursorPos(out NativePoint lpPoint);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern IntPtr MonitorFromPoint(NativePoint pt, int dwFlags);
+
+    [DllImport("user32.dll", CharSet = CharSet.Auto, SetLastError = true)]
+    private static extern bool GetMonitorInfo(IntPtr hMonitor, ref MonitorInfoEx lpmi);
 
     [DllImport("user32.dll", SetLastError = true)]
     private static extern int SetWindowLong(IntPtr hWnd, int nIndex, int dwNewLong);

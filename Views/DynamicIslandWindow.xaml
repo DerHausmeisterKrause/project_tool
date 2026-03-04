@@ -20,7 +20,7 @@
             Background="#EA0A0F17"
             BorderBrush="#3A4455"
             BorderThickness="1"
-            Padding="10,7"
+            Padding="14,10"
             IsHitTestVisible="True"
             ClipToBounds="False"
             MouseLeftButtonUp="IslandRoot_MouseLeftButtonUp">
@@ -33,14 +33,14 @@
             <Border x:Name="NotificationOverlay"
                     Margin="0"
                     MinHeight="0"
-                    VerticalAlignment="Stretch"
+                    VerticalAlignment="Center"
                     HorizontalAlignment="Stretch"
                     CornerRadius="12"
-                    Padding="10,8"
+                    Padding="15"
                     Panel.ZIndex="4"
                     IsHitTestVisible="True"
-                    Background="#F0121721"
-                    BorderThickness="1.5"
+                    Background="#F0111724"
+                    BorderThickness="1"
                     Visibility="{Binding HasNotification, Converter={StaticResource BooleanToVisibilityConverter}}">
                 <Border.Style>
                     <Style TargetType="Border">
@@ -53,37 +53,37 @@
                     </Style>
                 </Border.Style>
 
-                <Grid VerticalAlignment="Stretch" HorizontalAlignment="Stretch">
+                <Grid VerticalAlignment="Center" HorizontalAlignment="Stretch">
                     <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="40"/>
+                        <ColumnDefinition Width="32"/>
                         <ColumnDefinition Width="*"/>
                         <ColumnDefinition Width="Auto"/>
                     </Grid.ColumnDefinitions>
 
                     <Border Grid.Column="0"
-                            Width="32"
-                            Height="32"
-                            CornerRadius="16"
+                            Width="28"
+                            Height="28"
+                            CornerRadius="14"
                             VerticalAlignment="Center"
-                            Background="#233B4454">
+                            Background="#203B4454">
                         <TextBlock Text="🔔"
                                    FontFamily="Segoe UI Emoji"
-                                   FontSize="16"
+                                   FontSize="15"
                                    VerticalAlignment="Center"
                                    HorizontalAlignment="Center"
                                    Foreground="#E5E7EB"/>
                     </Border>
 
-                    <StackPanel Grid.Column="1" Margin="8,0,10,0" VerticalAlignment="Center">
-                        <TextBlock Text="Benachrichtigung" Foreground="#CBD5E1" FontWeight="SemiBold" FontSize="12"/>
-                        <TextBlock Text="{Binding NotificationText}" TextWrapping="Wrap" Foreground="#F8FAFC" Margin="0,2,0,0" FontSize="13"/>
+                    <StackPanel Grid.Column="1" Margin="10,0,12,0" VerticalAlignment="Center" HorizontalAlignment="Stretch">
+                        <TextBlock Text="Benachrichtigung" Foreground="#BFC9D8" FontWeight="SemiBold" FontSize="13"/>
+                        <TextBlock Text="{Binding NotificationText}" TextWrapping="Wrap" Foreground="#E6EAF2" Margin="0,2,0,0" FontSize="14"/>
                     </StackPanel>
 
                     <StackPanel Grid.Column="2" Orientation="Vertical" VerticalAlignment="Center">
                         <Button x:Name="NotificationOpenButton" Content="🔗 Öffnen" Click="NotificationOpenButton_Click"
-                                Style="{StaticResource IslandPillButtonStyle}" Margin="0,0,0,6" MinHeight="30" MinWidth="92"/>
+                                Style="{StaticResource IslandPillButtonStyle}" Margin="0,0,0,8" MinHeight="30" MinWidth="110"/>
                         <Button x:Name="NotificationCloseButton" Content="✖ Schließen" Click="NotificationCloseButton_Click"
-                                Style="{StaticResource IslandPillButtonStyle}" MinHeight="30" MinWidth="92"/>
+                                Style="{StaticResource IslandPillButtonStyle}" MinHeight="30" MinWidth="110"/>
                     </StackPanel>
                 </Grid>
             </Border>
