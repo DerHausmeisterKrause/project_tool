@@ -9,6 +9,7 @@
         AllowsTransparency="True"
         Background="Transparent"
         Topmost="True"
+        WindowStartupLocation="Manual"
         SnapsToDevicePixels="True"
         MouseEnter="Window_MouseEnter"
         MouseLeave="Window_MouseLeave"

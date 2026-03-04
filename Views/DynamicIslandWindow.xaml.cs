@@ -23,7 +23,7 @@ public partial class DynamicIslandWindow : Window
     private const double ExpandedWidth = 456;
     private const double PeekHeight = 32;
     private const double ExpandedHeightNormal = 286;
-    private const double ExpandedHeightNotification = 108;
+    private const double ExpandedHeightNotificationMin = 108;
     private const double EdgeMargin = 10;
     private const double SafeVisibleMargin = 12;
     private const int DragThrottleMs = 16;
@@ -54,8 +54,8 @@ public partial class DynamicIslandWindow : Window
 
         Loaded += (_, _) =>
         {
-            _dockAnchor = LoadDockAnchor();
-            SetState(InteractionState.Collapsed, "Loaded");
+            _dockAnchor = DockAnchor.TopCenter;
+            SetState(InteractionState.Collapsed, "Loaded TopCenter");
         };
 
         PreviewKeyDown += (_, evt) =>
@@ -329,13 +329,28 @@ public partial class DynamicIslandWindow : Window
     private Rect GetExpandedRect()
     {
         var hasNotification = (DataContext as DynamicIslandViewModel)?.HasNotification == true;
-        var targetHeight = hasNotification ? ExpandedHeightNotification : ExpandedHeightNormal;
+        var targetHeight = hasNotification ? GetNotificationExpandedHeight() : ExpandedHeightNormal;
         return CalculateVisibleRect(_dockAnchor, ExpandedWidth, targetHeight);
     }
 
-    private static Rect CalculateVisibleRect(DockAnchor anchor, double targetWidth, double targetHeight)
+    private double GetNotificationExpandedHeight()
     {
-        var area = GetCurrentWorkingArea();
+        if ((DataContext as DynamicIslandViewModel)?.HasNotification != true)
+            return ExpandedHeightNotificationMin;
+
+        UpdateLayout();
+        var padding = IslandRoot.Padding.Top + IslandRoot.Padding.Bottom;
+        var availableWidth = Math.Max(120, ExpandedWidth - IslandRoot.Padding.Left - IslandRoot.Padding.Right);
+        NotificationOverlay.Measure(new Size(availableWidth, double.PositiveInfinity));
+        var desired = NotificationOverlay.DesiredSize.Height;
+
+        var target = Math.Ceiling(desired + padding);
+        return Math.Max(ExpandedHeightNotificationMin, target);
+    }
+
+    private Rect CalculateVisibleRect(DockAnchor anchor, double targetWidth, double targetHeight)
+    {
+        var area = GetCurrentWorkingAreaDip();
 
         var centerLeft = area.Left + ((area.Width - targetWidth) / 2d);
         var leftEdge = area.Left + EdgeMargin;
@@ -362,9 +377,9 @@ public partial class DynamicIslandWindow : Window
         return new Rect(left, top, targetWidth, targetHeight);
     }
 
-    private static Rect CalculatePeekRect(DockAnchor anchor, Vector offset)
+    private Rect CalculatePeekRect(DockAnchor anchor, Vector offset)
     {
-        var area = GetCurrentWorkingArea();
+        var area = GetCurrentWorkingAreaDip();
 
         var centerX = area.Left + ((area.Width - PeekWidth) / 2);
         var leftVisible = area.Left + EdgeMargin;
@@ -404,8 +419,9 @@ public partial class DynamicIslandWindow : Window
         var hasNotification = (DataContext as DynamicIslandViewModel)?.HasNotification == true;
         if (state == InteractionState.Expanded && hasNotification)
         {
-            ContentHost.MinHeight = ExpandedHeightNotification;
-            NotificationOverlay.MinHeight = ExpandedHeightNotification;
+            var nHeight = GetNotificationExpandedHeight();
+            ContentHost.MinHeight = nHeight;
+            NotificationOverlay.MinHeight = 0;
             ExpandedContentHost.MinHeight = 0;
             return;
         }
@@ -423,16 +439,30 @@ public partial class DynamicIslandWindow : Window
         ExpandedContentHost.MinHeight = 0;
     }
 
-    private static Rect GetCurrentWorkingArea()
+    private Rect GetCurrentWorkingAreaDip()
     {
-        var point = new NativePoint
-        {
-            X = (int)SystemParameters.WorkArea.Left + (int)(SystemParameters.WorkArea.Width / 2),
-            Y = (int)SystemParameters.WorkArea.Top + (int)(SystemParameters.WorkArea.Height / 2)
-        };
+        IntPtr monitor = IntPtr.Zero;
 
-        var cursorScreen = GetCursorPos(out var cursor) ? cursor : point;
-        var monitor = MonitorFromPoint(cursorScreen, MonitorDefaulttonearest);
+        if (GetCursorPos(out var cursor))
+            monitor = MonitorFromPoint(cursor, MonitorDefaulttonearest);
+
+        if (monitor == IntPtr.Zero)
+        {
+            var main = Application.Current?.MainWindow;
+            if (main != null)
+            {
+                var hwnd = new WindowInteropHelper(main).Handle;
+                if (hwnd != IntPtr.Zero)
+                    monitor = MonitorFromWindow(hwnd, MonitorDefaulttonearest);
+            }
+        }
+
+        if (monitor == IntPtr.Zero)
+        {
+            var primaryPoint = new NativePoint { X = 0, Y = 0 };
+            monitor = MonitorFromPoint(primaryPoint, MonitorDefaulttoprimary);
+        }
+
         if (monitor == IntPtr.Zero)
             return SystemParameters.WorkArea;
 
@@ -440,8 +470,11 @@ public partial class DynamicIslandWindow : Window
         if (!GetMonitorInfo(monitor, ref info))
             return SystemParameters.WorkArea;
 
-        var wa = info.RcWork;
-        return new Rect(wa.Left, wa.Top, wa.Right - wa.Left, wa.Bottom - wa.Top);
+        var source = PresentationSource.FromVisual(this);
+        var fromDevice = source?.CompositionTarget?.TransformFromDevice ?? Matrix.Identity;
+        var topLeft = fromDevice.Transform(new Point(info.RcWork.Left, info.RcWork.Top));
+        var bottomRight = fromDevice.Transform(new Point(info.RcWork.Right, info.RcWork.Bottom));
+        return new Rect(topLeft, bottomRight);
     }
 
     private void StopStateAnimation()
@@ -531,6 +564,7 @@ public partial class DynamicIslandWindow : Window
 #endif
     }
 
+    private const int MonitorDefaulttoprimary = 1;
     private const int MonitorDefaulttonearest = 2;
 
     [StructLayout(LayoutKind.Sequential)]
@@ -568,6 +602,9 @@ public partial class DynamicIslandWindow : Window
 
     [DllImport("user32.dll", SetLastError = true)]
     private static extern IntPtr MonitorFromPoint(NativePoint pt, int dwFlags);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern IntPtr MonitorFromWindow(IntPtr hwnd, int dwFlags);
 
     [DllImport("user32.dll", CharSet = CharSet.Auto, SetLastError = true)]
     private static extern bool GetMonitorInfo(IntPtr hMonitor, ref MonitorInfoEx lpmi);
