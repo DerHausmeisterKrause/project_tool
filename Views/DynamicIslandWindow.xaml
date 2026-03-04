@@ -35,25 +35,65 @@
 
             <Grid Grid.Row="0" Height="18"/>
 
-            <StackPanel Grid.Row="1"
-                        Margin="0,8,0,0"
-                        Panel.ZIndex="2"
-                        Visibility="{Binding IsExpanded, Converter={StaticResource BooleanToVisibilityConverter}}">
-                <Border Background="#221F2937" CornerRadius="12" Padding="10,8" Margin="0,0,0,8"
-                        Visibility="{Binding HasNotification, Converter={StaticResource BooleanToVisibilityConverter}}">
-                    <StackPanel>
-                        <DockPanel LastChildFill="False" Margin="0,0,0,4">
-                            <TextBlock Text="🔔" FontFamily="Segoe UI Emoji" Foreground="#F8FAFC" Margin="0,0,6,0"/>
-                            <TextBlock Text="Benachrichtigung" Foreground="#BFDBFE" FontWeight="SemiBold"/>
-                            <TextBlock Text="{Binding NotificationCount, StringFormat= ({0})}" Foreground="#94A3B8" Margin="6,0,0,0"/>
-                        </DockPanel>
-                        <TextBlock Text="{Binding NotificationText}" TextWrapping="Wrap" Foreground="#E2E8F0" Margin="0,0,0,8"/>
+            <!-- Eigenständiger NotificationOverlay Modus -->
+            <Border Grid.Row="1"
+                    x:Name="NotificationOverlay"
+                    Margin="0,8,0,0"
+                    CornerRadius="12"
+                    Padding="10,8"
+                    Panel.ZIndex="4"
+                    Background="#E6121721"
+                    BorderThickness="2"
+                    Visibility="{Binding HasNotification, Converter={StaticResource BooleanToVisibilityConverter}}">
+                <Border.Style>
+                    <Style TargetType="Border">
+                        <Setter Property="BorderBrush" Value="#F59E0B"/>
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding IsStartNotification}" Value="True">
+                                <Setter Property="BorderBrush" Value="#EF4444"/>
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </Border.Style>
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Grid.Column="0"
+                               Text="🔔"
+                               FontFamily="Segoe UI Emoji"
+                               FontSize="18"
+                               VerticalAlignment="Center"
+                               Foreground="#E5E7EB"
+                               Margin="0,0,10,0"/>
+                    <StackPanel Grid.Column="1">
+                        <TextBlock Text="Benachrichtigung" Foreground="#E5E7EB" FontWeight="SemiBold"/>
+                        <TextBlock Text="{Binding NotificationText}" TextWrapping="Wrap" Foreground="#F8FAFC" Margin="0,4,0,8"/>
                         <UniformGrid Columns="2">
                             <Button Content="🔗 Öffnen" Command="{Binding OpenNotificationCommand}" Style="{StaticResource IslandPillButtonStyle}" Margin="2"/>
-                            <Button Content="⏭ Weiter" Command="{Binding DismissNotificationCommand}" Style="{StaticResource IslandPillButtonStyle}" Margin="2"/>
+                            <Button Content="✖ Schließen" Command="{Binding DismissNotificationCommand}" Style="{StaticResource IslandPillButtonStyle}" Margin="2"/>
                         </UniformGrid>
                     </StackPanel>
-                </Border>
+                </Grid>
+            </Border>
+
+            <!-- Normaler Expanded Modus (getrennt vom NotificationOverlay) -->
+            <StackPanel Grid.Row="1" Margin="0,8,0,0" Panel.ZIndex="2">
+                <StackPanel.Style>
+                    <Style TargetType="StackPanel">
+                        <Setter Property="Visibility" Value="Collapsed"/>
+                        <Style.Triggers>
+                            <MultiDataTrigger>
+                                <MultiDataTrigger.Conditions>
+                                    <Condition Binding="{Binding IsExpanded}" Value="True"/>
+                                    <Condition Binding="{Binding HasNotification}" Value="False"/>
+                                </MultiDataTrigger.Conditions>
+                                <Setter Property="Visibility" Value="Visible"/>
+                            </MultiDataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </StackPanel.Style>
 
                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,0,0,6">
                     <TextBlock Text="🎯" FontFamily="Segoe UI Emoji" FontSize="14" Margin="0,0,6,0"/>

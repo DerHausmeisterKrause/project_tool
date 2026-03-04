@@ -67,11 +67,13 @@ public class DynamicIslandViewModel : ObservableObject
                 Raise(nameof(HasNotification));
                 Raise(nameof(NotificationText));
                 Raise(nameof(NotificationCount));
+                Raise(nameof(IsStartNotification));
             }
         }
     }
 
     public bool HasNotification => ActiveNotification != null;
+    public bool IsStartNotification => ActiveNotification?.Kind == ReminderKind.Start;
     public string NotificationText => ActiveNotification?.Text ?? string.Empty;
     public int NotificationCount => _notificationQueue.Count + (HasNotification ? 1 : 0);
 

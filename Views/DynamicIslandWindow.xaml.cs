@@ -22,16 +22,19 @@ public partial class DynamicIslandWindow : Window
     private const double ExpandedWidth = 456;
     private const double CollapsedHeight = 32;
     private const double ExpandedHeight = 300;
-    private const double NotificationHeight = 340;
-    private const double Margin = 10;
+    private const double NotificationHeight = 126;
+    private const double EdgeMargin = 10;
 
     private static int _instanceCounter;
+
+    private DockAnchor _dockAnchor;
+    private Vector _dockOffset = new(0, 0);
+    private Rect _homeRect;
 
     private bool _isRightDragging;
     private Point _dragMouseOffset;
     private DateTime _lastDragMoveLogAt = DateTime.MinValue;
     private Storyboard? _stateStoryboard;
-
     private IslandVisualState _currentState = IslandVisualState.Collapsed;
 
     public DynamicIslandWindow()
@@ -46,7 +49,8 @@ public partial class DynamicIslandWindow : Window
 
         Loaded += (_, _) =>
         {
-            ApplyVisualState(ResolveTargetState(), animate: false);
+            _dockAnchor = LoadDockAnchor();
+            ResetToHome(animate: false);
         };
 
         SourceInitialized += (_, _) =>
@@ -62,10 +66,9 @@ public partial class DynamicIslandWindow : Window
                 return;
 
             if (DataContext is DynamicIslandViewModel vm)
-            {
                 vm.IsExpanded = false;
-                ApplyVisualState(ResolveTargetState());
-            }
+
+            ResetToHome();
         };
 
         Closed += (_, _) =>
@@ -87,7 +90,7 @@ public partial class DynamicIslandWindow : Window
             return;
 
         vm.EnqueueNotification(taskId, text, kind);
-        ApplyVisualState(ResolveTargetState());
+        ResetToHome();
     }
 
     private void IslandRoot_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
@@ -96,7 +99,7 @@ public partial class DynamicIslandWindow : Window
             return;
 
         vm.ToggleExpandCommand.Execute(null);
-        ApplyVisualState(ResolveTargetState());
+        ResetToHome();
         e.Handled = true;
     }
 
@@ -105,7 +108,7 @@ public partial class DynamicIslandWindow : Window
         if (_isRightDragging)
             return;
 
-        ApplyVisualState(ResolveTargetState());
+        ResetToHome();
     }
 
     private void Window_MouseLeave(object sender, MouseEventArgs e)
@@ -113,7 +116,7 @@ public partial class DynamicIslandWindow : Window
         if (_isRightDragging)
             return;
 
-        ApplyVisualState(ResolveTargetState());
+        ResetToHome();
     }
 
     private void Window_MouseRightButtonDown(object sender, MouseButtonEventArgs e)
@@ -152,18 +155,18 @@ public partial class DynamicIslandWindow : Window
         ReleaseMouseCapture();
         Cursor = Cursors.Arrow;
 
-        var dock = CalculateNearestDockPosition();
-        SaveDock(dock);
-        Log($"Drag end -> Snap {dock}");
+        _dockAnchor = CalculateNearestDockAnchor();
+        SaveDockAnchor(_dockAnchor);
+        Log($"Drag end -> Snap {_dockAnchor}");
 
-        ApplyVisualState(ResolveTargetState(), animate: true);
+        ResetToHome();
         e.Handled = true;
     }
 
     private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
         if (e.PropertyName is nameof(DynamicIslandViewModel.IsExpanded) or nameof(DynamicIslandViewModel.ActiveNotification))
-            ApplyVisualState(ResolveTargetState());
+            ResetToHome();
     }
 
     private IslandVisualState ResolveTargetState()
@@ -172,35 +175,30 @@ public partial class DynamicIslandWindow : Window
             return IslandVisualState.Collapsed;
 
         if (vm.HasNotification)
-            return IslandVisualState.Notification;
+            return IslandVisualState.NotificationOverlay;
 
         if (vm.IsExpanded)
             return IslandVisualState.Expanded;
 
-        var hovering = IsMouseOver;
-        return hovering ? IslandVisualState.Peek : IslandVisualState.Collapsed;
+        return IsMouseOver ? IslandVisualState.Peek : IslandVisualState.Collapsed;
     }
 
-    private DynamicIslandDockPosition CurrentDock()
+    private void ResetToHome(bool animate = true)
     {
-        var raw = ServiceLocator.Settings.Current.DynamicIslandDockPosition;
-        if (!Enum.TryParse<DynamicIslandDockPosition>(raw, true, out var dock))
-            dock = DynamicIslandDockPosition.TopCenter;
-        return dock;
+        ApplyVisualState(ResolveTargetState(), animate);
     }
 
     private void ApplyVisualState(IslandVisualState state, bool animate = true)
     {
-        var dock = CurrentDock();
-        var rect = CalculateRect(dock, state);
+        _homeRect = CalculateHomeRect(_dockAnchor, state, _dockOffset);
 
         if (!animate || _isRightDragging)
         {
             StopStateAnimation();
-            Left = rect.Left;
-            Top = rect.Top;
-            Width = rect.Width;
-            Height = rect.Height;
+            Left = _homeRect.Left;
+            Top = _homeRect.Top;
+            Width = _homeRect.Width;
+            Height = _homeRect.Height;
             UpdateState(state);
             return;
         }
@@ -209,11 +207,18 @@ public partial class DynamicIslandWindow : Window
         var duration = TimeSpan.FromMilliseconds(170);
 
         _stateStoryboard = new Storyboard();
-        AddAnimation(_stateStoryboard, this, LeftProperty, rect.Left, duration);
-        AddAnimation(_stateStoryboard, this, TopProperty, rect.Top, duration);
-        AddAnimation(_stateStoryboard, this, WidthProperty, rect.Width, duration);
-        AddAnimation(_stateStoryboard, this, HeightProperty, rect.Height, duration);
-        _stateStoryboard.Completed += (_, _) => UpdateState(state);
+        AddAnimation(_stateStoryboard, this, LeftProperty, _homeRect.Left, duration);
+        AddAnimation(_stateStoryboard, this, TopProperty, _homeRect.Top, duration);
+        AddAnimation(_stateStoryboard, this, WidthProperty, _homeRect.Width, duration);
+        AddAnimation(_stateStoryboard, this, HeightProperty, _homeRect.Height, duration);
+        _stateStoryboard.Completed += (_, _) =>
+        {
+            Left = _homeRect.Left;
+            Top = _homeRect.Top;
+            Width = _homeRect.Width;
+            Height = _homeRect.Height;
+            UpdateState(state);
+        };
         _stateStoryboard.Begin();
     }
 
@@ -248,68 +253,65 @@ public partial class DynamicIslandWindow : Window
         Log($"State -> {newState}");
     }
 
-    private Rect CalculateRect(DynamicIslandDockPosition dock, IslandVisualState state)
+    private static double WidthForState(IslandVisualState state) => state switch
+    {
+        IslandVisualState.Collapsed => CollapsedWidth,
+        IslandVisualState.Peek => PeekWidth,
+        _ => ExpandedWidth
+    };
+
+    private static double HeightForState(IslandVisualState state) => state switch
+    {
+        IslandVisualState.NotificationOverlay => NotificationHeight,
+        IslandVisualState.Expanded => ExpandedHeight,
+        _ => CollapsedHeight
+    };
+
+    private static Rect CalculateHomeRect(DockAnchor anchor, IslandVisualState state, Vector offset)
     {
         var area = SystemParameters.WorkArea;
-        var width = state switch
-        {
-            IslandVisualState.Collapsed => CollapsedWidth,
-            IslandVisualState.Peek => PeekWidth,
-            _ => ExpandedWidth
-        };
+        var width = WidthForState(state);
+        var height = HeightForState(state);
+        var isExpandedState = state is IslandVisualState.Expanded or IslandVisualState.NotificationOverlay;
 
-        var height = state switch
-        {
-            IslandVisualState.Notification => NotificationHeight,
-            IslandVisualState.Expanded => ExpandedHeight,
-            _ => CollapsedHeight
-        };
-
-        var isExpandedState = state is IslandVisualState.Expanded or IslandVisualState.Notification;
-
-        var topVisible = area.Top + Margin;
-        var topHidden = area.Top - (height / 2);
-        var bottomVisible = area.Bottom - height - Margin;
-        var bottomHidden = area.Bottom - (height / 2);
-        var leftVisible = area.Left + Margin;
-        var leftHidden = area.Left - (width / 2);
-        var rightVisible = area.Right - width - Margin;
-        var rightHidden = area.Right - (width / 2);
         var centerX = area.Left + ((area.Width - width) / 2);
-        var centerY = area.Top + ((area.Height - height) / 2);
+        var leftVisible = area.Left + EdgeMargin;
+        var rightVisible = area.Right - width - EdgeMargin;
+        var topVisible = area.Top + EdgeMargin;
+        var topHalfHidden = area.Top - (height / 2);
+        var bottomVisible = area.Bottom - height - EdgeMargin;
+        var bottomHalfHidden = area.Bottom - (height / 2);
 
-        (double left, double top) = dock switch
+        (double left, double top) = anchor switch
         {
-            DynamicIslandDockPosition.TopCenter => (centerX, isExpandedState ? topVisible : topHidden),
-            DynamicIslandDockPosition.TopLeft => (leftVisible, isExpandedState ? topVisible : topHidden),
-            DynamicIslandDockPosition.TopRight => (rightVisible, isExpandedState ? topVisible : topHidden),
-            DynamicIslandDockPosition.LeftCenter => (isExpandedState ? leftVisible : leftHidden, centerY),
-            DynamicIslandDockPosition.RightCenter => (isExpandedState ? rightVisible : rightHidden, centerY),
-            DynamicIslandDockPosition.BottomLeft => (leftVisible, isExpandedState ? bottomVisible : bottomHidden),
-            DynamicIslandDockPosition.BottomCenter => (centerX, isExpandedState ? bottomVisible : bottomHidden),
-            DynamicIslandDockPosition.BottomRight => (rightVisible, isExpandedState ? bottomVisible : bottomHidden),
-            _ => (centerX, isExpandedState ? topVisible : topHidden)
+            DockAnchor.TopCenter => (centerX, isExpandedState ? topVisible : topHalfHidden),
+            DockAnchor.TopLeft => (leftVisible, isExpandedState ? topVisible : topHalfHidden),
+            DockAnchor.TopRight => (rightVisible, isExpandedState ? topVisible : topHalfHidden),
+            DockAnchor.BottomLeft => (leftVisible, isExpandedState ? bottomVisible : bottomHalfHidden),
+            DockAnchor.BottomCenter => (centerX, isExpandedState ? bottomVisible : bottomHalfHidden),
+            DockAnchor.BottomRight => (rightVisible, isExpandedState ? bottomVisible : bottomHalfHidden),
+            _ => (centerX, isExpandedState ? topVisible : topHalfHidden)
         };
 
+        left += offset.X;
+        top += offset.Y;
         return new Rect(left, top, width, height);
     }
 
-    private DynamicIslandDockPosition CalculateNearestDockPosition()
+    private DockAnchor CalculateNearestDockAnchor()
     {
         var area = SystemParameters.WorkArea;
         var centerX = Left + (Width / 2);
         var centerY = Top + (Height / 2);
 
-        var points = new Dictionary<DynamicIslandDockPosition, Point>
+        var points = new Dictionary<DockAnchor, Point>
         {
-            [DynamicIslandDockPosition.TopCenter] = new(area.Left + area.Width / 2, area.Top),
-            [DynamicIslandDockPosition.TopLeft] = new(area.Left, area.Top),
-            [DynamicIslandDockPosition.TopRight] = new(area.Right, area.Top),
-            [DynamicIslandDockPosition.LeftCenter] = new(area.Left, area.Top + area.Height / 2),
-            [DynamicIslandDockPosition.RightCenter] = new(area.Right, area.Top + area.Height / 2),
-            [DynamicIslandDockPosition.BottomLeft] = new(area.Left, area.Bottom),
-            [DynamicIslandDockPosition.BottomCenter] = new(area.Left + area.Width / 2, area.Bottom),
-            [DynamicIslandDockPosition.BottomRight] = new(area.Right, area.Bottom)
+            [DockAnchor.TopCenter] = new(area.Left + area.Width / 2, area.Top),
+            [DockAnchor.TopLeft] = new(area.Left, area.Top),
+            [DockAnchor.TopRight] = new(area.Right, area.Top),
+            [DockAnchor.BottomLeft] = new(area.Left, area.Bottom),
+            [DockAnchor.BottomCenter] = new(area.Left + area.Width / 2, area.Bottom),
+            [DockAnchor.BottomRight] = new(area.Right, area.Bottom)
         };
 
         return points.OrderBy(x => Distance(centerX, centerY, x.Value.X, x.Value.Y)).First().Key;
@@ -322,9 +324,27 @@ public partial class DynamicIslandWindow : Window
         return Math.Sqrt(dx * dx + dy * dy);
     }
 
-    private void SaveDock(DynamicIslandDockPosition dock)
+    private DockAnchor LoadDockAnchor()
     {
-        ServiceLocator.Settings.Current.DynamicIslandDockPosition = dock.ToString();
+        var raw = ServiceLocator.Settings.Current.DynamicIslandDockPosition?.Trim();
+        return raw switch
+        {
+            nameof(DockAnchor.TopCenter) => DockAnchor.TopCenter,
+            nameof(DockAnchor.TopLeft) => DockAnchor.TopLeft,
+            nameof(DockAnchor.TopRight) => DockAnchor.TopRight,
+            nameof(DockAnchor.BottomLeft) => DockAnchor.BottomLeft,
+            nameof(DockAnchor.BottomCenter) => DockAnchor.BottomCenter,
+            nameof(DockAnchor.BottomRight) => DockAnchor.BottomRight,
+            // Legacy compatibility
+            "LeftCenter" => DockAnchor.TopLeft,
+            "RightCenter" => DockAnchor.TopRight,
+            _ => DockAnchor.TopCenter
+        };
+    }
+
+    private void SaveDockAnchor(DockAnchor anchor)
+    {
+        ServiceLocator.Settings.Current.DynamicIslandDockPosition = anchor.ToString();
         ServiceLocator.Settings.Save();
     }
 
@@ -340,10 +360,20 @@ public partial class DynamicIslandWindow : Window
     private static extern int SetWindowLong(IntPtr hWnd, int nIndex, int dwNewLong);
 }
 
+public enum DockAnchor
+{
+    TopCenter,
+    TopLeft,
+    TopRight,
+    BottomLeft,
+    BottomCenter,
+    BottomRight
+}
+
 public enum IslandVisualState
 {
     Collapsed,
     Peek,
     Expanded,
-    Notification
+    NotificationOverlay
 }
