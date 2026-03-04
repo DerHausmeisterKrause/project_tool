@@ -90,7 +90,11 @@ public class DynamicIslandViewModel : ObservableObject
 
     public DynamicIslandViewModel()
     {
-        ToggleExpandCommand = new RelayCommand(() => IsExpanded = !IsExpanded);
+        ToggleExpandCommand = new RelayCommand(() =>
+        {
+            IsExpanded = !IsExpanded;
+            Log($"State change requested -> {(IsExpanded ? "Expanded" : "Collapsed")}");
+        });
         StartStopCommand = new RelayCommand(StartStop);
         OpenTaskCommand = new RelayCommand(OpenTaskInApp);
         OpenLinkCommand = new RelayCommand(OpenTaskLink);
@@ -117,6 +121,7 @@ public class DynamicIslandViewModel : ObservableObject
 
     public void EnqueueNotification(Guid taskId, string text, ReminderKind kind)
     {
+        Log($"Notification enqueue Kind={kind} TaskId={taskId} Text={text}");
         _notificationQueue.Enqueue(new IslandNotification
         {
             TaskId = taskId,
@@ -139,11 +144,13 @@ public class DynamicIslandViewModel : ObservableObject
         {
             ActiveNotification = null;
             IsExpanded = false;
+            Log("Notification dequeue -> none (Collapsed)");
             return;
         }
 
         ActiveNotification = _notificationQueue.Dequeue();
         IsExpanded = true;
+        Log($"Notification dequeue -> active Kind={ActiveNotification.Kind} TaskId={ActiveNotification.TaskId}");
         _notificationDismissTimer.Start();
     }
 
@@ -273,6 +280,11 @@ public class DynamicIslandViewModel : ObservableObject
             ServiceLocator.MainViewModel.NavigateToTodayAndOpenTask(ActiveNotification.TaskId);
 
         ShiftNotifications();
+    }
+
+    private static void Log(string message)
+    {
+        try { ServiceLocator.Logger.Info($"[DynamicIslandVM] {message}"); } catch { }
     }
 
     private static void ActivateMainWindow()

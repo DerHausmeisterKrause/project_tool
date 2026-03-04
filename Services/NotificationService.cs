@@ -24,6 +24,7 @@ public class NotificationService : IDisposable
 
     private DateTime _lastCheck;
     private DynamicIslandWindow? _islandWindow;
+    private static int _windowCreateCount;
 
     public NotificationService(LoggerService logger, SettingsService settings, TaskService tasks)
     {
@@ -57,8 +58,22 @@ public class NotificationService : IDisposable
         if (_islandWindow != null)
             return;
 
+        var existing = Application.Current.Windows.OfType<DynamicIslandWindow>().FirstOrDefault();
+        if (existing != null)
+        {
+            _islandWindow = existing;
+            _logger.Info("[NotificationService] Reusing existing DynamicIslandWindow instance.");
+            return;
+        }
+
         _islandWindow = new DynamicIslandWindow();
-        _islandWindow.Closed += (_, _) => _islandWindow = null;
+        _windowCreateCount++;
+        _logger.Info($"[NotificationService] DynamicIslandWindow created count={_windowCreateCount}");
+        _islandWindow.Closed += (_, _) =>
+        {
+            _logger.Info("[NotificationService] DynamicIslandWindow closed.");
+            _islandWindow = null;
+        };
         _islandWindow.Show();
     }
 
@@ -175,6 +190,7 @@ public class NotificationService : IDisposable
             if (_settings.Current.DynamicIslandEnabled)
             {
                 EnsureIslandWindow();
+                _logger.Info($"[NotificationService] Notification -> Island Kind={kind} TaskId={taskId}");
                 _islandWindow?.EnqueueNotification(taskId, text, kind);
                 return;
             }

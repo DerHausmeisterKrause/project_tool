@@ -9,6 +9,7 @@
         AllowsTransparency="True"
         Background="Transparent"
         Topmost="True"
+        SnapsToDevicePixels="True"
         MouseEnter="Window_MouseEnter"
         MouseLeave="Window_MouseLeave"
         MouseRightButtonDown="Window_MouseRightButtonDown"
@@ -20,6 +21,7 @@
             BorderBrush="#3A4455"
             BorderThickness="1"
             Padding="10,7"
+            ClipToBounds="True"
             MouseLeftButtonUp="IslandRoot_MouseLeftButtonUp">
         <Border.Effect>
             <DropShadowEffect BlurRadius="20" ShadowDepth="0" Opacity="0.32" Color="#000000"/>
@@ -33,7 +35,10 @@
 
             <Grid Grid.Row="0" Height="18"/>
 
-            <StackPanel Grid.Row="1" Margin="0,8,0,0" Visibility="{Binding IsExpanded, Converter={StaticResource BooleanToVisibilityConverter}}">
+            <StackPanel Grid.Row="1"
+                        Margin="0,8,0,0"
+                        Panel.ZIndex="2"
+                        Visibility="{Binding IsExpanded, Converter={StaticResource BooleanToVisibilityConverter}}">
                 <Border Background="#221F2937" CornerRadius="12" Padding="10,8" Margin="0,0,0,8"
                         Visibility="{Binding HasNotification, Converter={StaticResource BooleanToVisibilityConverter}}">
                     <StackPanel>
@@ -59,8 +64,7 @@
                 <TextBlock Text="{Binding StatusText}" HorizontalAlignment="Center" Foreground="#94A3B8" Margin="0,0,0,8"/>
 
                 <Button Command="{Binding OpenNextFocusCommand}" Style="{StaticResource IslandPillButtonStyle}" Margin="0,0,0,8"
-                        Visibility="{Binding ShowNextFocus, Converter={StaticResource BooleanToVisibilityConverter}}"
-                        >
+                        Visibility="{Binding ShowNextFocus, Converter={StaticResource BooleanToVisibilityConverter}}">
                     <Button.Content>
                         <TextBlock Text="{Binding NextFocusText}" Foreground="#CBD5E1" TextAlignment="Center" TextTrimming="CharacterEllipsis"/>
                     </Button.Content>
