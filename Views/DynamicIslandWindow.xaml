@@ -29,12 +29,12 @@
             <DropShadowEffect BlurRadius="20" ShadowDepth="0" Opacity="0.28" Color="#000000"/>
         </Border.Effect>
 
-        <Grid x:Name="ContentHost" VerticalAlignment="Stretch" HorizontalAlignment="Stretch" MinHeight="0" IsHitTestVisible="True">
+        <Grid x:Name="ContentHost" VerticalAlignment="Top" HorizontalAlignment="Stretch" MinHeight="0" IsHitTestVisible="True">
 
             <Border x:Name="NotificationOverlay"
                     Margin="0"
                     MinHeight="0"
-                    VerticalAlignment="Center"
+                    VerticalAlignment="Top"
                     HorizontalAlignment="Stretch"
                     CornerRadius="12"
                     Padding="15"
@@ -54,7 +54,7 @@
                     </Style>
                 </Border.Style>
 
-                <Grid VerticalAlignment="Center" HorizontalAlignment="Stretch">
+                <Grid VerticalAlignment="Top" HorizontalAlignment="Stretch">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="32"/>
                         <ColumnDefinition Width="*"/>
@@ -75,12 +75,12 @@
                                    Foreground="#E5E7EB"/>
                     </Border>
 
-                    <StackPanel Grid.Column="1" Margin="10,0,12,0" VerticalAlignment="Center" HorizontalAlignment="Stretch">
+                    <StackPanel Grid.Column="1" Margin="10,0,12,0" VerticalAlignment="Top" HorizontalAlignment="Stretch">
                         <TextBlock Text="Benachrichtigung" Foreground="#BFC9D8" FontWeight="SemiBold" FontSize="13"/>
                         <TextBlock Text="{Binding NotificationText}" TextWrapping="Wrap" Foreground="#E6EAF2" Margin="0,2,0,0" FontSize="14"/>
                     </StackPanel>
 
-                    <StackPanel Grid.Column="2" Orientation="Vertical" VerticalAlignment="Center">
+                    <StackPanel Grid.Column="2" Orientation="Vertical" VerticalAlignment="Top">
                         <Button x:Name="NotificationOpenButton" Content="🔗 Öffnen" Click="NotificationOpenButton_Click"
                                 Style="{StaticResource IslandPillButtonStyle}" Margin="0,0,0,8" MinHeight="30" MinWidth="110"/>
                         <Button x:Name="NotificationCloseButton" Content="✖ Schließen" Click="NotificationCloseButton_Click"
