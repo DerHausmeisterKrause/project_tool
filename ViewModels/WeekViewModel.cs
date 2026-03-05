@@ -600,7 +600,7 @@ public class WeekViewModel : ObservableObject
             ("AM", new[] { "MAZ", "AM" }),
             ("HO", new[] { "HOMEOFFICE", "HO" }),
             ("UL", new[] { "URLAUB", "UL" }),
-            ("BR", new[] { "BEREITSCHAFT", "BR" })
+            ("BR", new[] { "RUFBEREITSCHAFT", "BEREITSCHAFT", "BR" })
         };
 
         foreach (var entry in rules)
@@ -620,6 +620,13 @@ public class WeekViewModel : ObservableObject
                     rule = "PREFIX_WITH_SEPARATOR";
                     return true;
                 }
+
+                if (HasWholeWord(normalizedSubject, key))
+                {
+                    mapped = entry.Marker;
+                    rule = "WHOLE_WORD";
+                    return true;
+                }
             }
         }
 
@@ -634,6 +641,15 @@ public class WeekViewModel : ObservableObject
         var suffix = normalizedSubject[key.Length..];
         var validSeparators = new[] { ":", " -", " |", " –", " /" };
         return validSeparators.Any(s => suffix.StartsWith(s, StringComparison.Ordinal));
+    }
+
+    private static bool HasWholeWord(string normalizedSubject, string key)
+    {
+        if (string.IsNullOrWhiteSpace(normalizedSubject) || string.IsNullOrWhiteSpace(key))
+            return false;
+
+        var pattern = $@"(?<![A-Z0-9]){System.Text.RegularExpressions.Regex.Escape(key)}(?![A-Z0-9])";
+        return System.Text.RegularExpressions.Regex.IsMatch(normalizedSubject, pattern, System.Text.RegularExpressions.RegexOptions.CultureInvariant);
     }
 
     private static string NormalizeStatusSubject(string subject)
@@ -749,6 +765,8 @@ public class WeekViewModel : ObservableObject
 
         return source
              .Where(e => !e.IsAllDay && e.EndLocal > dayStart && e.StartLocal < dayEnd && !consumedEventIds.Contains(e.Id))
+            .GroupBy(e => $"{e.Id}|{e.StartLocal:O}|{e.EndLocal:O}|{e.Subject}")
+            .Select(g => g.First())
             .Select(e =>
             {
                 var start = e.StartLocal < dayStart ? dayStart : e.StartLocal;
@@ -788,6 +806,8 @@ public class WeekViewModel : ObservableObject
 
         return source
             .Where(e => e.IsAllDay && e.EndLocal > dayStart && e.StartLocal < dayEnd && !consumedEventIds.Contains(e.Id))
+            .GroupBy(e => $"{e.Id}|{e.StartLocal:O}|{e.EndLocal:O}|{e.Subject}")
+            .Select(g => g.First())
             .Select(e => new PlenaroWeekAllDayPillModel
             {
                 Id = e.Id,
@@ -909,6 +929,52 @@ public class WeekCalendarItem
         (string.IsNullOrWhiteSpace(TaskDescription) ? string.Empty : $"\n{TaskDescription}") +
         (string.IsNullOrWhiteSpace(TicketUrl) ? string.Empty : $"\nTicket: {TicketUrl}") +
         (string.IsNullOrWhiteSpace(OutlookConflictText) ? string.Empty : $"\n{OutlookConflictText}");
+}
+
+public class PlenaroWeekOutlookEventBlock
+{
+    public string Id { get; set; } = string.Empty;
+    public string Subject { get; set; } = string.Empty;
+    public string TimeLabel { get; set; } = string.Empty;
+    public string Location { get; set; } = string.Empty;
+    public string TeamsJoinUrl { get; set; } = string.Empty;
+    public DateTime StartLocal { get; set; }
+    public DateTime EndLocal { get; set; }
+    public double DisplayTop { get; set; }
+    public double DisplayHeight { get; set; }
+    public double DisplayLeft { get; set; }
+    public double DisplayWidth { get; set; }
+    public int OverlapColumn { get; set; }
+    public int OverlapColumnCount { get; set; }
+    public bool IsCompact { get; set; }
+    public bool ShowLocation { get; set; }
+    public bool ShowActions { get; set; }
+    public bool HasTeamsLink => !string.IsNullOrWhiteSpace(TeamsJoinUrl);
+    public string TooltipText { get; set; } = string.Empty;
+}
+
+public class PlenaroWeekAllDayPillModel
+{
+    public string Id { get; set; } = string.Empty;
+    public string Subject { get; set; } = string.Empty;
+    public string Location { get; set; } = string.Empty;
+    public string TeamsJoinUrl { get; set; } = string.Empty;
+    public bool HasTeamsLink => !string.IsNullOrWhiteSpace(TeamsJoinUrl);
+}
+
+internal sealed class PlenaroWeekSharedLayoutBlock
+{
+    public DateTime Start { get; }
+    public DateTime End { get; }
+    public Action<int, int> Assign { get; }
+    public int Column { get; set; }
+
+    public PlenaroWeekSharedLayoutBlock(DateTime start, DateTime end, Action<int, int> assign)
+    {
+        Start = start;
+        End = end;
+        Assign = assign;
+    }
 }
 
 public class PlenaroWeekOutlookEventBlock

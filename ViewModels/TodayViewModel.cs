@@ -471,14 +471,16 @@ public class TodayViewModel : ObservableObject
             ("AM", new[] { "MAZ", "AM" }),
             ("HO", new[] { "HOMEOFFICE", "HO" }),
             ("UL", new[] { "URLAUB", "UL" }),
-            ("BR", new[] { "BEREITSCHAFT", "BR" })
+            ("BR", new[] { "RUFBEREITSCHAFT", "BEREITSCHAFT", "BR" })
         };
 
         foreach (var entry in rules)
         {
             foreach (var key in entry.Keys)
             {
-                if (string.Equals(normalizedSubject, key, StringComparison.Ordinal) || HasPrefixWithSeparator(normalizedSubject, key))
+                if (string.Equals(normalizedSubject, key, StringComparison.Ordinal)
+                    || HasPrefixWithSeparator(normalizedSubject, key)
+                    || HasWholeWord(normalizedSubject, key))
                 {
                     marker = entry.Marker;
                     return true;
@@ -497,6 +499,15 @@ public class TodayViewModel : ObservableObject
         var suffix = normalizedSubject[key.Length..];
         var validSeparators = new[] { ":", " -", " |", " –", " /" };
         return validSeparators.Any(s => suffix.StartsWith(s, StringComparison.Ordinal));
+    }
+
+    private static bool HasWholeWord(string normalizedSubject, string key)
+    {
+        if (string.IsNullOrWhiteSpace(normalizedSubject) || string.IsNullOrWhiteSpace(key))
+            return false;
+
+        var pattern = $@"(?<![A-Z0-9]){System.Text.RegularExpressions.Regex.Escape(key)}(?![A-Z0-9])";
+        return System.Text.RegularExpressions.Regex.IsMatch(normalizedSubject, pattern, System.Text.RegularExpressions.RegexOptions.CultureInvariant);
     }
 
     private static string NormalizeStatusSubject(string subject)
