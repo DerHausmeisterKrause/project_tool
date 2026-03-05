@@ -49,12 +49,12 @@ public class MainViewModel : ObservableObject
         FocusQuickAddRequested?.Invoke();
     }
 
-    public MainViewModel(TaskService taskService, WorkDayService workDayService, SettingsService settingsService, NotificationService notifications, LoggerService logger)
+    public MainViewModel(TaskService taskService, WorkDayService workDayService, SettingsService settingsService, NotificationService notifications, OutlookCalendarService outlookCalendar, LoggerService logger)
     {
-        TodayViewModel = new TodayViewModel(taskService, workDayService, settingsService);
-        _weekViewModel = new WeekViewModel(taskService, workDayService, settingsService);
+        TodayViewModel = new TodayViewModel(taskService, workDayService, settingsService, outlookCalendar);
+        _weekViewModel = new WeekViewModel(taskService, workDayService, settingsService, outlookCalendar);
         var reports = new ReportsViewModel(taskService, workDayService, settingsService);
-        var settings = new SettingsViewModel(settingsService, notifications);
+        var settings = new SettingsViewModel(settingsService, notifications, outlookCalendar);
 
         NavigationItems = new ObservableCollection<object> { TodayViewModel, _weekViewModel, reports, settings };
         _selectedView = TodayViewModel;
