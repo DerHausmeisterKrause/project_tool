@@ -1,7 +1,11 @@
+using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Text;
+using System.Text.RegularExpressions;
 using System.Threading;
+using TaskTool.Models;
 
 namespace TaskTool.Services;
 
@@ -10,6 +14,7 @@ public class OutlookInteropService
     private const int OlAppointmentItem = 1;
     private const int OlFolderCalendar = 9;
     private const int OlBusy = 2;
+    private const int SW_RESTORE = 9;
 
     private readonly LoggerService _logger;
     private readonly SettingsService _settings;
@@ -149,6 +154,237 @@ public class OutlookInteropService
         }
     }
 
+
+
+    public (bool ok, string error) OpenCalendarEvent(string entryId)
+    {
+        if (string.IsNullOrWhiteSpace(entryId))
+            return (false, "Outlook EntryID fehlt.");
+
+        try
+        {
+            return ExecuteOnSta<(bool ok, string error)>(() =>
+            {
+                var outlookType = Type.GetTypeFromProgID("Outlook.Application");
+                if (outlookType == null)
+                    return (false, "Outlook nicht installiert (ProgID nicht gefunden).");
+
+                object? app = null;
+                object? ns = null;
+                object? item = null;
+                object? inspector = null;
+
+                try
+                {
+                    app = CreateOrAttachOutlook(outlookType);
+                    if (app == null)
+                        return (false, "Outlook konnte nicht gestartet/verbunden werden.");
+
+                    dynamic appDyn = app;
+                    ns = appDyn.GetNamespace("MAPI");
+                    TryLogon(ns);
+
+                    dynamic nsDyn = ns!;
+                    item = nsDyn.GetItemFromID(entryId);
+                    if (item == null)
+                        return (false, "Outlook Termin nicht gefunden.");
+
+                    dynamic itemDyn = item;
+                    itemDyn.Display(false);
+
+                    inspector = itemDyn.GetInspector;
+                    dynamic inspDyn = inspector!;
+                    inspDyn.Display();
+                    inspDyn.Activate();
+
+                    IntPtr hwnd = IntPtr.Zero;
+                    try
+                    {
+                        hwnd = new IntPtr(Convert.ToInt32(inspDyn.Hwnd));
+                    }
+                    catch
+                    {
+                        try { hwnd = new IntPtr(Convert.ToInt32(inspDyn.WindowHandle)); } catch { }
+                    }
+
+                    if (hwnd != IntPtr.Zero)
+                    {
+                        ShowWindow(hwnd, SW_RESTORE);
+                        SetForegroundWindow(hwnd);
+                    }
+                    else
+                    {
+                        try { appDyn.ActiveExplorer()?.Activate(); } catch { }
+                        try { inspDyn.Activate(); } catch { }
+                    }
+
+                    return (true, string.Empty);
+                }
+                finally
+                {
+                    SafeReleaseComObject(inspector);
+                    SafeReleaseComObject(item);
+                    SafeReleaseComObject(ns);
+                    SafeReleaseComObject(app);
+                }
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.Error(BuildOutlookExceptionLog("OpenCalendarEvent", ex, null, null));
+            return (false, BuildUserFacingOutlookError(ex));
+        }
+    }
+
+    public (bool ok, List<OutlookCalendarEvent> events, string error) GetCalendarEvents(DateTime fromLocal, DateTime toLocal)
+    {
+        if (!_settings.Current.OutlookCalendarEnabled)
+            return (true, new List<OutlookCalendarEvent>(), string.Empty);
+
+        if (toLocal <= fromLocal)
+            return (false, new List<OutlookCalendarEvent>(), "Ungültiger Zeitraum für Kalenderabfrage.");
+
+        try
+        {
+            return ExecuteOnSta(() =>
+            {
+                var outlookType = Type.GetTypeFromProgID("Outlook.Application");
+                if (outlookType == null)
+                    return (false, new List<OutlookCalendarEvent>(), "Outlook nicht installiert (ProgID nicht gefunden).");
+
+                object? app = null;
+                object? ns = null;
+                object? folder = null;
+                object? items = null;
+                object? restricted = null;
+
+                try
+                {
+                    app = CreateOrAttachOutlook(outlookType);
+                    if (app == null)
+                        return (false, new List<OutlookCalendarEvent>(), "Outlook konnte nicht gestartet/verbunden werden.");
+
+                    dynamic appDyn = app;
+                    ns = appDyn.GetNamespace("MAPI");
+                    TryLogon(ns);
+                    dynamic nsDyn = ns!;
+                    folder = nsDyn.GetDefaultFolder(OlFolderCalendar);
+
+                    dynamic folderDyn = folder!;
+                    var calendarName = Convert.ToString(folderDyn.Name) ?? string.Empty;
+                    var folderEntryId = Convert.ToString(folderDyn.EntryID) ?? string.Empty;
+                    var storeId = Convert.ToString(folderDyn.StoreID) ?? string.Empty;
+                    string storeName;
+                    try { storeName = Convert.ToString(folderDyn.Store?.DisplayName) ?? string.Empty; } catch { storeName = string.Empty; }
+                    _logger.Info($"[OutlookFetchFolder] calendarName='{calendarName}' folderEntryId='{folderEntryId}' storeId='{storeId}' storeName='{storeName}'");
+
+                    items = folderDyn.Items;
+                    dynamic itemsDyn = items!;
+                    itemsDyn.IncludeRecurrences = true;
+                    itemsDyn.Sort("[Start]");
+
+                    var fromFilter = FormatOutlookRestrictDate(fromLocal);
+                    var toFilter = FormatOutlookRestrictDate(toLocal);
+                    var filter = $"[Start] < '{toFilter}' AND [End] > '{fromFilter}'";
+                    _logger.Info($"[OutlookFetchRestrict] fromInclusive={fromLocal:O} toExclusive={toLocal:O} filter='{filter}'");
+                    restricted = itemsDyn.Restrict(filter);
+
+                    LogProbeScanForMissingDays(itemsDyn, fromLocal, toLocal);
+
+                    var events = new List<OutlookCalendarEvent>();
+                    foreach (var raw in (System.Collections.IEnumerable)restricted!)
+                    {
+                        object? appointment = raw;
+                        try
+                        {
+                            dynamic a = appointment!;
+                            DateTime start = Convert.ToDateTime(a.Start).ToLocalTime();
+                            DateTime end = Convert.ToDateTime(a.End).ToLocalTime();
+                            if (end <= fromLocal || start >= toLocal)
+                                continue;
+
+                            var body = Convert.ToString(a.Body) ?? string.Empty;
+                            var location = Convert.ToString(a.Location) ?? string.Empty;
+                            var joinUrl = ExtractTeamsUrl(body, location);
+
+                            var entryId = Convert.ToString(a.EntryID) ?? string.Empty;
+                            var busyRaw = Convert.ToString(a.BusyStatus) ?? string.Empty;
+                            var iCalUid = Convert.ToString(a.GlobalAppointmentID) ?? string.Empty;
+
+                            string sensitivity;
+                            bool isPrivate;
+                            bool isRecurring;
+                            bool isInstance;
+                            try { sensitivity = Convert.ToString(a.Sensitivity) ?? string.Empty; } catch { sensitivity = string.Empty; }
+                            try { isPrivate = Convert.ToInt32(a.Sensitivity) == 2; } catch { try { isPrivate = Convert.ToBoolean(a.IsPrivate); } catch { isPrivate = false; } }
+                            try { isRecurring = Convert.ToBoolean(a.IsRecurring); } catch { isRecurring = false; }
+                            try { isInstance = Convert.ToInt32(a.RecurrenceState) == 2 || Convert.ToInt32(a.RecurrenceState) == 3; } catch { isInstance = false; }
+
+                            events.Add(new OutlookCalendarEvent
+                            {
+                                Id = string.IsNullOrWhiteSpace(entryId) ? Guid.NewGuid().ToString("N") : entryId,
+                                EntryId = entryId,
+                                ICalUId = iCalUid,
+                                CalendarName = calendarName,
+                                BusyStatus = busyRaw,
+                                Sensitivity = sensitivity,
+                                IsPrivate = isPrivate,
+                                IsRecurring = isRecurring,
+                                IsInstance = isInstance,
+                                Subject = string.IsNullOrWhiteSpace(Convert.ToString(a.Subject)) ? "(Kein Betreff)" : Convert.ToString(a.Subject)!,
+                                StartLocal = start,
+                                EndLocal = end,
+                                IsAllDay = Convert.ToBoolean(a.AllDayEvent),
+                                Location = location,
+                                Organizer = Convert.ToString(a.Organizer) ?? string.Empty,
+                                BodyPreview = body.Length > 240 ? body[..240] : body,
+                                OnlineMeetingJoinUrl = joinUrl,
+                                Categories = Convert.ToString(a.Categories) ?? string.Empty
+                            });
+                        }
+                        catch
+                        {
+                            // ignore non-appointment entries
+                        }
+                        finally
+                        {
+                            SafeReleaseComObject(appointment);
+                        }
+                    }
+
+                    return (true, events, string.Empty);
+                }
+                finally
+                {
+                    SafeReleaseComObject(restricted);
+                    SafeReleaseComObject(items);
+                    SafeReleaseComObject(folder);
+                    SafeReleaseComObject(ns);
+                    SafeReleaseComObject(app);
+                }
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.Error(BuildOutlookExceptionLog("GetCalendarEvents", ex, fromLocal, toLocal));
+            return (false, new List<OutlookCalendarEvent>(), BuildUserFacingOutlookError(ex));
+        }
+    }
+
+    private static string ExtractTeamsUrl(string body, string location)
+    {
+        var pattern = @"https?://[^\s""']+";
+        foreach (Match match in Regex.Matches($"{body}\n{location}", pattern, RegexOptions.IgnoreCase))
+        {
+            var url = match.Value.TrimEnd('.', ',', ';', ')');
+            if (url.Contains("teams.microsoft.com", StringComparison.OrdinalIgnoreCase)
+                || url.Contains("meetup-join", StringComparison.OrdinalIgnoreCase))
+                return url;
+        }
+
+        return string.Empty;
+    }
+
     public (bool ok, string error) TestConnection()
     {
         var start = DateTime.Now.AddMinutes(5);
@@ -170,6 +406,69 @@ public class OutlookInteropService
         {
             _logger.Error(BuildOutlookExceptionLog("TestConnection", ex, start, end));
             return (false, BuildUserFacingOutlookError(ex));
+        }
+    }
+
+
+    private static string FormatOutlookRestrictDate(DateTime value)
+    {
+        var local = value.Kind == DateTimeKind.Local ? value : value.ToLocalTime();
+        return local.ToString("MM/dd/yyyy hh:mm tt", CultureInfo.GetCultureInfo("en-US"));
+    }
+
+    private void LogProbeScanForMissingDays(dynamic itemsDyn, DateTime fromInclusive, DateTime toExclusive)
+    {
+        var probeDays = new[]
+        {
+            new DateTime(2026, 3, 4),
+            new DateTime(2026, 3, 6)
+        };
+
+        foreach (var day in probeDays)
+        {
+            var dayStart = day.Date;
+            var dayEnd = dayStart.AddDays(1);
+            var dayFilter = $"[Start] < '{FormatOutlookRestrictDate(dayEnd)}' AND [End] > '{FormatOutlookRestrictDate(dayStart)}'";
+            _logger.Info($"[OutlookProbeDayScan] day={day:yyyy-MM-dd} filter='{dayFilter}'");
+
+            object? restrictedProbe = null;
+            try
+            {
+                restrictedProbe = itemsDyn.Restrict(dayFilter);
+                foreach (var raw in (System.Collections.IEnumerable)restrictedProbe)
+                {
+                    object? appointment = raw;
+                    try
+                    {
+                        dynamic a = appointment!;
+                        var start = Convert.ToDateTime(a.Start).ToLocalTime();
+                        var end = Convert.ToDateTime(a.End).ToLocalTime();
+                        var overlap = start < dayEnd && end > dayStart;
+                        if (!overlap)
+                            continue;
+
+                        var entryId = Convert.ToString(a.EntryID) ?? string.Empty;
+                        var subject = Convert.ToString(a.Subject) ?? string.Empty;
+                        _logger.Info($"[OutlookProbeDayHit] day={day:yyyy-MM-dd} subject='{subject}' start={start:O} end={end:O} entryId='{entryId}' inRequestedRange={start < toExclusive && end > fromInclusive}");
+                    }
+                    catch
+                    {
+                        // ignore probe conversion issues
+                    }
+                    finally
+                    {
+                        SafeReleaseComObject(appointment);
+                    }
+                }
+            }
+            catch
+            {
+                // probe scan is diagnostic only
+            }
+            finally
+            {
+                SafeReleaseComObject(restrictedProbe);
+            }
         }
     }
 
@@ -259,6 +558,13 @@ public class OutlookInteropService
         var message = string.IsNullOrWhiteSpace(ex.Message) ? "Unbekannter Outlook Fehler." : ex.Message;
         return $"{message} (0x{ex.HResult:X8})";
     }
+
+
+    [DllImport("user32.dll")]
+    private static extern bool SetForegroundWindow(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    private static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
 
     private static string BuildOutlookExceptionLog(string operation, Exception ex, DateTime? start, DateTime? end)
     {
