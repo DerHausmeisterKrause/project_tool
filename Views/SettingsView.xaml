@@ -8,7 +8,21 @@
                 <Border Style="{StaticResource CardStyle}">
                     <StackPanel>
                         <TextBlock Text="Einstellungen" FontSize="24" FontWeight="SemiBold" Margin="0,0,0,10"/>
-                        <CheckBox Content="Outlook Sync aktiv" IsChecked="{Binding OutlookSyncEnabled}" Margin="0,0,0,12"/>
+                        <CheckBox Content="Outlook Sync aktiv" IsChecked="{Binding OutlookSyncEnabled}" Margin="0,0,0,8"/>
+                        <CheckBox Content="Outlook Kalender anzeigen" IsChecked="{Binding OutlookCalendarEnabled}" Margin="0,0,0,8"/>
+                        <CheckBox Content="Konflikte warnen" IsChecked="{Binding OutlookConflictWarningsEnabled}" Margin="0,0,0,8"/>
+                        <CheckBox Content="Teams-Button anzeigen" IsChecked="{Binding OutlookTeamsButtonEnabled}" Margin="0,0,0,8"/>
+                        <CheckBox Content="Ganztagstermine als Tagesmarker interpretieren" IsChecked="{Binding OutlookInterpretAllDayAsMarkers}" Margin="0,0,0,8"/>
+                        <CheckBox Content="Wochenende anzeigen" IsChecked="{Binding ShowWeekendInWeekView}" Margin="0,0,0,8"/>
+                        <TextBlock Text="Outlook Kalender Sync-Modus" Foreground="{StaticResource MutedTextBrush}"/>
+                        <ComboBox Width="180" ItemsSource="{Binding OutlookSyncModes}" SelectedItem="{Binding OutlookCalendarSyncMode}" Margin="0,0,0,8"/>
+                        <TextBlock Text="Sync Intervall (Minuten)" Foreground="{StaticResource MutedTextBrush}"/>
+                        <TextBox Text="{Binding OutlookCalendarSyncIntervalMinutes}" Width="120" Margin="0,0,0,8"/>
+                        <TextBlock Text="Zeitfenster Rückblick (Tage)" Foreground="{StaticResource MutedTextBrush}"/>
+                        <TextBox Text="{Binding OutlookCalendarRangePastDays}" Width="120" Margin="0,0,0,8"/>
+                        <TextBlock Text="Zeitfenster Vorschau (Tage)" Foreground="{StaticResource MutedTextBrush}"/>
+                        <TextBox Text="{Binding OutlookCalendarRangeFutureDays}" Width="120" Margin="0,0,0,8"/>
+                        <Button Content="Outlook Kalender jetzt synchronisieren" Width="260" Style="{StaticResource SecondaryButtonStyle}" Margin="0,0,0,12" Command="{Binding RefreshOutlookCalendarCommand}"/>
                         <CheckBox Content="Dynamic Island aktiv" IsChecked="{Binding DynamicIslandEnabled}" Margin="0,0,0,12"/>
                         <TextBlock Text="Outlook Kategorie" Foreground="{StaticResource MutedTextBrush}"/>
                         <TextBox Text="{Binding OutlookCategoryName}" Width="260"/>
