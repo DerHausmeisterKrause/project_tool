@@ -293,16 +293,18 @@ public class WeekViewModel : ObservableObject
             _ = _outlookCalendar.TriggerSyncAsync("week-load");
 
         Days.Clear();
+        var dayCount = ShowWeekend ? 7 : 5;
         var from = WeekStart.Date;
-        var to = WeekStart.AddDays(7).Date;
-        var outlookEvents = _outlookCalendar.GetEvents(from, to);
+        var toExclusive = from.AddDays(dayCount);
+        var weekEndInclusive = toExclusive.AddDays(-1);
+        ServiceLocator.Logger.Info($"[OutlookRangeBuild] weekStart={from:yyyy-MM-dd} weekEndInclusive={weekEndInclusive:yyyy-MM-dd} toExclusive={toExclusive:yyyy-MM-ddTHH:mm:ssK} timezone={TimeZoneInfo.Local.Id} showWeekend={ShowWeekend} dayCount={dayCount}");
+        var outlookEvents = _outlookCalendar.GetEvents(from, toExclusive);
 
-        var workDays = _workDays.GetWorkDaysInRange(from, to.AddDays(-1)).ToDictionary(w => w.Day, w => w);
-        var segmentsInWeek = _tasks.GetSegmentsForRange(from, to)
+        var workDays = _workDays.GetWorkDaysInRange(from, toExclusive.AddDays(-1)).ToDictionary(w => w.Day, w => w);
+        var segmentsInWeek = _tasks.GetSegmentsForRange(from, toExclusive)
             .GroupBy(x => x.Segment.StartLocal.Date)
             .ToDictionary(g => g.Key, g => g.OrderBy(x => x.Segment.StartLocal).ToList());
 
-        var dayCount = ShowWeekend ? 7 : 5;
         for (int i = 0; i < dayCount; i++)
         {
             var day = WeekStart.AddDays(i);
@@ -804,7 +806,7 @@ public class WeekViewModel : ObservableObject
                     classification = "TimedEventRendered";
                     reason = "IntersectsVisibleRange";
                 }
-                else if (!(e.EndLocal >= visibleStart && e.StartLocal <= visibleEnd))
+                else if (!(e.StartLocal < visibleEnd && e.EndLocal > visibleStart))
                 {
                     classification = "Ignored";
                     reason = "TimedOutsideVisibleRange";
@@ -842,9 +844,10 @@ public class WeekViewModel : ObservableObject
                 continue;
             }
 
-            if (!(e.EndLocal >= dayStart && e.StartLocal <= dayEnd))
+            var overlap = e.StartLocal < dayEnd && e.EndLocal > dayStart;
+            if (!overlap)
             {
-                ServiceLocator.Logger.Info($"[OutlookEventFiltered] subject='{e.Subject}' reason=FilteredByTimeRange day={dayDate:yyyy-MM-dd} start={e.StartLocal:O} end={e.EndLocal:O} visibleStart={dayStart:O} visibleEnd={dayEnd:O}");
+                ServiceLocator.Logger.Info($"[OutlookEventFiltered] subject='{e.Subject}' reason=FilteredByTimeRange day={dayDate:yyyy-MM-dd} start={e.StartLocal:O} end={e.EndLocal:O} visibleStart={dayStart:O} visibleEnd={dayEnd:O} overlap={overlap}");
                 continue;
             }
 
@@ -900,9 +903,10 @@ public class WeekViewModel : ObservableObject
                 continue;
             }
 
-            if (!EventSpansDayExclusive(e, dayDate))
+            var overlap = EventSpansDayExclusive(e, dayDate);
+            if (!overlap)
             {
-                ServiceLocator.Logger.Info($"[OutlookEventFiltered] subject='{e.Subject}' reason=FilteredByTimeRange day={dayDate:yyyy-MM-dd} start={e.StartLocal:O} end={e.EndLocal:O}");
+                ServiceLocator.Logger.Info($"[OutlookEventFiltered] subject='{e.Subject}' reason=FilteredByTimeRange day={dayDate:yyyy-MM-dd} start={e.StartLocal:O} end={e.EndLocal:O} overlap={overlap}");
                 continue;
             }
 

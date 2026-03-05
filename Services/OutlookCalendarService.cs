@@ -44,13 +44,15 @@ public class OutlookCalendarService : IDisposable
             var visible = new List<OutlookCalendarEvent>();
             foreach (var e in _cache)
             {
-                if (e.EndLocal > fromLocal && e.StartLocal < toLocal)
+                var overlap = e.StartLocal < toLocal && e.EndLocal > fromLocal;
+                _logger.Info($"[OutlookRangeCheck] subject='{e.Subject}' start={e.StartLocal:O} end={e.EndLocal:O} isAllDay={e.IsAllDay} fromInclusive={fromLocal:O} toExclusive={toLocal:O} overlap={overlap}");
+                if (overlap)
                 {
                     visible.Add(e);
                 }
                 else
                 {
-                    _logger.Info($"[OutlookEventFiltered] subject='{e.Subject}' reason=FilteredByTimeRange start={e.StartLocal:O} end={e.EndLocal:O} from={fromLocal:O} to={toLocal:O}");
+                    _logger.Info($"[OutlookEventFiltered] subject='{e.Subject}' reason=FilteredByTimeRange start={e.StartLocal:O} end={e.EndLocal:O} fromInclusive={fromLocal:O} toExclusive={toLocal:O} overlap={overlap}");
                 }
             }
 
