@@ -130,7 +130,7 @@
                                             <Border Style="{StaticResource BadgeStyle}" Visibility="{Binding IsBr, Converter={StaticResource BooleanToVisibilityConverter}}"><TextBlock Text="BR"/></Border>
                                         </WrapPanel>
                                         <TextBlock Text="{Binding Summary}" Foreground="{StaticResource MutedTextBrush}" FontSize="11" TextWrapping="Wrap"/>
-                                        <ItemsControl ItemsSource="{Binding AllDayEvents}" Margin="0,4,0,0">
+                                        <ItemsControl ItemsSource="{Binding VisibleAllDayEvents}" Margin="0,4,0,0">
                                             <ItemsControl.ItemsPanel>
                                                 <ItemsPanelTemplate>
                                                     <WrapPanel/>
@@ -155,6 +155,10 @@
                                                 </DataTemplate>
                                             </ItemsControl.ItemTemplate>
                                         </ItemsControl>
+
+                                        <TextBlock Margin="0,0,0,4" Foreground="{StaticResource MutedTextBrush}" FontSize="10"
+                                                   Text="{Binding AllDayOverflowCount, StringFormat=+{0} weitere Ganztagstermine}"
+                                                   Visibility="{Binding HasAllDayOverflow, Converter={StaticResource BooleanToVisibilityConverter}}"/>
 
                                     </StackPanel>
                                 </Border>

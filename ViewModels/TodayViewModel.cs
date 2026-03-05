@@ -443,35 +443,60 @@ public class TodayViewModel : ObservableObject
             return false;
 
         var duration = evt.EndLocal - evt.StartLocal;
-        if (!(evt.IsAllDay || duration.TotalHours >= 20))
+        if (!IsMarkerEligibleAllDayEvent(evt, duration))
             return false;
 
-        var tokens = TokenizeStatusSubject(evt.Subject ?? string.Empty);
-        if (tokens.Count == 0)
-            return false;
-
-        var tokenSet = new HashSet<string>(tokens, StringComparer.Ordinal);
-        return tokenSet.Contains("HO")
-               || tokenSet.Contains("HOMEOFFICE")
-               || tokenSet.Contains("UL")
-               || tokenSet.Contains("URLAUB")
-               || tokenSet.Contains("AM")
-               || tokenSet.Contains("MAZ")
-               || tokenSet.Contains("BR")
-               || tokenSet.Contains("BEREITSCHAFT");
+        var normalized = NormalizeStatusSubject(evt.Subject ?? string.Empty);
+        return TryDetectMarker(normalized, out _);
     }
 
-    private static List<string> TokenizeStatusSubject(string subject)
+    private static bool IsMarkerEligibleAllDayEvent(OutlookCalendarEvent evt, TimeSpan duration)
     {
-        var normalized = NormalizeStatusSubject(subject);
-        if (string.IsNullOrWhiteSpace(normalized))
-            return new List<string>();
+        if (evt.IsAllDay)
+            return true;
 
-        return System.Text.RegularExpressions.Regex
-            .Split(normalized, @"[\s/,_-]+")
-            .Select(t => t.Trim())
-            .Where(t => !string.IsNullOrWhiteSpace(t))
-            .ToList();
+        var startsAtMidnight = evt.StartLocal.TimeOfDay == TimeSpan.Zero;
+        var endsAtMidnight = evt.EndLocal.TimeOfDay == TimeSpan.Zero;
+        return startsAtMidnight && endsAtMidnight && duration.TotalHours >= 20;
+    }
+
+    private static bool TryDetectMarker(string normalizedSubject, out string marker)
+    {
+        marker = string.Empty;
+        if (string.IsNullOrWhiteSpace(normalizedSubject))
+            return false;
+
+        var rules = new (string Marker, string[] Keys)[]
+        {
+            ("AM", new[] { "MAZ", "AM" }),
+            ("HO", new[] { "HOMEOFFICE", "HO" }),
+            ("UL", new[] { "URLAUB", "UL" }),
+            ("BR", new[] { "BEREITSCHAFT", "BR" })
+        };
+
+        foreach (var entry in rules)
+        {
+            foreach (var key in entry.Keys)
+            {
+                if (string.Equals(normalizedSubject, key, StringComparison.Ordinal) || HasPrefixWithSeparator(normalizedSubject, key))
+                {
+                    marker = entry.Marker;
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    private static bool HasPrefixWithSeparator(string normalizedSubject, string key)
+    {
+        if (!normalizedSubject.StartsWith(key, StringComparison.Ordinal))
+            return false;
+
+        var suffix = normalizedSubject[key.Length..];
+        var validSeparators = new[] { ":", " -", " |", " –", " /" };
+        return validSeparators.Any(s => suffix.StartsWith(s, StringComparison.Ordinal));
     }
 
     private static string NormalizeStatusSubject(string subject)
@@ -480,8 +505,8 @@ public class TodayViewModel : ObservableObject
             return string.Empty;
 
         var s = subject.Trim().ToUpperInvariant();
-        s = System.Text.RegularExpressions.Regex.Replace(s, "\\s+", " ");
-        s = s.Trim(' ', '[', ']', '(', ')', '{', '}', ':', '-', '_', '.', ',');
+        s = System.Text.RegularExpressions.Regex.Replace(s, "\s+", " ");
+        s = s.Trim(' ', '[', ']', '(', ')', '{', '}');
         return s;
     }
 

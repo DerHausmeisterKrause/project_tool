@@ -366,6 +366,9 @@ public class WeekViewModel : ObservableObject
             var displayIsHo = wd.IsHo || markerResult.DerivedHo;
             var displayIsBr = wd.IsBr || markerResult.DerivedBr;
 
+            var allDayEvents = BuildAllDayPills(day.Date, outlookEvents, markerResult.ConsumedEventIds);
+            var visibleAllDayEvents = allDayEvents.Take(2).ToList();
+
             Days.Add(new WeekDayGroup
             {
                 DayDate = day,
@@ -377,7 +380,10 @@ public class WeekViewModel : ObservableObject
                 IsBr = displayIsBr,
                 IsHo = displayIsHo,
                 Summary = $"Soll {Fmt(target)} | Ist {Fmt(net)} | Ü {Fmt(overtime)}",
-                AllDayEvents = new ObservableCollection<PlenaroWeekAllDayPillModel>(BuildAllDayPills(day.Date, outlookEvents, markerResult.ConsumedEventIds))
+                AllDayEvents = new ObservableCollection<PlenaroWeekAllDayPillModel>(allDayEvents),
+                VisibleAllDayEvents = new ObservableCollection<PlenaroWeekAllDayPillModel>(visibleAllDayEvents),
+                AllDayOverflowCount = Math.Max(0, allDayEvents.Count - visibleAllDayEvents.Count),
+                HasAllDayOverflow = allDayEvents.Count > visibleAllDayEvents.Count
             });
         }
 
@@ -546,19 +552,19 @@ public class WeekViewModel : ObservableObject
         foreach (var evt in events.Where(e => e.EndLocal > dayStart && e.StartLocal < dayEnd))
         {
             var duration = evt.EndLocal - evt.StartLocal;
-            var eligible = evt.IsAllDay || duration.TotalHours >= 20;
-            if (!eligible)
+            if (!IsMarkerEligibleAllDayEvent(evt, duration))
                 continue;
 
             var subject = evt.Subject ?? string.Empty;
-            if (!TryMapDayMarker(subject, out var mapped, out var rule))
+            var normalized = NormalizeStatusSubject(subject);
+            if (!TryMapDayMarker(normalized, out var mapped, out var rule))
             {
-                ServiceLocator.Logger.Info($"[OutlookDayMarker] Skip subject='{subject}' isAllDay={evt.IsAllDay} durationHours={duration.TotalHours:0.##} reason=no_token_match");
+                ServiceLocator.Logger.Info($"[OutlookDayMarker] subject='{subject}' isAllDay={evt.IsAllDay} start={evt.StartLocal:O} end={evt.EndLocal:O} normalized='{normalized}' markerDetected=false marker=NONE reason=no_exact_or_prefix_match");
                 continue;
             }
 
             consumed.Add(evt.Id);
-            ServiceLocator.Logger.Info($"[OutlookDayMarker] Mapped subject='{subject}' isAllDay={evt.IsAllDay} durationHours={duration.TotalHours:0.##} mapped={mapped} rule={rule}");
+            ServiceLocator.Logger.Info($"[OutlookDayMarker] subject='{subject}' isAllDay={evt.IsAllDay} start={evt.StartLocal:O} end={evt.EndLocal:O} normalized='{normalized}' markerDetected=true marker={mapped} rule={rule}");
 
             if (mapped == "HO")
                 derivedHo = true;
@@ -571,59 +577,63 @@ public class WeekViewModel : ObservableObject
         return (derivedDayType, derivedHo, derivedBr, consumed);
     }
 
-    private static bool TryMapDayMarker(string subject, out string mapped, out string rule)
+    private static bool IsMarkerEligibleAllDayEvent(OutlookCalendarEvent evt, TimeSpan duration)
+    {
+        if (evt.IsAllDay)
+            return true;
+
+        var startsAtMidnight = evt.StartLocal.TimeOfDay == TimeSpan.Zero;
+        var endsAtMidnight = evt.EndLocal.TimeOfDay == TimeSpan.Zero;
+        return startsAtMidnight && endsAtMidnight && duration.TotalHours >= 20;
+    }
+
+    private static bool TryMapDayMarker(string normalizedSubject, out string mapped, out string rule)
     {
         mapped = "Normal";
         rule = string.Empty;
 
-        var tokens = TokenizeStatusSubject(subject);
-        if (tokens.Count == 0)
+        if (string.IsNullOrWhiteSpace(normalizedSubject))
             return false;
 
-        var tokenSet = new HashSet<string>(tokens, StringComparer.Ordinal);
-
-        if (tokenSet.Contains("HO") || tokenSet.Contains("HOMEOFFICE"))
+        var rules = new (string Marker, string[] Keys)[]
         {
-            mapped = "HO";
-            rule = tokenSet.Contains("HO") ? "TOKEN_HO" : "TOKEN_HOMEOFFICE";
-            return true;
-        }
+            ("AM", new[] { "MAZ", "AM" }),
+            ("HO", new[] { "HOMEOFFICE", "HO" }),
+            ("UL", new[] { "URLAUB", "UL" }),
+            ("BR", new[] { "BEREITSCHAFT", "BR" })
+        };
 
-        if (tokenSet.Contains("UL") || tokenSet.Contains("URLAUB"))
+        foreach (var entry in rules)
         {
-            mapped = "UL";
-            rule = tokenSet.Contains("UL") ? "TOKEN_UL" : "TOKEN_URLAUB";
-            return true;
-        }
+            foreach (var key in entry.Keys)
+            {
+                if (string.Equals(normalizedSubject, key, StringComparison.Ordinal))
+                {
+                    mapped = entry.Marker;
+                    rule = "EXACT";
+                    return true;
+                }
 
-        if (tokenSet.Contains("AM") || tokenSet.Contains("MAZ"))
-        {
-            mapped = "AM";
-            rule = tokenSet.Contains("AM") ? "TOKEN_AM" : "TOKEN_MAZ_TO_AM";
-            return true;
-        }
-
-        if (tokenSet.Contains("BR") || tokenSet.Contains("BEREITSCHAFT"))
-        {
-            mapped = "BR";
-            rule = tokenSet.Contains("BR") ? "TOKEN_BR" : "TOKEN_BEREITSCHAFT";
-            return true;
+                if (HasPrefixWithSeparator(normalizedSubject, key))
+                {
+                    mapped = entry.Marker;
+                    rule = "PREFIX_WITH_SEPARATOR";
+                    return true;
+                }
+            }
         }
 
         return false;
     }
 
-    private static List<string> TokenizeStatusSubject(string subject)
+    private static bool HasPrefixWithSeparator(string normalizedSubject, string key)
     {
-        var normalized = NormalizeStatusSubject(subject);
-        if (string.IsNullOrWhiteSpace(normalized))
-            return new List<string>();
+        if (!normalizedSubject.StartsWith(key, StringComparison.Ordinal))
+            return false;
 
-        return System.Text.RegularExpressions.Regex
-            .Split(normalized, @"[\s/,_-]+")
-            .Select(t => t.Trim())
-            .Where(t => !string.IsNullOrWhiteSpace(t))
-            .ToList();
+        var suffix = normalizedSubject[key.Length..];
+        var validSeparators = new[] { ":", " -", " |", " –", " /" };
+        return validSeparators.Any(s => suffix.StartsWith(s, StringComparison.Ordinal));
     }
 
     private static string NormalizeStatusSubject(string subject)
@@ -632,8 +642,8 @@ public class WeekViewModel : ObservableObject
             return string.Empty;
 
         var s = subject.Trim().ToUpperInvariant();
-        s = System.Text.RegularExpressions.Regex.Replace(s, "\\s+", " ");
-        s = s.Trim(' ', '[', ']', '(', ')', '{', '}', ':', '-', '_', '.', ',');
+        s = System.Text.RegularExpressions.Regex.Replace(s, "\s+", " ");
+        s = s.Trim(' ', '[', ']', '(', ')', '{', '}');
         return s;
     }
 
@@ -842,6 +852,9 @@ public class WeekDayGroup : ObservableObject
     public ObservableCollection<WeekCalendarItem> CalendarItems { get; set; } = new();
     public ObservableCollection<PlenaroWeekOutlookEventBlock> ExternalEvents { get; set; } = new();
     public ObservableCollection<PlenaroWeekAllDayPillModel> AllDayEvents { get; set; } = new();
+    public ObservableCollection<PlenaroWeekAllDayPillModel> VisibleAllDayEvents { get; set; } = new();
+    public int AllDayOverflowCount { get; set; }
+    public bool HasAllDayOverflow { get; set; }
 
     private string _dayType = "Normal";
     public string DayType { get => _dayType; set => Set(ref _dayType, value); }
@@ -896,6 +909,52 @@ public class WeekCalendarItem
         (string.IsNullOrWhiteSpace(TaskDescription) ? string.Empty : $"\n{TaskDescription}") +
         (string.IsNullOrWhiteSpace(TicketUrl) ? string.Empty : $"\nTicket: {TicketUrl}") +
         (string.IsNullOrWhiteSpace(OutlookConflictText) ? string.Empty : $"\n{OutlookConflictText}");
+}
+
+public class PlenaroWeekOutlookEventBlock
+{
+    public string Id { get; set; } = string.Empty;
+    public string Subject { get; set; } = string.Empty;
+    public string TimeLabel { get; set; } = string.Empty;
+    public string Location { get; set; } = string.Empty;
+    public string TeamsJoinUrl { get; set; } = string.Empty;
+    public DateTime StartLocal { get; set; }
+    public DateTime EndLocal { get; set; }
+    public double DisplayTop { get; set; }
+    public double DisplayHeight { get; set; }
+    public double DisplayLeft { get; set; }
+    public double DisplayWidth { get; set; }
+    public int OverlapColumn { get; set; }
+    public int OverlapColumnCount { get; set; }
+    public bool IsCompact { get; set; }
+    public bool ShowLocation { get; set; }
+    public bool ShowActions { get; set; }
+    public bool HasTeamsLink => !string.IsNullOrWhiteSpace(TeamsJoinUrl);
+    public string TooltipText { get; set; } = string.Empty;
+}
+
+public class PlenaroWeekAllDayPillModel
+{
+    public string Id { get; set; } = string.Empty;
+    public string Subject { get; set; } = string.Empty;
+    public string Location { get; set; } = string.Empty;
+    public string TeamsJoinUrl { get; set; } = string.Empty;
+    public bool HasTeamsLink => !string.IsNullOrWhiteSpace(TeamsJoinUrl);
+}
+
+internal sealed class PlenaroWeekSharedLayoutBlock
+{
+    public DateTime Start { get; }
+    public DateTime End { get; }
+    public Action<int, int> Assign { get; }
+    public int Column { get; set; }
+
+    public PlenaroWeekSharedLayoutBlock(DateTime start, DateTime end, Action<int, int> assign)
+    {
+        Start = start;
+        End = end;
+        Assign = assign;
+    }
 }
 
 public class PlenaroWeekOutlookEventBlock
