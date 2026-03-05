@@ -878,10 +878,8 @@ public class WeekViewModel : ObservableObject
                     IsCompact = isCompact,
                     ShowLocation = !isCompact && !string.IsNullOrWhiteSpace(e.Location),
                     ShowActions = !isCompact,
-                    TooltipText = $"Outlook: {e.Subject}
-{e.StartLocal:HH:mm} - {e.EndLocal:HH:mm}" +
-                                  (string.IsNullOrWhiteSpace(e.Location) ? string.Empty : $"
-Ort: {e.Location}")
+                    TooltipText = $"Outlook: {(e.Subject ?? string.Empty).Replace("\r", " ").Replace("\n", " ")}\n{e.StartLocal:HH:mm} - {e.EndLocal:HH:mm}" +
+                                  (string.IsNullOrWhiteSpace(e.Location) ? string.Empty : $"\nOrt: {e.Location.Replace("\r", " ").Replace("\n", " ")}")
                 };
             })
             .OrderBy(e => e.DisplayTop)
