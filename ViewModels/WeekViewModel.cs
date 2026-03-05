@@ -217,7 +217,7 @@ public class WeekViewModel : ObservableObject
         var eventId = evtObj switch
         {
             WeekOutlookCalendarBlock b => b.Id,
-            WeekAllDayEventPill p => p.Id,
+            WeekAllDayPillItem p => p.Id,
             _ => string.Empty
         };
 
@@ -231,7 +231,7 @@ public class WeekViewModel : ObservableObject
         var teamsLink = evtObj switch
         {
             WeekOutlookCalendarBlock b => b.TeamsJoinUrl,
-            WeekAllDayEventPill p => p.TeamsJoinUrl,
+            WeekAllDayPillItem p => p.TeamsJoinUrl,
             _ => string.Empty
         };
 
@@ -244,7 +244,7 @@ public class WeekViewModel : ObservableObject
         var subject = evtObj switch
         {
             WeekOutlookCalendarBlock b => b.Subject,
-            WeekAllDayEventPill p => p.Subject,
+            WeekAllDayPillItem p => p.Subject,
             _ => "Outlook Termin"
         };
 
@@ -376,7 +376,7 @@ public class WeekViewModel : ObservableObject
                 IsBr = wd.IsBr,
                 IsHo = displayIsHo,
                 Summary = $"Soll {Fmt(target)} | Ist {Fmt(net)} | Ü {Fmt(overtime)}",
-                AllDayEvents = new ObservableCollection<WeekAllDayEventPill>(BuildAllDayPills(day.Date, outlookEvents, markerResult.ConsumedEventIds))
+                AllDayEvents = new ObservableCollection<WeekAllDayPillItem>(BuildAllDayPills(day.Date, outlookEvents, markerResult.ConsumedEventIds))
             });
         }
 
@@ -602,15 +602,15 @@ public class WeekViewModel : ObservableObject
 
     private void ApplySharedOverlapLayout(List<WeekCalendarItem> segments, List<WeekOutlookCalendarBlock> external)
     {
-        var blocks = new List<LayoutBlockRef>();
-        blocks.AddRange(segments.Where(s => s.DisplayEnd > s.DisplayStart).Select(s => new LayoutBlockRef(s.DisplayStart, s.DisplayEnd,
+        var blocks = new List<WeekLayoutBlockRef>();
+        blocks.AddRange(segments.Where(s => s.DisplayEnd > s.DisplayStart).Select(s => new WeekLayoutBlockRef(s.DisplayStart, s.DisplayEnd,
             (col, count) =>
             {
                 s.OverlapColumn = col;
                 s.OverlapColumnCount = count;
             })));
 
-        blocks.AddRange(external.Where(e => e.EndLocal > e.StartLocal).Select(e => new LayoutBlockRef(e.StartLocal, e.EndLocal,
+        blocks.AddRange(external.Where(e => e.EndLocal > e.StartLocal).Select(e => new WeekLayoutBlockRef(e.StartLocal, e.EndLocal,
             (col, count) =>
             {
                 e.OverlapColumn = col;
@@ -621,7 +621,7 @@ public class WeekViewModel : ObservableObject
             return;
 
         var sorted = blocks.OrderBy(b => b.Start).ThenBy(b => b.End).ToList();
-        var group = new List<LayoutBlockRef>();
+        var group = new List<WeekLayoutBlockRef>();
         var groupEnd = DateTime.MinValue;
 
         foreach (var block in sorted)
@@ -651,7 +651,7 @@ public class WeekViewModel : ObservableObject
             AssignSharedGroup(group, segments, external);
     }
 
-    private void AssignSharedGroup(List<LayoutBlockRef> group, List<WeekCalendarItem> segments, List<WeekOutlookCalendarBlock> external)
+    private void AssignSharedGroup(List<WeekLayoutBlockRef> group, List<WeekCalendarItem> segments, List<WeekOutlookCalendarBlock> external)
     {
         var columnsEnd = new List<DateTime>();
         foreach (var block in group.OrderBy(i => i.Start).ThenBy(i => i.End))
@@ -729,14 +729,14 @@ public class WeekViewModel : ObservableObject
             .ToList();
     }
 
-    private List<WeekAllDayEventPill> BuildAllDayPills(DateTime dayDate, IReadOnlyList<OutlookCalendarEvent> source, HashSet<string> consumedEventIds)
+    private List<WeekAllDayPillItem> BuildAllDayPills(DateTime dayDate, IReadOnlyList<OutlookCalendarEvent> source, HashSet<string> consumedEventIds)
     {
         var dayStart = dayDate.Date;
         var dayEnd = dayStart.AddDays(1);
 
         return source
             .Where(e => e.IsAllDay && e.EndLocal > dayStart && e.StartLocal < dayEnd && !consumedEventIds.Contains(e.Id))
-            .Select(e => new WeekAllDayEventPill
+            .Select(e => new WeekAllDayPillItem
             {
                 Id = e.Id,
                 Subject = e.Subject,
@@ -799,7 +799,7 @@ public class WeekDayGroup : ObservableObject
     public string DayLabel { get; set; } = string.Empty;
     public ObservableCollection<WeekCalendarItem> CalendarItems { get; set; } = new();
     public ObservableCollection<WeekOutlookCalendarBlock> ExternalEvents { get; set; } = new();
-    public ObservableCollection<WeekAllDayEventPill> AllDayEvents { get; set; } = new();
+    public ObservableCollection<WeekAllDayPillItem> AllDayEvents { get; set; } = new();
 
     private string _dayType = "Normal";
     public string DayType { get => _dayType; set => Set(ref _dayType, value); }
@@ -877,7 +877,7 @@ public class WeekOutlookCalendarBlock
 
 
 
-public class WeekAllDayEventPill
+public class WeekAllDayPillItem
 {
     public string Id { get; set; } = string.Empty;
     public string Subject { get; set; } = string.Empty;
@@ -886,40 +886,14 @@ public class WeekAllDayEventPill
     public bool HasTeamsLink => !string.IsNullOrWhiteSpace(TeamsJoinUrl);
 }
 
-internal sealed class LayoutBlockRef
+internal sealed class WeekLayoutBlockRef
 {
     public DateTime Start { get; }
     public DateTime End { get; }
     public Action<int, int> Assign { get; }
     public int Column { get; set; }
 
-    public LayoutBlockRef(DateTime start, DateTime end, Action<int, int> assign)
-    {
-        Start = start;
-        End = end;
-        Assign = assign;
-    }
-}
-
-
-
-public class WeekAllDayEventPill
-{
-    public string Id { get; set; } = string.Empty;
-    public string Subject { get; set; } = string.Empty;
-    public string Location { get; set; } = string.Empty;
-    public string TeamsJoinUrl { get; set; } = string.Empty;
-    public bool HasTeamsLink => !string.IsNullOrWhiteSpace(TeamsJoinUrl);
-}
-
-internal sealed class LayoutBlockRef
-{
-    public DateTime Start { get; }
-    public DateTime End { get; }
-    public Action<int, int> Assign { get; }
-    public int Column { get; set; }
-
-    public LayoutBlockRef(DateTime start, DateTime end, Action<int, int> assign)
+    public WeekLayoutBlockRef(DateTime start, DateTime end, Action<int, int> assign)
     {
         Start = start;
         End = end;
