@@ -130,6 +130,32 @@
                                             <Border Style="{StaticResource BadgeStyle}" Visibility="{Binding IsBr, Converter={StaticResource BooleanToVisibilityConverter}}"><TextBlock Text="BR"/></Border>
                                         </WrapPanel>
                                         <TextBlock Text="{Binding Summary}" Foreground="{StaticResource MutedTextBrush}" FontSize="11" TextWrapping="Wrap"/>
+                                        <ItemsControl ItemsSource="{Binding AllDayEvents}" Margin="0,4,0,0">
+                                            <ItemsControl.ItemsPanel>
+                                                <ItemsPanelTemplate>
+                                                    <WrapPanel/>
+                                                </ItemsPanelTemplate>
+                                            </ItemsControl.ItemsPanel>
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate>
+                                                    <Border Background="#1E3A8A" BorderBrush="#60A5FA" BorderThickness="1" CornerRadius="9" Padding="6,2" Margin="0,0,4,4">
+                                                        <Border.ToolTip>
+                                                            <ToolTip Background="{StaticResource SurfaceAltBrush}" Foreground="{StaticResource TextBrush}" BorderBrush="{StaticResource BorderBrushColor}" Padding="8">
+                                                                <StackPanel>
+                                                                    <TextBlock Text="{Binding Subject}" FontWeight="SemiBold"/>
+                                                                    <TextBlock Text="{Binding Location}" Visibility="{Binding Location, Converter={StaticResource StringEmptyToVisibilityConverter}}" Foreground="{StaticResource MutedTextBrush}"/>
+                                                                </StackPanel>
+                                                            </ToolTip>
+                                                        </Border.ToolTip>
+                                                        <Border.InputBindings>
+                                                            <MouseBinding Gesture="LeftClick" Command="{Binding DataContext.OpenOutlookEventCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" CommandParameter="{Binding}"/>
+                                                        </Border.InputBindings>
+                                                        <TextBlock Text="{Binding Subject}" FontSize="10" TextTrimming="CharacterEllipsis" MaxWidth="170" Foreground="#DBEAFE"/>
+                                                    </Border>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+
                                     </StackPanel>
                                 </Border>
                             </DataTemplate>
@@ -210,7 +236,7 @@
                                     <Border.InputBindings>
                                         <MouseBinding Gesture="LeftClick" Command="{Binding DataContext.SelectDayCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" CommandParameter="{Binding}"/>
                                     </Border.InputBindings>
-                                    <Grid>
+                                    <Grid ClipToBounds="True">
                                         <ItemsControl ItemsSource="{Binding DataContext.TimeGridLines, RelativeSource={RelativeSource AncestorType=UserControl}}" IsHitTestVisible="False">
                                             <ItemsControl.ItemsPanel>
                                                 <ItemsPanelTemplate>
@@ -225,6 +251,55 @@
                                             <ItemsControl.ItemTemplate>
                                                 <DataTemplate>
                                                     <Border Height="1" Width="{Binding DataContext.DayColumnWidth, RelativeSource={RelativeSource AncestorType=UserControl}}" Background="#243244" Opacity="0.55"/>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+
+                                        <ItemsControl ItemsSource="{Binding ExternalEvents}">
+                                            <ItemsControl.ItemsPanel>
+                                                <ItemsPanelTemplate>
+                                                    <Canvas/>
+                                                </ItemsPanelTemplate>
+                                            </ItemsControl.ItemsPanel>
+                                            <ItemsControl.ItemContainerStyle>
+                                                <Style TargetType="ContentPresenter">
+                                                    <Setter Property="Canvas.Top" Value="{Binding DisplayTop}"/>
+                                                    <Setter Property="Canvas.Left" Value="{Binding DisplayLeft}"/>
+                                                </Style>
+                                            </ItemsControl.ItemContainerStyle>
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate>
+                                                    <Border Width="{Binding DisplayWidth}" Height="{Binding DisplayHeight}" Background="#335B3A" BorderBrush="#5EEAD4" BorderThickness="1" CornerRadius="8" Padding="8,5" Opacity="0.82" ClipToBounds="True">
+                                                        <Border.InputBindings>
+                                                            <MouseBinding Gesture="LeftDoubleClick" Command="{Binding DataContext.OpenOutlookEventCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" CommandParameter="{Binding}"/>
+                                                        </Border.InputBindings>
+                                                        <Border.ToolTip>
+                                                            <ToolTip Background="{StaticResource SurfaceAltBrush}" Foreground="{StaticResource TextBrush}" BorderBrush="{StaticResource BorderBrushColor}" Padding="8">
+                                                                <StackPanel>
+                                                                    <TextBlock Text="{Binding TooltipText}" TextWrapping="Wrap" MaxWidth="300"/>
+                                                                    <Button Content="Teams öffnen" Width="120" Margin="0,6,0,0" Style="{StaticResource SecondaryButtonStyle}"
+                                                                            Visibility="{Binding HasTeamsLink, Converter={StaticResource BooleanToVisibilityConverter}}"
+                                                                            Command="{Binding DataContext.OpenTeamsUrlCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                                            CommandParameter="{Binding TeamsJoinUrl}"/>
+                                                                </StackPanel>
+                                                            </ToolTip>
+                                                        </Border.ToolTip>
+                                                        <StackPanel>
+                                                            <TextBlock Text="📅 Outlook" FontSize="10" Foreground="#CFFAFE"/>
+                                                            <TextBlock Text="{Binding Subject}" FontWeight="SemiBold" FontSize="12" TextTrimming="CharacterEllipsis" MaxLines="1"/>
+                                                            <TextBlock Text="{Binding TimeLabel}" FontSize="11" Foreground="#D1FAE5"/>
+                                                            <TextBlock Text="{Binding Location}" FontSize="10" Foreground="#BAE6FD" TextTrimming="CharacterEllipsis"
+                                                                       Visibility="{Binding ShowLocation, Converter={StaticResource BooleanToVisibilityConverter}}"/>
+                                                            <Button Content="In Outlook öffnen" Width="120" Margin="0,4,0,0" Style="{StaticResource SecondaryButtonStyle}"
+                                                                    Visibility="{Binding ShowActions, Converter={StaticResource BooleanToVisibilityConverter}}"
+                                                                    Command="{Binding DataContext.OpenOutlookEventCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                                    CommandParameter="{Binding}"/>
+                                                            <Button Content="Teams öffnen" Width="110" Margin="0,4,0,0" Style="{StaticResource SecondaryButtonStyle}"
+                                                                    Visibility="{Binding HasTeamsLink, Converter={StaticResource BooleanToVisibilityConverter}}"
+                                                                    Command="{Binding DataContext.OpenTeamsUrlCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                                    CommandParameter="{Binding TeamsJoinUrl}"/>
+                                                        </StackPanel>
+                                                    </Border>
                                                 </DataTemplate>
                                             </ItemsControl.ItemTemplate>
                                         </ItemsControl>
@@ -258,6 +333,10 @@
                                                                         <Setter Property="BorderBrush" Value="{StaticResource AccentBrush}"/>
                                                                         <Setter Property="Background" Value="#29415A"/>
                                                                     </Trigger>
+                                                                    <DataTrigger Binding="{Binding HasOutlookConflict}" Value="True">
+                                                                        <Setter Property="BorderBrush" Value="#EF4444"/>
+                                                                        <Setter Property="Background" Value="#3C1F2A"/>
+                                                                    </DataTrigger>
                                                                 </Style.Triggers>
                                                             </Style>
                                                         </Border.Style>
@@ -286,9 +365,10 @@
                         </ItemsControl.ItemTemplate>
                     </ItemsControl>
 
-                    <Canvas x:Name="NowIndicatorCanvas" Grid.Row="1" Grid.Column="1" Height="{Binding CalendarBodyHeight}" Width="{Binding DayAreaWidth}" IsHitTestVisible="False" Panel.ZIndex="20"
+                    <Canvas x:Name="NowIndicatorCanvas" Grid.Row="1" Grid.Column="1" Height="{Binding ElementName=DaySegmentColumns, Path=ActualHeight}" Width="{Binding ElementName=DaySegmentColumns, Path=ActualWidth}" IsHitTestVisible="False" ClipToBounds="True" Panel.ZIndex="20"
+                            HorizontalAlignment="Left" VerticalAlignment="Top"
                             Visibility="{Binding ShowNowIndicator, Converter={StaticResource BooleanToVisibilityConverter}}">
-                        <Rectangle x:Name="NowLine" Canvas.Left="{Binding DayInnerOffset}" Canvas.Top="{Binding NowLineTop}" Width="{Binding NowLineWidth}" Height="2" Fill="White" Opacity="0.85"/>
+                        <Rectangle x:Name="NowLine" Canvas.Left="0" Canvas.Top="{Binding NowLineTop}" Width="{Binding ElementName=DaySegmentColumns, Path=ActualWidth}" Height="2" Fill="White" Opacity="0.85"/>
                         <Ellipse Canvas.Left="{Binding NowMarkerLeft}" Canvas.Top="{Binding NowMarkerTop}" Width="8" Height="8" Fill="White" Opacity="0.95"/>
                     </Canvas>
                 </Grid>
