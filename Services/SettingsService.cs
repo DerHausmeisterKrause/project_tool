@@ -1,4 +1,6 @@
+using System;
 using System.IO;
+using System.Linq;
 using System.Text.Json;
 using TaskTool.Models;
 
@@ -53,6 +55,14 @@ public class SettingsService
 
         if (!validDockPositions.Contains(settings.DynamicIslandDockPosition, StringComparer.OrdinalIgnoreCase))
             settings.DynamicIslandDockPosition = "TopCenter";
+
+        if (!string.Equals(settings.OutlookCalendarSyncMode, "Manual", StringComparison.OrdinalIgnoreCase)
+            && !string.Equals(settings.OutlookCalendarSyncMode, "Periodic", StringComparison.OrdinalIgnoreCase))
+            settings.OutlookCalendarSyncMode = "Manual";
+
+        settings.OutlookCalendarSyncIntervalMinutes = Math.Clamp(settings.OutlookCalendarSyncIntervalMinutes, 1, 60);
+        settings.OutlookCalendarRangePastDays = Math.Clamp(settings.OutlookCalendarRangePastDays, 0, 30);
+        settings.OutlookCalendarRangeFutureDays = Math.Clamp(settings.OutlookCalendarRangeFutureDays, 1, 90);
     }
 
     public void Save()
