@@ -901,6 +901,24 @@ internal sealed class WeekLayoutBlockRef
     }
 }
 
+public class OutlookCalendarBlock
+{
+    public string Id { get; set; } = string.Empty;
+    public string Subject { get; set; } = string.Empty;
+    public string TimeLabel { get; set; } = string.Empty;
+    public string Location { get; set; } = string.Empty;
+    public string TeamsJoinUrl { get; set; } = string.Empty;
+    public DateTime StartLocal { get; set; }
+    public DateTime EndLocal { get; set; }
+    public double DisplayTop { get; set; }
+    public double DisplayHeight { get; set; }
+    public double DisplayLeft { get; set; }
+    public double DisplayWidth { get; set; }
+    public bool HasTeamsLink => !string.IsNullOrWhiteSpace(TeamsJoinUrl);
+    public string TooltipText { get; set; } = string.Empty;
+}
+
+
 public class TimeAxisLabel
 {
     public string Label { get; set; } = string.Empty;
