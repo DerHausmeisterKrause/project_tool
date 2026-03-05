@@ -7,6 +7,16 @@ public class AppSettings
 
     public bool OutlookSyncEnabled { get; set; } = true;
     public string OutlookCategoryName { get; set; } = "FocusBlock";
+
+    public bool OutlookCalendarEnabled { get; set; } = false;
+    public bool OutlookConflictWarningsEnabled { get; set; } = true;
+    public bool OutlookTeamsButtonEnabled { get; set; } = true;
+    public string OutlookCalendarSyncMode { get; set; } = "Manual";
+    public int OutlookCalendarSyncIntervalMinutes { get; set; } = 5;
+    public int OutlookCalendarRangePastDays { get; set; } = 14;
+    public int OutlookCalendarRangeFutureDays { get; set; } = 14;
+    public bool OutlookInterpretAllDayAsMarkers { get; set; } = true;
+    public bool ShowWeekendInWeekView { get; set; } = false;
     public int ReminderLeadMinutes { get; set; } = 2;
     public string DateTimeFormat { get; set; } = "yyyy-MM-dd HH:mm";
 

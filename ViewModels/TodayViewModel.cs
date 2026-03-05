@@ -1,3 +1,4 @@
+using System.Linq;
 using System.Collections.ObjectModel;
 using System.Windows;
 using System.Windows.Threading;
@@ -14,6 +15,7 @@ public class TodayViewModel : ObservableObject
     private readonly WorkDayService _workDays;
     private readonly SettingsService _settings;
     private readonly DispatcherTimer _clock;
+    private readonly OutlookCalendarService _outlookCalendar;
 
     public string Title => "Heute";
     public ObservableCollection<TaskItem> CurrentTasks { get; } = new();
@@ -126,6 +128,19 @@ public class TodayViewModel : ObservableObject
     private string _newSegmentNote = string.Empty;
     public string NewSegmentNote { get => _newSegmentNote; set => Set(ref _newSegmentNote, value); }
 
+    private string _newSegmentConflictWarning = string.Empty;
+    public string NewSegmentConflictWarning
+    {
+        get => _newSegmentConflictWarning;
+        set
+        {
+            if (Set(ref _newSegmentConflictWarning, value))
+                Raise(nameof(HasNewSegmentConflict));
+        }
+    }
+
+    public bool HasNewSegmentConflict => !string.IsNullOrWhiteSpace(NewSegmentConflictWarning);
+
     public string NewSegmentValidationHint
     {
         get
@@ -188,11 +203,12 @@ public class TodayViewModel : ObservableObject
     private bool _isHo;
     public bool IsHo { get => _isHo; set => Set(ref _isHo, value); }
 
-    public TodayViewModel(TaskService tasks, WorkDayService workDays, SettingsService settings)
+    public TodayViewModel(TaskService tasks, WorkDayService workDays, SettingsService settings, OutlookCalendarService outlookCalendar)
     {
         _tasks = tasks;
         _workDays = workDays;
         _settings = settings;
+        _outlookCalendar = outlookCalendar;
 
         QuickAddCommand = new RelayCommand(QuickAdd);
         SaveCommand = new RelayCommand(SaveTask, () => SelectedTask != null);
@@ -244,6 +260,7 @@ public class TodayViewModel : ObservableObject
     {
         Raise(nameof(NewSegmentValidationHint));
         Raise(nameof(CanSaveNewSegment));
+        EvaluateNewSegmentConflict();
         AddSegmentCommand.RaiseCanExecuteChanged();
     }
 
@@ -385,6 +402,72 @@ public class TodayViewModel : ObservableObject
             seg.OutlookStatus = string.IsNullOrWhiteSpace(seg.OutlookEntryId) ? "fehlt" : "vorhanden";
             Segments.Add(seg);
         }
+
+        EvaluateNewSegmentConflict();
+    }
+
+    private void EvaluateNewSegmentConflict()
+    {
+        if (!_settings.Current.OutlookCalendarEnabled || !_settings.Current.OutlookConflictWarningsEnabled || NewSegmentDate == null)
+        {
+            NewSegmentConflictWarning = string.Empty;
+            return;
+        }
+
+        if (!TimeSpan.TryParse(NewSegmentStartTime, out var start) || !TimeSpan.TryParse(NewSegmentEndTime, out var end) || start >= end)
+        {
+            NewSegmentConflictWarning = string.Empty;
+            return;
+        }
+
+        var startLocal = NewSegmentDate.Value.Date + start;
+        var endLocal = NewSegmentDate.Value.Date + end;
+        var conflicts = GetOutlookConflicts(startLocal, endLocal);
+        NewSegmentConflictWarning = conflicts.Count == 0
+            ? string.Empty
+            : $"Konflikt mit Outlook: {string.Join(", ", conflicts.Select(c => c.Subject).Distinct().Take(2))}";
+    }
+
+    private List<OutlookCalendarEvent> GetOutlookConflicts(DateTime startLocal, DateTime endLocal)
+    {
+        var events = _outlookCalendar.GetEvents(startLocal.Date.AddDays(-1), startLocal.Date.AddDays(2));
+        return events
+            .Where(e => endLocal > e.StartLocal && startLocal < e.EndLocal)
+            .Where(e => !IsDerivedDayMarkerEvent(e))
+            .ToList();
+    }
+
+    private bool IsDerivedDayMarkerEvent(OutlookCalendarEvent evt)
+    {
+        if (!_settings.Current.OutlookInterpretAllDayAsMarkers)
+            return false;
+
+        var duration = evt.EndLocal - evt.StartLocal;
+        if (!IsMarkerEligibleAllDayEvent(evt, duration))
+            return false;
+
+        return OutlookAllDayMarkerMapper.TryMapAllDayMarker(evt, out _) != null;
+    }
+
+    private static bool IsMarkerEligibleAllDayEvent(OutlookCalendarEvent evt, TimeSpan duration)
+    {
+        _ = duration;
+        return evt.IsAllDay;
+    }
+
+    private bool ConfirmConflictIfRequired(DateTime startLocal, DateTime endLocal)
+    {
+        if (!_settings.Current.OutlookCalendarEnabled || !_settings.Current.OutlookConflictWarningsEnabled)
+            return true;
+
+        var conflicts = GetOutlookConflicts(startLocal, endLocal);
+        if (conflicts.Count == 0)
+            return true;
+
+        var msg = "Dieses Segment überschneidet sich mit Outlook-Terminen:\n- " +
+                  string.Join("\n- ", conflicts.Take(3).Select(c => $"{c.Subject} ({c.StartLocal:HH:mm}-{c.EndLocal:HH:mm})")) +
+                  "\n\nTrotzdem speichern?";
+        return MessageBox.Show(msg, "Outlook Konflikt", MessageBoxButton.YesNo, MessageBoxImage.Warning) == MessageBoxResult.Yes;
     }
 
     private void QuickAdd()
@@ -427,6 +510,9 @@ public class TodayViewModel : ObservableObject
             OutlookEntryId = string.Empty
         };
         segment.PlannedMinutes = (int)(segment.EndLocal - segment.StartLocal).TotalMinutes;
+        if (!ConfirmConflictIfRequired(segment.StartLocal, segment.EndLocal))
+            return;
+
         _tasks.AddSegment(segment);
         ServiceLocator.Notifications.RefreshSchedule();
         StatusMessage = "Segment hinzugefügt.";
@@ -444,6 +530,9 @@ public class TodayViewModel : ObservableObject
         }
 
         segment.PlannedMinutes = (int)(segment.EndLocal - segment.StartLocal).TotalMinutes;
+        if (!ConfirmConflictIfRequired(segment.StartLocal, segment.EndLocal))
+            return;
+
         _tasks.UpdateSegment(segment);
         ServiceLocator.Notifications.RefreshSchedule();
         segment.OutlookStatus = string.IsNullOrWhiteSpace(segment.OutlookEntryId) ? "fehlt" : "vorhanden";
