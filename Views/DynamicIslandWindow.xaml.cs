@@ -25,8 +25,9 @@ public partial class DynamicIslandWindow : Window
     private const double PeekHeight = 32;
     private const double PeekHiddenRatio = 0.28;
     private const double ExpandedHeightNormal = 286;
-    private const double ExpandedHeightNotificationMin = 132;
-    private const double NotificationContentSafeExtraHeight = 24;
+    private const double ExpandedHeightNotificationMin = 140;
+    private const double NotificationContentSafeExtraHeight = 20;
+    private const double NotificationPostLayoutSafetyHeight = 12;
     private const double EdgeMargin = 10;
     private const double SafeVisibleMargin = 12;
     private const int DragThrottleMs = 16;
@@ -322,6 +323,9 @@ public partial class DynamicIslandWindow : Window
             StopStateAnimation();
             ApplyRect(targetRect);
             ApplyHostHeights(targetState);
+            if (targetState == InteractionState.Expanded && (DataContext as DynamicIslandViewModel)?.HasNotification == true)
+                Dispatcher.BeginInvoke(DispatcherPriority.Render, new Action(EnsureNotificationHeightAfterLayout));
+
             _state = targetState;
             _isTransitionActive = false;
             Log($"State -> {_state} ({reason})");
@@ -371,7 +375,7 @@ public partial class DynamicIslandWindow : Window
 
         ContentHost.Measure(new Size(availableWidth, double.PositiveInfinity));
         NotificationOverlay.Measure(new Size(availableWidth, double.PositiveInfinity));
-        var desiredContentHeight = Math.Max(ContentHost.DesiredSize.Height, NotificationOverlay.DesiredSize.Height);
+        var desiredContentHeight = Math.Max(NotificationOverlay.DesiredSize.Height, NotificationOverlay.ActualHeight);
 
         var shadowExtra = NotificationShadowSafePadding;
         if (IslandRoot.Effect is DropShadowEffect shadow)
@@ -386,6 +390,43 @@ public partial class DynamicIslandWindow : Window
 #endif
 
         return Math.Max(ExpandedHeightNotificationMin, target);
+    }
+
+
+    private void EnsureNotificationHeightAfterLayout()
+    {
+        if (_isClosing || Dispatcher.HasShutdownStarted || !IsLoaded)
+            return;
+
+        if ((DataContext as DynamicIslandViewModel)?.HasNotification != true)
+            return;
+
+        UpdateLayout();
+
+        var border = IslandRoot.BorderThickness;
+        var padding = IslandRoot.Padding;
+        var nonContentHeight = border.Top + border.Bottom + padding.Top + padding.Bottom;
+        var availableWidth = Math.Max(120,
+            ExpandedWidth
+            - border.Left - border.Right
+            - padding.Left - padding.Right);
+
+        NotificationOverlay.Measure(new Size(availableWidth, double.PositiveInfinity));
+        var overlayHeight = Math.Max(NotificationOverlay.ActualHeight, NotificationOverlay.DesiredSize.Height);
+        var requiredHeight = Math.Ceiling(nonContentHeight + overlayHeight + NotificationShadowSafePadding + NotificationPostLayoutSafetyHeight);
+        requiredHeight = Math.Max(requiredHeight, ExpandedHeightNotificationMin + nonContentHeight);
+
+        if (Height + 0.5 >= requiredHeight)
+            return;
+
+        var targetRect = CalculateAnchoredVisibleRect(_dockAnchor, ExpandedWidth, requiredHeight);
+        ApplyRect(targetRect);
+        ContentHost.MinHeight = Math.Max(0, requiredHeight - nonContentHeight);
+        NotificationOverlay.MinHeight = ExpandedHeightNotificationMin;
+
+#if DEBUG
+        Log($"EnsureNotificationHeightAfterLayout actual={NotificationOverlay.ActualHeight:F1} desired={NotificationOverlay.DesiredSize.Height:F1} required={requiredHeight:F1} window={Height:F1}");
+#endif
     }
 
     private Rect CalculateAnchoredVisibleRect(DockAnchor anchor, double targetWidth, double targetHeight)
