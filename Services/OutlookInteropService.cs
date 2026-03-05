@@ -199,7 +199,7 @@ public class OutlookInteropService
                     restricted = itemsDyn.Restrict(filter);
 
                     var events = new List<OutlookCalendarEvent>();
-                    foreach (var raw in restricted)
+                    foreach (var raw in (System.Collections.IEnumerable)restricted!)
                     {
                         object? appointment = raw;
                         try

@@ -69,7 +69,7 @@ public class OutlookCalendarService : IDisposable
             if (!result.ok)
             {
                 LastError = result.error;
-                _logger.Warn($"[OutlookCalendarSync] Failed: {result.error}");
+                _logger.Error($"[OutlookCalendarSync] Failed: {result.error}");
                 return;
             }
 
