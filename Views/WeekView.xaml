@@ -286,9 +286,10 @@
                         </ItemsControl.ItemTemplate>
                     </ItemsControl>
 
-                    <Canvas x:Name="NowIndicatorCanvas" Grid.Row="1" Grid.Column="1" Height="{Binding CalendarBodyHeight}" Width="{Binding DayAreaWidth}" IsHitTestVisible="False" Panel.ZIndex="20"
+                    <Canvas x:Name="NowIndicatorCanvas" Grid.Row="1" Grid.Column="1" Height="{Binding ElementName=DaySegmentColumns, Path=ActualHeight}" Width="{Binding ElementName=DaySegmentColumns, Path=ActualWidth}" IsHitTestVisible="False" ClipToBounds="True" Panel.ZIndex="20"
+                            HorizontalAlignment="Left" VerticalAlignment="Top"
                             Visibility="{Binding ShowNowIndicator, Converter={StaticResource BooleanToVisibilityConverter}}">
-                        <Rectangle x:Name="NowLine" Canvas.Left="{Binding DayInnerOffset}" Canvas.Top="{Binding NowLineTop}" Width="{Binding NowLineWidth}" Height="2" Fill="White" Opacity="0.85"/>
+                        <Rectangle x:Name="NowLine" Canvas.Left="0" Canvas.Top="{Binding NowLineTop}" Width="{Binding ElementName=DaySegmentColumns, Path=ActualWidth}" Height="2" Fill="White" Opacity="0.85"/>
                         <Ellipse Canvas.Left="{Binding NowMarkerLeft}" Canvas.Top="{Binding NowMarkerTop}" Width="8" Height="8" Fill="White" Opacity="0.95"/>
                     </Canvas>
                 </Grid>

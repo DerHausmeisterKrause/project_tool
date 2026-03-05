@@ -27,9 +27,6 @@ public class WeekViewModel : ObservableObject
     public double PixelsPerMinute => PixelsPerMinuteConst;
     public double CalendarBodyHeight => (CalendarEndHour - CalendarStartHour) * 60 * PixelsPerMinute;
     public double FullDayColumnHeight => CalendarBodyHeight + 58;
-    public double DayAreaWidth => DayColumnWidth * 7;
-    public double DayInnerOffset => DayInnerPadding;
-    public double NowLineWidth => DayAreaWidth - DayInnerOffset;
 
     public ObservableCollection<TimeAxisLabel> TimeAxisLabels { get; } = new();
     public ObservableCollection<TimeGridLine> TimeGridLines { get; } = new();
