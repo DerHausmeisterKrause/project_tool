@@ -566,7 +566,10 @@ public class WeekViewModel : ObservableObject
             if (!IsMarkerEligibleAllDayEvent(evt, duration))
                 continue;
 
-            if (!EventSpansDayExclusive(evt, dayDate))
+            var (effectiveStartDate, effectiveEndDateExclusive) = GetAllDayEffectiveDateRange(evt);
+            var dayMatched = EventSpansDayExclusive(evt, dayDate);
+            ServiceLocator.Logger.Info($"[OutlookAllDayMarkerEval] day={dayDate:yyyy-MM-dd} subject='{evt.Subject}' start={evt.StartLocal:O} end={evt.EndLocal:O} isAllDay={evt.IsAllDay} effectiveStartDate={effectiveStartDate:yyyy-MM-dd} effectiveEndDateExclusive={effectiveEndDateExclusive:yyyy-MM-dd} matchedDay={dayMatched}");
+            if (!dayMatched)
                 continue;
 
             markerCandidates.Add(evt);
@@ -590,7 +593,8 @@ public class WeekViewModel : ObservableObject
 
         if (derivedMarker != "Normal" && consumed.Count == 0)
         {
-            ServiceLocator.Logger.Error($"[OutlookDayMarkerGuard] day={dayDate:yyyy-MM-dd} derivedMarker={derivedMarker} without matched events. Forcing Normal.");
+            var involvedAppointmentIds = string.Join(",", markerCandidates.Select(e => string.IsNullOrWhiteSpace(e.EntryId) ? e.Id : e.EntryId));
+            ServiceLocator.Logger.Error($"[OutlookDayMarkerGuard] day={dayDate:yyyy-MM-dd} derivedMarker={derivedMarker} without matched events. involvedAppointmentIds={involvedAppointmentIds}. Forcing Normal.");
             derivedMarker = "Normal";
         }
 
@@ -613,12 +617,18 @@ public class WeekViewModel : ObservableObject
     private static bool EventSpansDayExclusive(OutlookCalendarEvent evt, DateTime dayDate)
     {
         var day = dayDate.Date;
-        var startDay = evt.StartLocal.Date;
-        var endExclusive = evt.EndLocal.Date;
-        if (evt.EndLocal.TimeOfDay != TimeSpan.Zero)
-            endExclusive = endExclusive.AddDays(1);
+        var (effectiveStartDate, effectiveEndDateExclusive) = GetAllDayEffectiveDateRange(evt);
+        return day >= effectiveStartDate && day < effectiveEndDateExclusive;
+    }
 
-        return day >= startDay && day < endExclusive;
+    private static (DateTime EffectiveStartDate, DateTime EffectiveEndDateExclusive) GetAllDayEffectiveDateRange(OutlookCalendarEvent evt)
+    {
+        var effectiveStartDate = evt.StartLocal.Date;
+        var effectiveEndDateExclusive = evt.EndLocal.Date;
+        if (effectiveEndDateExclusive <= effectiveStartDate)
+            effectiveEndDateExclusive = effectiveStartDate.AddDays(1);
+
+        return (effectiveStartDate, effectiveEndDateExclusive);
     }
 
     private static bool IsMarkerEligibleAllDayEvent(OutlookCalendarEvent evt, TimeSpan duration)
