@@ -505,7 +505,7 @@ public class TodayViewModel : ObservableObject
             return string.Empty;
 
         var s = subject.Trim().ToUpperInvariant();
-        s = System.Text.RegularExpressions.Regex.Replace(s, "\s+", " ");
+        s = System.Text.RegularExpressions.Regex.Replace(s, @"\s+", " ");
         s = s.Trim(' ', '[', ']', '(', ')', '{', '}');
         return s;
     }
