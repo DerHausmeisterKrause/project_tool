@@ -729,6 +729,24 @@ public class WeekViewModel : ObservableObject
             .ToList();
     }
 
+    private List<WeekAllDayEventPill> BuildAllDayPills(DateTime dayDate, IReadOnlyList<OutlookCalendarEvent> source, HashSet<string> consumedEventIds)
+    {
+        var dayStart = dayDate.Date;
+        var dayEnd = dayStart.AddDays(1);
+
+        return source
+            .Where(e => e.IsAllDay && e.EndLocal > dayStart && e.StartLocal < dayEnd && !consumedEventIds.Contains(e.Id))
+            .Select(e => new WeekAllDayEventPill
+            {
+                Id = e.Id,
+                Subject = e.Subject,
+                Location = e.Location,
+                TeamsJoinUrl = _settings.Current.OutlookTeamsButtonEnabled ? e.OnlineMeetingJoinUrl : string.Empty
+            })
+            .OrderBy(e => e.Subject)
+            .ToList();
+    }
+
     private static void MarkSegmentConflicts(List<WeekCalendarItem> segments, List<WeekOutlookCalendarBlock> external)
     {
         foreach (var segment in segments)
@@ -855,6 +873,32 @@ public class WeekOutlookCalendarBlock
     public int OverlapColumnCount { get; set; }
     public bool HasTeamsLink => !string.IsNullOrWhiteSpace(TeamsJoinUrl);
     public string TooltipText { get; set; } = string.Empty;
+}
+
+
+
+public class WeekAllDayEventPill
+{
+    public string Id { get; set; } = string.Empty;
+    public string Subject { get; set; } = string.Empty;
+    public string Location { get; set; } = string.Empty;
+    public string TeamsJoinUrl { get; set; } = string.Empty;
+    public bool HasTeamsLink => !string.IsNullOrWhiteSpace(TeamsJoinUrl);
+}
+
+internal sealed class LayoutBlockRef
+{
+    public DateTime Start { get; }
+    public DateTime End { get; }
+    public Action<int, int> Assign { get; }
+    public int Column { get; set; }
+
+    public LayoutBlockRef(DateTime start, DateTime end, Action<int, int> assign)
+    {
+        Start = start;
+        End = end;
+        Assign = assign;
+    }
 }
 
 
