@@ -286,7 +286,7 @@
                                                         </Border.ToolTip>
                                                         <StackPanel>
                                                             <TextBlock Text="📅 Outlook" FontSize="10" Foreground="#CFFAFE"/>
-                                                            <TextBlock Text="{Binding Subject}" FontWeight="SemiBold" FontSize="12" TextTrimming="CharacterEllipsis" MaxLines="1"/>
+                                                            <TextBlock Text="{Binding Subject}" FontWeight="SemiBold" FontSize="12" TextTrimming="CharacterEllipsis" TextWrapping="NoWrap"/>
                                                             <TextBlock Text="{Binding TimeLabel}" FontSize="11" Foreground="#D1FAE5"/>
                                                             <TextBlock Text="{Binding Location}" FontSize="10" Foreground="#BAE6FD" TextTrimming="CharacterEllipsis"
                                                                        Visibility="{Binding ShowLocation, Converter={StaticResource BooleanToVisibilityConverter}}"/>

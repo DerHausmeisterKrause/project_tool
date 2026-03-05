@@ -946,6 +946,21 @@ internal sealed class WeekLayoutBlockRef
     }
 }
 
+internal sealed class WeekLayoutBlockRef
+{
+    public DateTime Start { get; }
+    public DateTime End { get; }
+    public Action<int, int> Assign { get; }
+    public int Column { get; set; }
+
+    public WeekLayoutBlockRef(DateTime start, DateTime end, Action<int, int> assign)
+    {
+        Start = start;
+        End = end;
+        Assign = assign;
+    }
+}
+
 
 
 public class WeekAllDayPillItem
