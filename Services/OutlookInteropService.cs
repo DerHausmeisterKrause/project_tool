@@ -298,8 +298,10 @@ public class OutlookInteropService
                         try
                         {
                             dynamic a = appointment!;
-                            DateTime start = Convert.ToDateTime(a.Start).ToLocalTime();
-                            DateTime end = Convert.ToDateTime(a.End).ToLocalTime();
+                            var startRaw = Convert.ToDateTime(a.Start);
+                            var endRaw = Convert.ToDateTime(a.End);
+                            DateTime start = NormalizeOutlookDateTime(startRaw);
+                            DateTime end = NormalizeOutlookDateTime(endRaw);
                             if (end <= fromLocal || start >= toLocal)
                                 continue;
 
@@ -310,6 +312,9 @@ public class OutlookInteropService
                             var entryId = Convert.ToString(a.EntryID) ?? string.Empty;
                             var busyRaw = Convert.ToString(a.BusyStatus) ?? string.Empty;
                             var iCalUid = Convert.ToString(a.GlobalAppointmentID) ?? string.Empty;
+                            var allDayEvent = Convert.ToBoolean(a.AllDayEvent);
+                            var subjectRaw = Convert.ToString(a.Subject) ?? string.Empty;
+                            _logger.Info($"[OutlookRawEvent] subject='{subjectRaw}' start={start:O} end={end:O} allDay={allDayEvent} startKind={start.Kind} endKind={end.Kind} busyStatus='{busyRaw}' sensitivityRaw='{Convert.ToString(a.Sensitivity) ?? string.Empty}' isRecurringRaw='{Convert.ToString(a.IsRecurring) ?? string.Empty}' entryId='{entryId}' calendar='{calendarName}'");
 
                             string sensitivity;
                             bool isPrivate;
@@ -331,10 +336,10 @@ public class OutlookInteropService
                                 IsPrivate = isPrivate,
                                 IsRecurring = isRecurring,
                                 IsInstance = isInstance,
-                                Subject = string.IsNullOrWhiteSpace(Convert.ToString(a.Subject)) ? "(Kein Betreff)" : Convert.ToString(a.Subject)!,
+                                Subject = string.IsNullOrWhiteSpace(subjectRaw) ? "(Kein Betreff)" : subjectRaw,
                                 StartLocal = start,
                                 EndLocal = end,
-                                IsAllDay = Convert.ToBoolean(a.AllDayEvent),
+                                IsAllDay = allDayEvent,
                                 Location = location,
                                 Organizer = Convert.ToString(a.Organizer) ?? string.Empty,
                                 BodyPreview = body.Length > 240 ? body[..240] : body,
@@ -410,6 +415,17 @@ public class OutlookInteropService
     }
 
 
+    private static DateTime NormalizeOutlookDateTime(DateTime value)
+    {
+        if (value.Kind == DateTimeKind.Utc)
+            return value.ToLocalTime();
+
+        if (value.Kind == DateTimeKind.Unspecified)
+            return DateTime.SpecifyKind(value, DateTimeKind.Local);
+
+        return value;
+    }
+
     private static string FormatOutlookRestrictDate(DateTime value)
     {
         var local = value.Kind == DateTimeKind.Local ? value : value.ToLocalTime();
@@ -424,51 +440,52 @@ public class OutlookInteropService
             new DateTime(2026, 3, 6)
         };
 
-        foreach (var day in probeDays)
-        {
-            var dayStart = day.Date;
-            var dayEnd = dayStart.AddDays(1);
-            var dayFilter = $"[Start] < '{FormatOutlookRestrictDate(dayEnd)}' AND [End] > '{FormatOutlookRestrictDate(dayStart)}'";
-            _logger.Info($"[OutlookProbeDayScan] day={day:yyyy-MM-dd} filter='{dayFilter}'");
+        _logger.Info($"[OutlookProbeDayScan] days=2026-03-04,2026-03-06 mode=IterateAllItemsNoRestrict fromInclusive={fromInclusive:O} toExclusive={toExclusive:O}");
 
-            object? restrictedProbe = null;
-            try
+        object? raw = null;
+        try
+        {
+            foreach (var item in (System.Collections.IEnumerable)itemsDyn)
             {
-                restrictedProbe = itemsDyn.Restrict(dayFilter);
-                foreach (var raw in (System.Collections.IEnumerable)restrictedProbe)
+                raw = item;
+                try
                 {
-                    object? appointment = raw;
-                    try
+                    dynamic a = item;
+                    var start = NormalizeOutlookDateTime(Convert.ToDateTime(a.Start));
+                    var end = NormalizeOutlookDateTime(Convert.ToDateTime(a.End));
+                    var subject = Convert.ToString(a.Subject) ?? string.Empty;
+                    var allDay = Convert.ToBoolean(a.AllDayEvent);
+                    var entryId = Convert.ToString(a.EntryID) ?? string.Empty;
+
+                    foreach (var day in probeDays)
                     {
-                        dynamic a = appointment!;
-                        var start = Convert.ToDateTime(a.Start).ToLocalTime();
-                        var end = Convert.ToDateTime(a.End).ToLocalTime();
+                        var dayStart = day.Date;
+                        var dayEnd = dayStart.AddDays(1);
                         var overlap = start < dayEnd && end > dayStart;
                         if (!overlap)
                             continue;
 
-                        var entryId = Convert.ToString(a.EntryID) ?? string.Empty;
-                        var subject = Convert.ToString(a.Subject) ?? string.Empty;
-                        _logger.Info($"[OutlookProbeDayHit] day={day:yyyy-MM-dd} subject='{subject}' start={start:O} end={end:O} entryId='{entryId}' inRequestedRange={start < toExclusive && end > fromInclusive}");
-                    }
-                    catch
-                    {
-                        // ignore probe conversion issues
-                    }
-                    finally
-                    {
-                        SafeReleaseComObject(appointment);
+                        _logger.Info($"[OutlookProbeDayHit] day={day:yyyy-MM-dd} subject='{subject}' start={start:O} end={end:O} allDay={allDay} entryId='{entryId}' inRequestedRange={start < toExclusive && end > fromInclusive}");
                     }
                 }
+                catch
+                {
+                    // ignore probe conversion issues
+                }
+                finally
+                {
+                    SafeReleaseComObject(raw);
+                    raw = null;
+                }
             }
-            catch
-            {
-                // probe scan is diagnostic only
-            }
-            finally
-            {
-                SafeReleaseComObject(restrictedProbe);
-            }
+        }
+        catch
+        {
+            // probe scan is diagnostic only
+        }
+        finally
+        {
+            SafeReleaseComObject(raw);
         }
     }
 

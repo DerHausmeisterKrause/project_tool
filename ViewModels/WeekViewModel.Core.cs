@@ -297,7 +297,7 @@ public class WeekViewModel : ObservableObject
         var from = WeekStart.Date;
         var toExclusive = from.AddDays(dayCount);
         var weekEndInclusive = toExclusive.AddDays(-1);
-        ServiceLocator.Logger.Info($"[OutlookRangeBuild] weekStart={from:yyyy-MM-dd} weekEndInclusive={weekEndInclusive:yyyy-MM-dd} toExclusive={toExclusive:yyyy-MM-ddTHH:mm:ssK} timezone={TimeZoneInfo.Local.Id} showWeekend={ShowWeekend} dayCount={dayCount}");
+        ServiceLocator.Logger.Info($"[OutlookRangeBuild] fromInclusiveLocal={from:yyyy-MM-dd HH:mm:ss} kind={from.Kind} weekStart={from:yyyy-MM-dd} weekEndInclusive={weekEndInclusive:yyyy-MM-dd} toExclusiveLocal={toExclusive:yyyy-MM-dd HH:mm:ss} kind={toExclusive.Kind} tz={TimeZoneInfo.Local.Id} showWeekend={ShowWeekend} dayCount={dayCount}");
         var outlookEvents = _outlookCalendar.GetEvents(from, toExclusive);
 
         var workDays = _workDays.GetWorkDaysInRange(from, toExclusive.AddDays(-1)).ToDictionary(w => w.Day, w => w);
