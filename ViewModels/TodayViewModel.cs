@@ -443,13 +443,35 @@ public class TodayViewModel : ObservableObject
             return false;
 
         var duration = evt.EndLocal - evt.StartLocal;
-        if (!(evt.IsAllDay && duration.TotalHours >= 20))
+        if (!(evt.IsAllDay || duration.TotalHours >= 20))
             return false;
 
-        var normalized = NormalizeStatusSubject(evt.Subject ?? string.Empty);
-        return normalized == "HO" || normalized == "HOMEOFFICE" || normalized.StartsWith("HO ") || normalized.StartsWith("HOMEOFFICE ")
-            || normalized == "UL" || normalized == "URLAUB" || normalized.StartsWith("UL ") || normalized.StartsWith("URLAUB ")
-            || normalized == "MAZ" || normalized.StartsWith("MAZ ") || normalized == "AM" || normalized.StartsWith("AM ");
+        var tokens = TokenizeStatusSubject(evt.Subject ?? string.Empty);
+        if (tokens.Count == 0)
+            return false;
+
+        var tokenSet = new HashSet<string>(tokens, StringComparer.Ordinal);
+        return tokenSet.Contains("HO")
+               || tokenSet.Contains("HOMEOFFICE")
+               || tokenSet.Contains("UL")
+               || tokenSet.Contains("URLAUB")
+               || tokenSet.Contains("AM")
+               || tokenSet.Contains("MAZ")
+               || tokenSet.Contains("BR")
+               || tokenSet.Contains("BEREITSCHAFT");
+    }
+
+    private static List<string> TokenizeStatusSubject(string subject)
+    {
+        var normalized = NormalizeStatusSubject(subject);
+        if (string.IsNullOrWhiteSpace(normalized))
+            return new List<string>();
+
+        return System.Text.RegularExpressions.Regex
+            .Split(normalized, @"[\s/,_-]+")
+            .Select(t => t.Trim())
+            .Where(t => !string.IsNullOrWhiteSpace(t))
+            .ToList();
     }
 
     private static string NormalizeStatusSubject(string subject)
@@ -459,7 +481,7 @@ public class TodayViewModel : ObservableObject
 
         var s = subject.Trim().ToUpperInvariant();
         s = System.Text.RegularExpressions.Regex.Replace(s, "\\s+", " ");
-        s = s.Trim(' ', '[', ']', '(', ')', ':', '-', '_', '.', ',');
+        s = s.Trim(' ', '[', ']', '(', ')', '{', '}', ':', '-', '_', '.', ',');
         return s;
     }
 

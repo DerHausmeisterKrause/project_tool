@@ -236,7 +236,7 @@
                                     <Border.InputBindings>
                                         <MouseBinding Gesture="LeftClick" Command="{Binding DataContext.SelectDayCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" CommandParameter="{Binding}"/>
                                     </Border.InputBindings>
-                                    <Grid>
+                                    <Grid ClipToBounds="True">
                                         <ItemsControl ItemsSource="{Binding DataContext.TimeGridLines, RelativeSource={RelativeSource AncestorType=UserControl}}" IsHitTestVisible="False">
                                             <ItemsControl.ItemsPanel>
                                                 <ItemsPanelTemplate>
@@ -269,7 +269,7 @@
                                             </ItemsControl.ItemContainerStyle>
                                             <ItemsControl.ItemTemplate>
                                                 <DataTemplate>
-                                                    <Border Width="{Binding DisplayWidth}" Height="{Binding DisplayHeight}" Background="#335B3A" BorderBrush="#5EEAD4" BorderThickness="1" CornerRadius="8" Padding="8,5" Opacity="0.82">
+                                                    <Border Width="{Binding DisplayWidth}" Height="{Binding DisplayHeight}" Background="#335B3A" BorderBrush="#5EEAD4" BorderThickness="1" CornerRadius="8" Padding="8,5" Opacity="0.82" ClipToBounds="True">
                                                         <Border.InputBindings>
                                                             <MouseBinding Gesture="LeftDoubleClick" Command="{Binding DataContext.OpenOutlookEventCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" CommandParameter="{Binding}"/>
                                                         </Border.InputBindings>
@@ -286,11 +286,12 @@
                                                         </Border.ToolTip>
                                                         <StackPanel>
                                                             <TextBlock Text="📅 Outlook" FontSize="10" Foreground="#CFFAFE"/>
-                                                            <TextBlock Text="{Binding Subject}" FontWeight="SemiBold" FontSize="12" TextTrimming="CharacterEllipsis"/>
+                                                            <TextBlock Text="{Binding Subject}" FontWeight="SemiBold" FontSize="12" TextTrimming="CharacterEllipsis" MaxLines="1"/>
                                                             <TextBlock Text="{Binding TimeLabel}" FontSize="11" Foreground="#D1FAE5"/>
                                                             <TextBlock Text="{Binding Location}" FontSize="10" Foreground="#BAE6FD" TextTrimming="CharacterEllipsis"
-                                                                       Visibility="{Binding Location, Converter={StaticResource StringEmptyToVisibilityConverter}}"/>
+                                                                       Visibility="{Binding ShowLocation, Converter={StaticResource BooleanToVisibilityConverter}}"/>
                                                             <Button Content="In Outlook öffnen" Width="120" Margin="0,4,0,0" Style="{StaticResource SecondaryButtonStyle}"
+                                                                    Visibility="{Binding ShowActions, Converter={StaticResource BooleanToVisibilityConverter}}"
                                                                     Command="{Binding DataContext.OpenOutlookEventCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
                                                                     CommandParameter="{Binding}"/>
                                                             <Button Content="Teams öffnen" Width="110" Margin="0,4,0,0" Style="{StaticResource SecondaryButtonStyle}"
