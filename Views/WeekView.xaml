@@ -244,6 +244,9 @@
                                             <ItemsControl.ItemTemplate>
                                                 <DataTemplate>
                                                     <Border Width="{Binding DisplayWidth}" Height="{Binding DisplayHeight}" Background="#335B3A" BorderBrush="#5EEAD4" BorderThickness="1" CornerRadius="8" Padding="8,5" Opacity="0.82">
+                                                        <Border.InputBindings>
+                                                            <MouseBinding Gesture="LeftDoubleClick" Command="{Binding DataContext.OpenOutlookEventCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" CommandParameter="{Binding}"/>
+                                                        </Border.InputBindings>
                                                         <Border.ToolTip>
                                                             <ToolTip Background="{StaticResource SurfaceAltBrush}" Foreground="{StaticResource TextBrush}" BorderBrush="{StaticResource BorderBrushColor}" Padding="8">
                                                                 <StackPanel>
@@ -259,6 +262,11 @@
                                                             <TextBlock Text="📅 Outlook" FontSize="10" Foreground="#CFFAFE"/>
                                                             <TextBlock Text="{Binding Subject}" FontWeight="SemiBold" FontSize="12" TextTrimming="CharacterEllipsis"/>
                                                             <TextBlock Text="{Binding TimeLabel}" FontSize="11" Foreground="#D1FAE5"/>
+                                                            <TextBlock Text="{Binding Location}" FontSize="10" Foreground="#BAE6FD" TextTrimming="CharacterEllipsis"
+                                                                       Visibility="{Binding Location, Converter={StaticResource StringEmptyToVisibilityConverter}}"/>
+                                                            <Button Content="In Outlook öffnen" Width="120" Margin="0,4,0,0" Style="{StaticResource SecondaryButtonStyle}"
+                                                                    Command="{Binding DataContext.OpenOutlookEventCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                                    CommandParameter="{Binding}"/>
                                                             <Button Content="Teams öffnen" Width="110" Margin="0,4,0,0" Style="{StaticResource SecondaryButtonStyle}"
                                                                     Visibility="{Binding HasTeamsLink, Converter={StaticResource BooleanToVisibilityConverter}}"
                                                                     Command="{Binding DataContext.OpenTeamsUrlCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"

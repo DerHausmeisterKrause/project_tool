@@ -431,7 +431,23 @@ public class TodayViewModel : ObservableObject
     private List<OutlookCalendarEvent> GetOutlookConflicts(DateTime startLocal, DateTime endLocal)
     {
         var events = _outlookCalendar.GetEvents(startLocal.Date.AddDays(-1), startLocal.Date.AddDays(2));
-        return events.Where(e => endLocal > e.StartLocal && startLocal < e.EndLocal).ToList();
+        return events
+            .Where(e => endLocal > e.StartLocal && startLocal < e.EndLocal)
+            .Where(e => !IsDerivedDayMarkerEvent(e))
+            .ToList();
+    }
+
+    private bool IsDerivedDayMarkerEvent(OutlookCalendarEvent evt)
+    {
+        if (!_settings.Current.OutlookInterpretAllDayAsMarkers)
+            return false;
+
+        var duration = evt.EndLocal - evt.StartLocal;
+        if (!(evt.IsAllDay || duration.TotalHours >= 6))
+            return false;
+
+        var s = (evt.Subject ?? string.Empty).ToLowerInvariant();
+        return s.Contains("homeoffice") || s.Contains("urlaub") || s.Contains("maz") || s == "ho" || s == "ul";
     }
 
     private bool ConfirmConflictIfRequired(DateTime startLocal, DateTime endLocal)

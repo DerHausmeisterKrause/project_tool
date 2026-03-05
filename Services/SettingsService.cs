@@ -61,8 +61,8 @@ public class SettingsService
             settings.OutlookCalendarSyncMode = "Manual";
 
         settings.OutlookCalendarSyncIntervalMinutes = Math.Clamp(settings.OutlookCalendarSyncIntervalMinutes, 1, 60);
-        settings.OutlookCalendarRangePastDays = Math.Clamp(settings.OutlookCalendarRangePastDays, 0, 30);
-        settings.OutlookCalendarRangeFutureDays = Math.Clamp(settings.OutlookCalendarRangeFutureDays, 1, 90);
+        settings.OutlookCalendarRangePastDays = settings.OutlookCalendarRangePastDays <= 0 ? 14 : Math.Clamp(settings.OutlookCalendarRangePastDays, 1, 30);
+        settings.OutlookCalendarRangeFutureDays = settings.OutlookCalendarRangeFutureDays <= 0 ? 14 : Math.Clamp(settings.OutlookCalendarRangeFutureDays, 1, 90);
     }
 
     public void Save()

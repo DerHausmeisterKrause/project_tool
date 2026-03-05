@@ -153,6 +153,58 @@ public class OutlookInteropService
     }
 
 
+
+    public (bool ok, string error) OpenCalendarEvent(string entryId)
+    {
+        if (string.IsNullOrWhiteSpace(entryId))
+            return (false, "Outlook EntryID fehlt.");
+
+        try
+        {
+            return ExecuteOnSta<(bool ok, string error)>(() =>
+            {
+                var outlookType = Type.GetTypeFromProgID("Outlook.Application");
+                if (outlookType == null)
+                    return (false, "Outlook nicht installiert (ProgID nicht gefunden).");
+
+                object? app = null;
+                object? ns = null;
+                object? item = null;
+
+                try
+                {
+                    app = CreateOrAttachOutlook(outlookType);
+                    if (app == null)
+                        return (false, "Outlook konnte nicht gestartet/verbunden werden.");
+
+                    dynamic appDyn = app;
+                    ns = appDyn.GetNamespace("MAPI");
+                    TryLogon(ns);
+
+                    dynamic nsDyn = ns!;
+                    item = nsDyn.GetItemFromID(entryId);
+                    if (item == null)
+                        return (false, "Outlook Termin nicht gefunden.");
+
+                    dynamic itemDyn = item;
+                    itemDyn.Display();
+                    return (true, string.Empty);
+                }
+                finally
+                {
+                    SafeReleaseComObject(item);
+                    SafeReleaseComObject(ns);
+                    SafeReleaseComObject(app);
+                }
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.Error(BuildOutlookExceptionLog("OpenCalendarEvent", ex, null, null));
+            return (false, BuildUserFacingOutlookError(ex));
+        }
+    }
+
     public (bool ok, List<OutlookCalendarEvent> events, string error) GetCalendarEvents(DateTime fromLocal, DateTime toLocal)
     {
         if (!_settings.Current.OutlookCalendarEnabled)
