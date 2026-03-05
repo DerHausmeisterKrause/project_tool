@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Text;
@@ -271,15 +272,24 @@ public class OutlookInteropService
 
                     dynamic folderDyn = folder!;
                     var calendarName = Convert.ToString(folderDyn.Name) ?? string.Empty;
+                    var folderEntryId = Convert.ToString(folderDyn.EntryID) ?? string.Empty;
+                    var storeId = Convert.ToString(folderDyn.StoreID) ?? string.Empty;
+                    string storeName;
+                    try { storeName = Convert.ToString(folderDyn.Store?.DisplayName) ?? string.Empty; } catch { storeName = string.Empty; }
+                    _logger.Info($"[OutlookFetchFolder] calendarName='{calendarName}' folderEntryId='{folderEntryId}' storeId='{storeId}' storeName='{storeName}'");
+
                     items = folderDyn.Items;
                     dynamic itemsDyn = items!;
                     itemsDyn.IncludeRecurrences = true;
                     itemsDyn.Sort("[Start]");
 
-                    var fromFilter = fromLocal.ToString("MM/dd/yyyy HH:mm");
-                    var toFilter = toLocal.ToString("MM/dd/yyyy HH:mm");
+                    var fromFilter = FormatOutlookRestrictDate(fromLocal);
+                    var toFilter = FormatOutlookRestrictDate(toLocal);
                     var filter = $"[Start] < '{toFilter}' AND [End] > '{fromFilter}'";
+                    _logger.Info($"[OutlookFetchRestrict] fromInclusive={fromLocal:O} toExclusive={toLocal:O} filter='{filter}'");
                     restricted = itemsDyn.Restrict(filter);
+
+                    LogProbeScanForMissingDays(itemsDyn, fromLocal, toLocal);
 
                     var events = new List<OutlookCalendarEvent>();
                     foreach (var raw in (System.Collections.IEnumerable)restricted!)
@@ -396,6 +406,69 @@ public class OutlookInteropService
         {
             _logger.Error(BuildOutlookExceptionLog("TestConnection", ex, start, end));
             return (false, BuildUserFacingOutlookError(ex));
+        }
+    }
+
+
+    private static string FormatOutlookRestrictDate(DateTime value)
+    {
+        var local = value.Kind == DateTimeKind.Local ? value : value.ToLocalTime();
+        return local.ToString("MM/dd/yyyy hh:mm tt", CultureInfo.GetCultureInfo("en-US"));
+    }
+
+    private void LogProbeScanForMissingDays(dynamic itemsDyn, DateTime fromInclusive, DateTime toExclusive)
+    {
+        var probeDays = new[]
+        {
+            new DateTime(2026, 3, 4),
+            new DateTime(2026, 3, 6)
+        };
+
+        foreach (var day in probeDays)
+        {
+            var dayStart = day.Date;
+            var dayEnd = dayStart.AddDays(1);
+            var dayFilter = $"[Start] < '{FormatOutlookRestrictDate(dayEnd)}' AND [End] > '{FormatOutlookRestrictDate(dayStart)}'";
+            _logger.Info($"[OutlookProbeDayScan] day={day:yyyy-MM-dd} filter='{dayFilter}'");
+
+            object? restrictedProbe = null;
+            try
+            {
+                restrictedProbe = itemsDyn.Restrict(dayFilter);
+                foreach (var raw in (System.Collections.IEnumerable)restrictedProbe)
+                {
+                    object? appointment = raw;
+                    try
+                    {
+                        dynamic a = appointment!;
+                        var start = Convert.ToDateTime(a.Start).ToLocalTime();
+                        var end = Convert.ToDateTime(a.End).ToLocalTime();
+                        var overlap = start < dayEnd && end > dayStart;
+                        if (!overlap)
+                            continue;
+
+                        var entryId = Convert.ToString(a.EntryID) ?? string.Empty;
+                        var subject = Convert.ToString(a.Subject) ?? string.Empty;
+                        _logger.Info($"[OutlookProbeDayHit] day={day:yyyy-MM-dd} subject='{subject}' start={start:O} end={end:O} entryId='{entryId}' inRequestedRange={start < toExclusive && end > fromInclusive}");
+                    }
+                    catch
+                    {
+                        // ignore probe conversion issues
+                    }
+                    finally
+                    {
+                        SafeReleaseComObject(appointment);
+                    }
+                }
+            }
+            catch
+            {
+                // probe scan is diagnostic only
+            }
+            finally
+            {
+                SafeReleaseComObject(restrictedProbe);
+            }
         }
     }
 
