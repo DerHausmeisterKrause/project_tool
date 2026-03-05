@@ -259,7 +259,7 @@ public class OutlookInteropService
 
     private static string ExtractTeamsUrl(string body, string location)
     {
-        var pattern = @"https?://[^\s\"']+";
+        var pattern = @"https?://[^\s""']+";
         foreach (Match match in Regex.Matches($"{body}\n{location}", pattern, RegexOptions.IgnoreCase))
         {
             var url = match.Value.TrimEnd('.', ',', ';', ')');
