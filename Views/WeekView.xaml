@@ -130,6 +130,32 @@
                                             <Border Style="{StaticResource BadgeStyle}" Visibility="{Binding IsBr, Converter={StaticResource BooleanToVisibilityConverter}}"><TextBlock Text="BR"/></Border>
                                         </WrapPanel>
                                         <TextBlock Text="{Binding Summary}" Foreground="{StaticResource MutedTextBrush}" FontSize="11" TextWrapping="Wrap"/>
+                                        <ItemsControl ItemsSource="{Binding AllDayEvents}" Margin="0,4,0,0">
+                                            <ItemsControl.ItemsPanel>
+                                                <ItemsPanelTemplate>
+                                                    <WrapPanel/>
+                                                </ItemsPanelTemplate>
+                                            </ItemsControl.ItemsPanel>
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate>
+                                                    <Border Background="#1E3A8A" BorderBrush="#60A5FA" BorderThickness="1" CornerRadius="9" Padding="6,2" Margin="0,0,4,4">
+                                                        <Border.ToolTip>
+                                                            <ToolTip Background="{StaticResource SurfaceAltBrush}" Foreground="{StaticResource TextBrush}" BorderBrush="{StaticResource BorderBrushColor}" Padding="8">
+                                                                <StackPanel>
+                                                                    <TextBlock Text="{Binding Subject}" FontWeight="SemiBold"/>
+                                                                    <TextBlock Text="{Binding Location}" Visibility="{Binding Location, Converter={StaticResource StringEmptyToVisibilityConverter}}" Foreground="{StaticResource MutedTextBrush}"/>
+                                                                </StackPanel>
+                                                            </ToolTip>
+                                                        </Border.ToolTip>
+                                                        <Border.InputBindings>
+                                                            <MouseBinding Gesture="LeftClick" Command="{Binding DataContext.OpenOutlookEventCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" CommandParameter="{Binding}"/>
+                                                        </Border.InputBindings>
+                                                        <TextBlock Text="{Binding Subject}" FontSize="10" TextTrimming="CharacterEllipsis" MaxWidth="170" Foreground="#DBEAFE"/>
+                                                    </Border>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+
                                     </StackPanel>
                                 </Border>
                             </DataTemplate>

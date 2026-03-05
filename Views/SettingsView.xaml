@@ -13,6 +13,7 @@
                         <CheckBox Content="Konflikte warnen" IsChecked="{Binding OutlookConflictWarningsEnabled}" Margin="0,0,0,8"/>
                         <CheckBox Content="Teams-Button anzeigen" IsChecked="{Binding OutlookTeamsButtonEnabled}" Margin="0,0,0,8"/>
                         <CheckBox Content="Ganztagstermine als Tagesmarker interpretieren" IsChecked="{Binding OutlookInterpretAllDayAsMarkers}" Margin="0,0,0,8"/>
+                        <CheckBox Content="Wochenende anzeigen" IsChecked="{Binding ShowWeekendInWeekView}" Margin="0,0,0,8"/>
                         <TextBlock Text="Outlook Kalender Sync-Modus" Foreground="{StaticResource MutedTextBrush}"/>
                         <ComboBox Width="180" ItemsSource="{Binding OutlookSyncModes}" SelectedItem="{Binding OutlookCalendarSyncMode}" Margin="0,0,0,8"/>
                         <TextBlock Text="Sync Intervall (Minuten)" Foreground="{StaticResource MutedTextBrush}"/>

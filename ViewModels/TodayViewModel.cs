@@ -443,11 +443,24 @@ public class TodayViewModel : ObservableObject
             return false;
 
         var duration = evt.EndLocal - evt.StartLocal;
-        if (!(evt.IsAllDay || duration.TotalHours >= 6))
+        if (!(evt.IsAllDay && duration.TotalHours >= 20))
             return false;
 
-        var s = (evt.Subject ?? string.Empty).ToLowerInvariant();
-        return s.Contains("homeoffice") || s.Contains("urlaub") || s.Contains("maz") || s == "ho" || s == "ul";
+        var normalized = NormalizeStatusSubject(evt.Subject ?? string.Empty);
+        return normalized == "HO" || normalized == "HOMEOFFICE" || normalized.StartsWith("HO ") || normalized.StartsWith("HOMEOFFICE ")
+            || normalized == "UL" || normalized == "URLAUB" || normalized.StartsWith("UL ") || normalized.StartsWith("URLAUB ")
+            || normalized == "MAZ" || normalized.StartsWith("MAZ ") || normalized == "AM" || normalized.StartsWith("AM ");
+    }
+
+    private static string NormalizeStatusSubject(string subject)
+    {
+        if (string.IsNullOrWhiteSpace(subject))
+            return string.Empty;
+
+        var s = subject.Trim().ToUpperInvariant();
+        s = System.Text.RegularExpressions.Regex.Replace(s, "\\s+", " ");
+        s = s.Trim(' ', '[', ']', '(', ')', ':', '-', '_', '.', ',');
+        return s;
     }
 
     private bool ConfirmConflictIfRequired(DateTime startLocal, DateTime endLocal)

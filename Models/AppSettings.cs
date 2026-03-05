@@ -16,6 +16,7 @@ public class AppSettings
     public int OutlookCalendarRangePastDays { get; set; } = 14;
     public int OutlookCalendarRangeFutureDays { get; set; } = 14;
     public bool OutlookInterpretAllDayAsMarkers { get; set; } = true;
+    public bool ShowWeekendInWeekView { get; set; } = false;
     public int ReminderLeadMinutes { get; set; } = 2;
     public string DateTimeFormat { get; set; } = "yyyy-MM-dd HH:mm";
 

@@ -13,6 +13,7 @@ public class OutlookInteropService
     private const int OlAppointmentItem = 1;
     private const int OlFolderCalendar = 9;
     private const int OlBusy = 2;
+    private const int SW_RESTORE = 9;
 
     private readonly LoggerService _logger;
     private readonly SettingsService _settings;
@@ -170,6 +171,7 @@ public class OutlookInteropService
                 object? app = null;
                 object? ns = null;
                 object? item = null;
+                object? inspector = null;
 
                 try
                 {
@@ -187,11 +189,39 @@ public class OutlookInteropService
                         return (false, "Outlook Termin nicht gefunden.");
 
                     dynamic itemDyn = item;
-                    itemDyn.Display();
+                    itemDyn.Display(false);
+
+                    inspector = itemDyn.GetInspector;
+                    dynamic inspDyn = inspector!;
+                    inspDyn.Display();
+                    inspDyn.Activate();
+
+                    IntPtr hwnd = IntPtr.Zero;
+                    try
+                    {
+                        hwnd = new IntPtr(Convert.ToInt32(inspDyn.Hwnd));
+                    }
+                    catch
+                    {
+                        try { hwnd = new IntPtr(Convert.ToInt32(inspDyn.WindowHandle)); } catch { }
+                    }
+
+                    if (hwnd != IntPtr.Zero)
+                    {
+                        ShowWindow(hwnd, SW_RESTORE);
+                        SetForegroundWindow(hwnd);
+                    }
+                    else
+                    {
+                        try { appDyn.ActiveExplorer()?.Activate(); } catch { }
+                        try { inspDyn.Activate(); } catch { }
+                    }
+
                     return (true, string.Empty);
                 }
                 finally
                 {
+                    SafeReleaseComObject(inspector);
                     SafeReleaseComObject(item);
                     SafeReleaseComObject(ns);
                     SafeReleaseComObject(app);
@@ -433,6 +463,13 @@ public class OutlookInteropService
         var message = string.IsNullOrWhiteSpace(ex.Message) ? "Unbekannter Outlook Fehler." : ex.Message;
         return $"{message} (0x{ex.HResult:X8})";
     }
+
+
+    [DllImport("user32.dll")]
+    private static extern bool SetForegroundWindow(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    private static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
 
     private static string BuildOutlookExceptionLog(string operation, Exception ex, DateTime? start, DateTime? end)
     {
