@@ -223,12 +223,9 @@ public class WeekViewModel : ObservableObject
             return;
         }
 
-        var details = $"Outlook-Termin konnte nicht geöffnet werden.
-
-{opened.error}
-
-{evt.Subject}
-{evt.TimeLabel}";
+        var details = "Outlook-Termin konnte nicht geöffnet werden.\n\n" +
+                      opened.error +
+                      "\n\n" + evt.Subject + "\n" + evt.TimeLabel;
         MessageBox.Show(details, "Outlook", MessageBoxButton.OK, MessageBoxImage.Information);
     }
 
