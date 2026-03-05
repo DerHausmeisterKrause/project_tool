@@ -368,7 +368,7 @@ public class WeekViewModel : ObservableObject
 
             var dayEvents = outlookEvents.Where(e => EventOccursOnDay(e, day.Date)).ToList();
             var markerResult = ResolveOutlookDerivedMarker(day.Date, dayEvents);
-            var external = BuildExternalEventsForDay(day.Date, outlookEvents, markerResult.ConsumedEventIds);
+            var external = BuildExternalEventsForDay(day.Date, dayEvents, markerResult.ConsumedEventIds);
             ApplySharedOverlapLayout(calendarItems, external);
             MarkSegmentConflicts(calendarItems, external);
 
@@ -379,9 +379,10 @@ public class WeekViewModel : ObservableObject
             // HO is set here either by explicit TaskTool day marker (wd.IsHo) or explicit Outlook marker mapping only.
             var displayIsHo = wd.IsHo || markerResult.DerivedHo;
             var displayIsBr = wd.IsBr || markerResult.DerivedBr;
-            LogDayHeaderMarkerDecision(day.Date, wd, dayEvents, markerResult, displayDayType, displayIsHo);
 
-            var allDayEvents = BuildAllDayPills(day.Date, outlookEvents, markerResult.ConsumedEventIds);
+            var allDayEvents = BuildAllDayPills(day.Date, dayEvents, markerResult.ConsumedEventIds);
+            LogDayHeaderMarkerDecision(day.Date, wd, dayEvents, markerResult, displayDayType, displayIsHo);
+            LogOutlookClassificationForDay(day.Date, dayEvents, markerResult.ConsumedEventIds, external, allDayEvents);
             var visibleAllDayEvents = allDayEvents.Take(2).ToList();
 
             Days.Add(new WeekDayGroup
@@ -551,17 +552,14 @@ public class WeekViewModel : ObservableObject
         }
     }
 
-    private (string DerivedDayType, bool DerivedHo, bool DerivedBr, HashSet<string> ConsumedEventIds, List<OutlookCalendarEvent> MarkerCandidates) ResolveOutlookDerivedMarker(DateTime dayDate, IReadOnlyList<OutlookCalendarEvent> events)
+    private (string DerivedDayType, bool DerivedHo, bool DerivedBr, string DerivedMarker, HashSet<string> ConsumedEventIds, List<OutlookCalendarEvent> MarkerCandidates) ResolveOutlookDerivedMarker(DateTime dayDate, IReadOnlyList<OutlookCalendarEvent> events)
     {
         var consumed = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var markerCandidates = new List<OutlookCalendarEvent>();
         if (!_settings.Current.OutlookInterpretAllDayAsMarkers)
-            return ("Normal", false, false, consumed, markerCandidates);
+            return ("Normal", false, false, "Normal", consumed, markerCandidates);
 
-        string derivedDayType = "Normal";
-        var derivedHo = false;
-        var derivedBr = false;
-
+        var matchedMarkers = new List<string>();
         foreach (var evt in events)
         {
             var duration = evt.EndLocal - evt.StartLocal;
@@ -579,13 +577,26 @@ public class WeekViewModel : ObservableObject
                 continue;
 
             consumed.Add(evt.Id);
-            if (marker == "HO")
-                derivedHo = true;
-            else
-                derivedDayType = marker;
+            matchedMarkers.Add(marker);
         }
 
-        return (derivedDayType, derivedHo, derivedBr, consumed, markerCandidates);
+        var derivedMarker = "Normal";
+        if (matchedMarkers.Contains("UL", StringComparer.Ordinal))
+            derivedMarker = "UL";
+        else if (matchedMarkers.Contains("AM", StringComparer.Ordinal))
+            derivedMarker = "AM";
+        else if (matchedMarkers.Contains("HO", StringComparer.Ordinal))
+            derivedMarker = "HO";
+
+        if (derivedMarker != "Normal" && consumed.Count == 0)
+        {
+            ServiceLocator.Logger.Error($"[OutlookDayMarkerGuard] day={dayDate:yyyy-MM-dd} derivedMarker={derivedMarker} without matched events. Forcing Normal.");
+            derivedMarker = "Normal";
+        }
+
+        var derivedHo = derivedMarker == "HO";
+        var derivedDayType = derivedMarker is "UL" or "AM" ? derivedMarker : "Normal";
+        return (derivedDayType, derivedHo, false, derivedMarker, consumed, markerCandidates);
     }
 
     private static bool EventOccursOnDay(OutlookCalendarEvent evt, DateTime dayDate)
@@ -620,7 +631,7 @@ public class WeekViewModel : ObservableObject
         DateTime dayDate,
         WorkDayRecord wd,
         IReadOnlyList<OutlookCalendarEvent> dayEvents,
-        (string DerivedDayType, bool DerivedHo, bool DerivedBr, HashSet<string> ConsumedEventIds, List<OutlookCalendarEvent> MarkerCandidates) markerResult,
+        (string DerivedDayType, bool DerivedHo, bool DerivedBr, string DerivedMarker, HashSet<string> ConsumedEventIds, List<OutlookCalendarEvent> MarkerCandidates) markerResult,
         string displayDayType,
         bool displayIsHo)
     {
@@ -740,13 +751,74 @@ public class WeekViewModel : ObservableObject
         }
     }
 
+    private void LogOutlookClassificationForDay(
+        DateTime dayDate,
+        IReadOnlyList<OutlookCalendarEvent> dayEvents,
+        HashSet<string> markerConsumedEventIds,
+        List<PlenaroWeekOutlookEventBlock> renderedTimedEvents,
+        List<PlenaroWeekAllDayPillModel> allDayPills)
+    {
+#if DEBUG
+        var visibleStart = dayDate.Date.AddHours(CalendarStartHour);
+        var visibleEnd = dayDate.Date.AddHours(CalendarEndHour);
+        var renderedTimedIds = renderedTimedEvents.Select(e => e.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var allDayPillIds = allDayPills.Select(p => p.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var e in dayEvents)
+        {
+            string classification;
+            string reason;
+
+            if (e.IsAllDay)
+            {
+                if (markerConsumedEventIds.Contains(e.Id))
+                {
+                    classification = "MarkerMatched";
+                    reason = "ExplicitAllDayMarker";
+                }
+                else if (allDayPillIds.Contains(e.Id))
+                {
+                    classification = "AllDayPill";
+                    reason = "AllDayNonMarker";
+                }
+                else
+                {
+                    classification = "Ignored";
+                    reason = "AllDayOutOfDayRange";
+                }
+            }
+            else
+            {
+                if (renderedTimedIds.Contains(e.Id))
+                {
+                    classification = "TimedEventRendered";
+                    reason = "IntersectsVisibleRange";
+                }
+                else if (!(e.EndLocal >= visibleStart && e.StartLocal <= visibleEnd))
+                {
+                    classification = "Ignored";
+                    reason = "TimedOutsideVisibleRange";
+                }
+                else
+                {
+                    classification = "Ignored";
+                    reason = "TimedFilteredOrDuplicate";
+                }
+            }
+
+            ServiceLocator.Logger.Info(
+                $"[OutlookDayMarkerClassify] day={dayDate:yyyy-MM-dd} subject='{e.Subject}' start={e.StartLocal:O} end={e.EndLocal:O} isAllDay={e.IsAllDay} categories='{e.Categories}' location='{e.Location}' calendar='{e.CalendarName}' busyStatus='{e.BusyStatus}' entryId='{e.EntryId}' iCalUId='{e.ICalUId}' classification={classification} reason={reason}");
+        }
+#endif
+    }
+
     private List<PlenaroWeekOutlookEventBlock> BuildExternalEventsForDay(DateTime dayDate, IReadOnlyList<OutlookCalendarEvent> source, HashSet<string> consumedEventIds)
     {
         var dayStart = dayDate.Date.AddHours(CalendarStartHour);
         var dayEnd = dayDate.Date.AddHours(CalendarEndHour);
 
         return source
-             .Where(e => !e.IsAllDay && e.EndLocal > dayStart && e.StartLocal < dayEnd && !consumedEventIds.Contains(e.Id))
+             .Where(e => !e.IsAllDay && e.EndLocal >= dayStart && e.StartLocal <= dayEnd && !consumedEventIds.Contains(e.Id))
             .GroupBy(e => $"{e.Id}|{e.StartLocal:O}|{e.EndLocal:O}|{e.Subject}")
             .Select(g => g.First())
             .Select(e =>
@@ -783,11 +855,8 @@ public class WeekViewModel : ObservableObject
 
     private List<PlenaroWeekAllDayPillModel> BuildAllDayPills(DateTime dayDate, IReadOnlyList<OutlookCalendarEvent> source, HashSet<string> consumedEventIds)
     {
-        var dayStart = dayDate.Date;
-        var dayEnd = dayStart.AddDays(1);
-
         return source
-            .Where(e => e.IsAllDay && e.EndLocal > dayStart && e.StartLocal < dayEnd && !consumedEventIds.Contains(e.Id))
+            .Where(e => e.IsAllDay && EventSpansDayExclusive(e, dayDate) && !consumedEventIds.Contains(e.Id))
             .GroupBy(e => $"{e.Id}|{e.StartLocal:O}|{e.EndLocal:O}|{e.Subject}")
             .Select(g => g.First())
             .Select(e => new PlenaroWeekAllDayPillModel
