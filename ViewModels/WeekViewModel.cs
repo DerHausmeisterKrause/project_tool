@@ -121,7 +121,7 @@ public class WeekViewModel : ObservableObject
     public RelayCommand<WeekCalendarItem> OpenCalendarItemCommand { get; }
     public RelayCommand<string> OpenTicketUrlCommand { get; }
     public RelayCommand<string> OpenTeamsUrlCommand { get; }
-    public RelayCommand<OutlookCalendarBlock> OpenOutlookEventCommand { get; }
+    public RelayCommand<WeekOutlookCalendarBlock> OpenOutlookEventCommand { get; }
     public RelayCommand SetDayTypeNormalCommand { get; }
     public RelayCommand SetDayTypeUlCommand { get; }
     public RelayCommand SetDayTypeAmCommand { get; }
@@ -149,7 +149,7 @@ public class WeekViewModel : ObservableObject
         OpenCalendarItemCommand = new RelayCommand<WeekCalendarItem>(OpenCalendarItem, i => i != null);
         OpenTicketUrlCommand = new RelayCommand<string>(OpenTicketUrlFromWeek, url => !string.IsNullOrWhiteSpace(url));
         OpenTeamsUrlCommand = new RelayCommand<string>(OpenTeamsUrlFromWeek, url => !string.IsNullOrWhiteSpace(url));
-        OpenOutlookEventCommand = new RelayCommand<OutlookCalendarBlock>(OpenOutlookEvent, evt => evt != null);
+        OpenOutlookEventCommand = new RelayCommand<WeekOutlookCalendarBlock>(OpenOutlookEvent, evt => evt != null);
         SetDayTypeNormalCommand = new RelayCommand(() => SetDayType("Normal"), () => SelectedDayGroup != null);
         SetDayTypeUlCommand = new RelayCommand(() => SetDayType("UL"), () => SelectedDayGroup != null);
         SetDayTypeAmCommand = new RelayCommand(() => SetDayType("AM"), () => SelectedDayGroup != null);
@@ -208,7 +208,7 @@ public class WeekViewModel : ObservableObject
         UrlLauncher.TryOpen(url, out _);
     }
 
-    private void OpenOutlookEvent(OutlookCalendarBlock? evt)
+    private void OpenOutlookEvent(WeekOutlookCalendarBlock? evt)
     {
         if (evt == null)
             return;
@@ -347,7 +347,7 @@ public class WeekViewModel : ObservableObject
                 DayLabel = day.ToString("ddd dd.MM", CultureInfo.CurrentCulture),
                 IsToday = day.Date == DateTime.Today,
                 CalendarItems = new ObservableCollection<WeekCalendarItem>(calendarItems.OrderBy(c => c.DisplayTop)),
-                ExternalEvents = new ObservableCollection<OutlookCalendarBlock>(external),
+                ExternalEvents = new ObservableCollection<WeekOutlookCalendarBlock>(external),
                 DayType = displayDayType,
                 IsBr = wd.IsBr,
                 IsHo = displayIsHo,
@@ -564,7 +564,7 @@ public class WeekViewModel : ObservableObject
         return false;
     }
 
-    private void ApplySharedOverlapLayout(List<WeekCalendarItem> segments, List<OutlookCalendarBlock> external)
+    private void ApplySharedOverlapLayout(List<WeekCalendarItem> segments, List<WeekOutlookCalendarBlock> external)
     {
         var blocks = new List<LayoutBlockRef>();
         blocks.AddRange(segments.Where(s => s.DisplayEnd > s.DisplayStart).Select(s => new LayoutBlockRef(s.DisplayStart, s.DisplayEnd,
@@ -615,7 +615,7 @@ public class WeekViewModel : ObservableObject
             AssignSharedGroup(group, segments, external);
     }
 
-    private void AssignSharedGroup(List<LayoutBlockRef> group, List<WeekCalendarItem> segments, List<OutlookCalendarBlock> external)
+    private void AssignSharedGroup(List<LayoutBlockRef> group, List<WeekCalendarItem> segments, List<WeekOutlookCalendarBlock> external)
     {
         var columnsEnd = new List<DateTime>();
         foreach (var block in group.OrderBy(i => i.Start).ThenBy(i => i.End))
@@ -659,7 +659,7 @@ public class WeekViewModel : ObservableObject
         }
     }
 
-    private List<OutlookCalendarBlock> BuildExternalEventsForDay(DateTime dayDate, IReadOnlyList<OutlookCalendarEvent> source, HashSet<string> consumedEventIds)
+    private List<WeekOutlookCalendarBlock> BuildExternalEventsForDay(DateTime dayDate, IReadOnlyList<OutlookCalendarEvent> source, HashSet<string> consumedEventIds)
     {
         var dayStart = dayDate.Date.AddHours(CalendarStartHour);
         var dayEnd = dayDate.Date.AddHours(CalendarEndHour);
@@ -672,7 +672,7 @@ public class WeekViewModel : ObservableObject
                 var end = e.EndLocal > dayEnd ? dayEnd : e.EndLocal;
                 var top = MapToCalendarY(start, dayDate);
                 var height = Math.Max(24, (end - start).TotalMinutes * PixelsPerMinute - 2);
-                return new OutlookCalendarBlock
+                return new WeekOutlookCalendarBlock
                 {
                     Id = e.Id,
                     StartLocal = e.StartLocal,
@@ -693,7 +693,7 @@ public class WeekViewModel : ObservableObject
             .ToList();
     }
 
-    private static void MarkSegmentConflicts(List<WeekCalendarItem> segments, List<OutlookCalendarBlock> external)
+    private static void MarkSegmentConflicts(List<WeekCalendarItem> segments, List<WeekOutlookCalendarBlock> external)
     {
         foreach (var segment in segments)
         {
@@ -744,7 +744,7 @@ public class WeekDayGroup : ObservableObject
     public DateTime DayDate { get; set; }
     public string DayLabel { get; set; } = string.Empty;
     public ObservableCollection<WeekCalendarItem> CalendarItems { get; set; } = new();
-    public ObservableCollection<OutlookCalendarBlock> ExternalEvents { get; set; } = new();
+    public ObservableCollection<WeekOutlookCalendarBlock> ExternalEvents { get; set; } = new();
 
     private string _dayType = "Normal";
     public string DayType { get => _dayType; set => Set(ref _dayType, value); }
@@ -801,7 +801,7 @@ public class WeekCalendarItem
         (string.IsNullOrWhiteSpace(OutlookConflictText) ? string.Empty : $"\n{OutlookConflictText}");
 }
 
-public class OutlookCalendarBlock
+public class WeekOutlookCalendarBlock
 {
     public string Id { get; set; } = string.Empty;
     public string Subject { get; set; } = string.Empty;
