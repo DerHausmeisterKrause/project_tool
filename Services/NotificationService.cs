@@ -25,6 +25,7 @@ public class NotificationService : IDisposable
     private DateTime _lastCheck;
     private DynamicIslandWindow? _islandWindow;
     private static int _windowCreateCount;
+    private bool _isShuttingDown;
 
     public NotificationService(LoggerService logger, SettingsService settings, TaskService tasks)
     {
@@ -55,6 +56,9 @@ public class NotificationService : IDisposable
 
     private void EnsureIslandWindow()
     {
+        if (_isShuttingDown || Application.Current.Dispatcher.HasShutdownStarted)
+            return;
+
         if (_islandWindow != null)
             return;
 
@@ -74,6 +78,9 @@ public class NotificationService : IDisposable
             _logger.Info("[NotificationService] DynamicIslandWindow closed.");
             _islandWindow = null;
         };
+        if (_isShuttingDown || Application.Current.Dispatcher.HasShutdownStarted)
+            return;
+
         _islandWindow.Show();
     }
 
@@ -93,7 +100,12 @@ public class NotificationService : IDisposable
 
     public void Dispose()
     {
+        _isShuttingDown = true;
         _timer.Stop();
+
+        if (Application.Current.Dispatcher.HasShutdownStarted)
+            return;
+
         Application.Current.Dispatcher.BeginInvoke(() => CloseIslandWindow(), DispatcherPriority.Background);
     }
 
@@ -185,8 +197,14 @@ public class NotificationService : IDisposable
 
     private void ShowNotification(Guid taskId, string text, ReminderKind kind)
     {
+        if (_isShuttingDown || Application.Current.Dispatcher.HasShutdownStarted)
+            return;
+
         Application.Current.Dispatcher.BeginInvoke(() =>
         {
+            if (_isShuttingDown || Application.Current.Dispatcher.HasShutdownStarted)
+                return;
+
             if (_settings.Current.DynamicIslandEnabled)
             {
                 EnsureIslandWindow();
