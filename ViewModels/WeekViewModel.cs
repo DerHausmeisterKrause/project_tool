@@ -216,8 +216,8 @@ public class WeekViewModel : ObservableObject
 
         var eventId = evtObj switch
         {
-            WeekOutlookCalendarBlock b => b.Id,
-            WeekAllDayCalendarPillModel p => p.Id,
+            PlenaroWeekOutlookEventBlock b => b.Id,
+            PlenaroWeekAllDayPillModel p => p.Id,
             _ => string.Empty
         };
 
@@ -230,8 +230,8 @@ public class WeekViewModel : ObservableObject
 
         var teamsLink = evtObj switch
         {
-            WeekOutlookCalendarBlock b => b.TeamsJoinUrl,
-            WeekAllDayCalendarPillModel p => p.TeamsJoinUrl,
+            PlenaroWeekOutlookEventBlock b => b.TeamsJoinUrl,
+            PlenaroWeekAllDayPillModel p => p.TeamsJoinUrl,
             _ => string.Empty
         };
 
@@ -243,8 +243,8 @@ public class WeekViewModel : ObservableObject
 
         var subject = evtObj switch
         {
-            WeekOutlookCalendarBlock b => b.Subject,
-            WeekAllDayCalendarPillModel p => p.Subject,
+            PlenaroWeekOutlookEventBlock b => b.Subject,
+            PlenaroWeekAllDayPillModel p => p.Subject,
             _ => "Outlook Termin"
         };
 
@@ -372,12 +372,12 @@ public class WeekViewModel : ObservableObject
                 DayLabel = day.ToString("ddd dd.MM", CultureInfo.CurrentCulture),
                 IsToday = day.Date == DateTime.Today,
                 CalendarItems = new ObservableCollection<WeekCalendarItem>(calendarItems.OrderBy(c => c.DisplayTop)),
-                ExternalEvents = new ObservableCollection<WeekOutlookCalendarBlock>(external),
+                ExternalEvents = new ObservableCollection<PlenaroWeekOutlookEventBlock>(external),
                 DayType = displayDayType,
                 IsBr = displayIsBr,
                 IsHo = displayIsHo,
                 Summary = $"Soll {Fmt(target)} | Ist {Fmt(net)} | Ü {Fmt(overtime)}",
-                AllDayEvents = new ObservableCollection<WeekAllDayCalendarPillModel>(BuildAllDayPills(day.Date, outlookEvents, markerResult.ConsumedEventIds))
+                AllDayEvents = new ObservableCollection<PlenaroWeekAllDayPillModel>(BuildAllDayPills(day.Date, outlookEvents, markerResult.ConsumedEventIds))
             });
         }
 
@@ -637,17 +637,17 @@ public class WeekViewModel : ObservableObject
         return s;
     }
 
-    private void ApplySharedOverlapLayout(List<WeekCalendarItem> segments, List<WeekOutlookCalendarBlock> external)
+    private void ApplySharedOverlapLayout(List<WeekCalendarItem> segments, List<PlenaroWeekOutlookEventBlock> external)
     {
-        var blocks = new List<WeekSharedLayoutBlock>();
-        blocks.AddRange(segments.Where(s => s.DisplayEnd > s.DisplayStart).Select(s => new WeekSharedLayoutBlock(s.DisplayStart, s.DisplayEnd,
+        var blocks = new List<PlenaroWeekSharedLayoutBlock>();
+        blocks.AddRange(segments.Where(s => s.DisplayEnd > s.DisplayStart).Select(s => new PlenaroWeekSharedLayoutBlock(s.DisplayStart, s.DisplayEnd,
             (col, count) =>
             {
                 s.OverlapColumn = col;
                 s.OverlapColumnCount = count;
             })));
 
-        blocks.AddRange(external.Where(e => e.EndLocal > e.StartLocal).Select(e => new WeekSharedLayoutBlock(e.StartLocal, e.EndLocal,
+        blocks.AddRange(external.Where(e => e.EndLocal > e.StartLocal).Select(e => new PlenaroWeekSharedLayoutBlock(e.StartLocal, e.EndLocal,
             (col, count) =>
             {
                 e.OverlapColumn = col;
@@ -658,7 +658,7 @@ public class WeekViewModel : ObservableObject
             return;
 
         var sorted = blocks.OrderBy(b => b.Start).ThenBy(b => b.End).ToList();
-        var group = new List<WeekSharedLayoutBlock>();
+        var group = new List<PlenaroWeekSharedLayoutBlock>();
         var groupEnd = DateTime.MinValue;
 
         foreach (var block in sorted)
@@ -688,7 +688,7 @@ public class WeekViewModel : ObservableObject
             AssignSharedGroup(group, segments, external);
     }
 
-    private void AssignSharedGroup(List<WeekSharedLayoutBlock> group, List<WeekCalendarItem> segments, List<WeekOutlookCalendarBlock> external)
+    private void AssignSharedGroup(List<PlenaroWeekSharedLayoutBlock> group, List<WeekCalendarItem> segments, List<PlenaroWeekOutlookEventBlock> external)
     {
         var columnsEnd = new List<DateTime>();
         foreach (var block in group.OrderBy(i => i.Start).ThenBy(i => i.End))
@@ -732,7 +732,7 @@ public class WeekViewModel : ObservableObject
         }
     }
 
-    private List<WeekOutlookCalendarBlock> BuildExternalEventsForDay(DateTime dayDate, IReadOnlyList<OutlookCalendarEvent> source, HashSet<string> consumedEventIds)
+    private List<PlenaroWeekOutlookEventBlock> BuildExternalEventsForDay(DateTime dayDate, IReadOnlyList<OutlookCalendarEvent> source, HashSet<string> consumedEventIds)
     {
         var dayStart = dayDate.Date.AddHours(CalendarStartHour);
         var dayEnd = dayDate.Date.AddHours(CalendarEndHour);
@@ -747,7 +747,7 @@ public class WeekViewModel : ObservableObject
                 var durationMinutes = Math.Max(1, (int)Math.Ceiling((end - start).TotalMinutes));
                 var height = Math.Max(26, durationMinutes * PixelsPerMinute - 2);
                 var isCompact = height < 72;
-                return new WeekOutlookCalendarBlock
+                return new PlenaroWeekOutlookEventBlock
                 {
                     Id = e.Id,
                     StartLocal = e.StartLocal,
@@ -771,14 +771,14 @@ public class WeekViewModel : ObservableObject
             .ToList();
     }
 
-    private List<WeekAllDayCalendarPillModel> BuildAllDayPills(DateTime dayDate, IReadOnlyList<OutlookCalendarEvent> source, HashSet<string> consumedEventIds)
+    private List<PlenaroWeekAllDayPillModel> BuildAllDayPills(DateTime dayDate, IReadOnlyList<OutlookCalendarEvent> source, HashSet<string> consumedEventIds)
     {
         var dayStart = dayDate.Date;
         var dayEnd = dayStart.AddDays(1);
 
         return source
             .Where(e => e.IsAllDay && e.EndLocal > dayStart && e.StartLocal < dayEnd && !consumedEventIds.Contains(e.Id))
-            .Select(e => new WeekAllDayCalendarPillModel
+            .Select(e => new PlenaroWeekAllDayPillModel
             {
                 Id = e.Id,
                 Subject = e.Subject,
@@ -789,7 +789,7 @@ public class WeekViewModel : ObservableObject
             .ToList();
     }
 
-    private static void MarkSegmentConflicts(List<WeekCalendarItem> segments, List<WeekOutlookCalendarBlock> external)
+    private static void MarkSegmentConflicts(List<WeekCalendarItem> segments, List<PlenaroWeekOutlookEventBlock> external)
     {
         foreach (var segment in segments)
         {
@@ -840,8 +840,8 @@ public class WeekDayGroup : ObservableObject
     public DateTime DayDate { get; set; }
     public string DayLabel { get; set; } = string.Empty;
     public ObservableCollection<WeekCalendarItem> CalendarItems { get; set; } = new();
-    public ObservableCollection<WeekOutlookCalendarBlock> ExternalEvents { get; set; } = new();
-    public ObservableCollection<WeekAllDayCalendarPillModel> AllDayEvents { get; set; } = new();
+    public ObservableCollection<PlenaroWeekOutlookEventBlock> ExternalEvents { get; set; } = new();
+    public ObservableCollection<PlenaroWeekAllDayPillModel> AllDayEvents { get; set; } = new();
 
     private string _dayType = "Normal";
     public string DayType { get => _dayType; set => Set(ref _dayType, value); }
@@ -898,7 +898,7 @@ public class WeekCalendarItem
         (string.IsNullOrWhiteSpace(OutlookConflictText) ? string.Empty : $"\n{OutlookConflictText}");
 }
 
-public class WeekOutlookCalendarBlock
+public class PlenaroWeekOutlookEventBlock
 {
     public string Id { get; set; } = string.Empty;
     public string Subject { get; set; } = string.Empty;
@@ -922,13 +922,28 @@ public class WeekOutlookCalendarBlock
 
 
 
-public class WeekAllDayCalendarPillModel
+public class PlenaroWeekAllDayPillModel
 {
     public string Id { get; set; } = string.Empty;
     public string Subject { get; set; } = string.Empty;
     public string Location { get; set; } = string.Empty;
     public string TeamsJoinUrl { get; set; } = string.Empty;
     public bool HasTeamsLink => !string.IsNullOrWhiteSpace(TeamsJoinUrl);
+}
+
+internal sealed class PlenaroWeekSharedLayoutBlock
+{
+    public DateTime Start { get; }
+    public DateTime End { get; }
+    public Action<int, int> Assign { get; }
+    public int Column { get; set; }
+
+    public PlenaroWeekSharedLayoutBlock(DateTime start, DateTime end, Action<int, int> assign)
+    {
+        Start = start;
+        End = end;
+        Assign = assign;
+    }
 }
 
 internal sealed class WeekSharedLayoutBlock
