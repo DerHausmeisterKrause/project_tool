@@ -49,6 +49,8 @@ public partial class App : Application
         {
             if (ServiceLocator.Notifications != null)
                 ServiceLocator.Notifications.Dispose();
+            if (ServiceLocator.OutlookCalendar != null)
+                ServiceLocator.OutlookCalendar.Dispose();
         }
         catch
         {
