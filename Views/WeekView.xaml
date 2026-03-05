@@ -229,6 +229,46 @@
                                             </ItemsControl.ItemTemplate>
                                         </ItemsControl>
 
+                                        <ItemsControl ItemsSource="{Binding ExternalEvents}">
+                                            <ItemsControl.ItemsPanel>
+                                                <ItemsPanelTemplate>
+                                                    <Canvas/>
+                                                </ItemsPanelTemplate>
+                                            </ItemsControl.ItemsPanel>
+                                            <ItemsControl.ItemContainerStyle>
+                                                <Style TargetType="ContentPresenter">
+                                                    <Setter Property="Canvas.Top" Value="{Binding DisplayTop}"/>
+                                                    <Setter Property="Canvas.Left" Value="{Binding DisplayLeft}"/>
+                                                </Style>
+                                            </ItemsControl.ItemContainerStyle>
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate>
+                                                    <Border Width="{Binding DisplayWidth}" Height="{Binding DisplayHeight}" Background="#335B3A" BorderBrush="#5EEAD4" BorderThickness="1" CornerRadius="8" Padding="8,5" Opacity="0.82">
+                                                        <Border.ToolTip>
+                                                            <ToolTip Background="{StaticResource SurfaceAltBrush}" Foreground="{StaticResource TextBrush}" BorderBrush="{StaticResource BorderBrushColor}" Padding="8">
+                                                                <StackPanel>
+                                                                    <TextBlock Text="{Binding TooltipText}" TextWrapping="Wrap" MaxWidth="300"/>
+                                                                    <Button Content="Teams öffnen" Width="120" Margin="0,6,0,0" Style="{StaticResource SecondaryButtonStyle}"
+                                                                            Visibility="{Binding HasTeamsLink, Converter={StaticResource BooleanToVisibilityConverter}}"
+                                                                            Command="{Binding DataContext.OpenTeamsUrlCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                                            CommandParameter="{Binding TeamsJoinUrl}"/>
+                                                                </StackPanel>
+                                                            </ToolTip>
+                                                        </Border.ToolTip>
+                                                        <StackPanel>
+                                                            <TextBlock Text="📅 Outlook" FontSize="10" Foreground="#CFFAFE"/>
+                                                            <TextBlock Text="{Binding Subject}" FontWeight="SemiBold" FontSize="12" TextTrimming="CharacterEllipsis"/>
+                                                            <TextBlock Text="{Binding TimeLabel}" FontSize="11" Foreground="#D1FAE5"/>
+                                                            <Button Content="Teams öffnen" Width="110" Margin="0,4,0,0" Style="{StaticResource SecondaryButtonStyle}"
+                                                                    Visibility="{Binding HasTeamsLink, Converter={StaticResource BooleanToVisibilityConverter}}"
+                                                                    Command="{Binding DataContext.OpenTeamsUrlCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                                    CommandParameter="{Binding TeamsJoinUrl}"/>
+                                                        </StackPanel>
+                                                    </Border>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+
                                         <ItemsControl ItemsSource="{Binding CalendarItems}">
                                             <ItemsControl.ItemsPanel>
                                                 <ItemsPanelTemplate>
@@ -258,6 +298,10 @@
                                                                         <Setter Property="BorderBrush" Value="{StaticResource AccentBrush}"/>
                                                                         <Setter Property="Background" Value="#29415A"/>
                                                                     </Trigger>
+                                                                    <DataTrigger Binding="{Binding HasOutlookConflict}" Value="True">
+                                                                        <Setter Property="BorderBrush" Value="#EF4444"/>
+                                                                        <Setter Property="Background" Value="#3C1F2A"/>
+                                                                    </DataTrigger>
                                                                 </Style.Triggers>
                                                             </Style>
                                                         </Border.Style>
@@ -286,9 +330,10 @@
                         </ItemsControl.ItemTemplate>
                     </ItemsControl>
 
-                    <Canvas x:Name="NowIndicatorCanvas" Grid.Row="1" Grid.Column="1" Height="{Binding CalendarBodyHeight}" Width="{Binding DayAreaWidth}" IsHitTestVisible="False" Panel.ZIndex="20"
+                    <Canvas x:Name="NowIndicatorCanvas" Grid.Row="1" Grid.Column="1" Height="{Binding ElementName=DaySegmentColumns, Path=ActualHeight}" Width="{Binding ElementName=DaySegmentColumns, Path=ActualWidth}" IsHitTestVisible="False" ClipToBounds="True" Panel.ZIndex="20"
+                            HorizontalAlignment="Left" VerticalAlignment="Top"
                             Visibility="{Binding ShowNowIndicator, Converter={StaticResource BooleanToVisibilityConverter}}">
-                        <Rectangle x:Name="NowLine" Canvas.Left="{Binding DayInnerOffset}" Canvas.Top="{Binding NowLineTop}" Width="{Binding NowLineWidth}" Height="2" Fill="White" Opacity="0.85"/>
+                        <Rectangle x:Name="NowLine" Canvas.Left="0" Canvas.Top="{Binding NowLineTop}" Width="{Binding ElementName=DaySegmentColumns, Path=ActualWidth}" Height="2" Fill="White" Opacity="0.85"/>
                         <Ellipse Canvas.Left="{Binding NowMarkerLeft}" Canvas.Top="{Binding NowMarkerTop}" Width="8" Height="8" Fill="White" Opacity="0.95"/>
                     </Canvas>
                 </Grid>

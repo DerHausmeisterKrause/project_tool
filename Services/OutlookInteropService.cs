@@ -1,7 +1,10 @@
+using System.Collections.Generic;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Text;
+using System.Text.RegularExpressions;
 using System.Threading;
+using TaskTool.Models;
 
 namespace TaskTool.Services;
 
@@ -147,6 +150,125 @@ public class OutlookInteropService
             _logger.Error(BuildOutlookExceptionLog("DeleteBlock", ex, null, null));
             return (false, BuildUserFacingOutlookError(ex));
         }
+    }
+
+
+    public (bool ok, List<OutlookCalendarEvent> events, string error) GetCalendarEvents(DateTime fromLocal, DateTime toLocal)
+    {
+        if (!_settings.Current.OutlookCalendarEnabled)
+            return (true, new List<OutlookCalendarEvent>(), string.Empty);
+
+        if (toLocal <= fromLocal)
+            return (false, new List<OutlookCalendarEvent>(), "Ungültiger Zeitraum für Kalenderabfrage.");
+
+        try
+        {
+            return ExecuteOnSta(() =>
+            {
+                var outlookType = Type.GetTypeFromProgID("Outlook.Application");
+                if (outlookType == null)
+                    return (false, new List<OutlookCalendarEvent>(), "Outlook nicht installiert (ProgID nicht gefunden).");
+
+                object? app = null;
+                object? ns = null;
+                object? folder = null;
+                object? items = null;
+                object? restricted = null;
+
+                try
+                {
+                    app = CreateOrAttachOutlook(outlookType);
+                    if (app == null)
+                        return (false, new List<OutlookCalendarEvent>(), "Outlook konnte nicht gestartet/verbunden werden.");
+
+                    dynamic appDyn = app;
+                    ns = appDyn.GetNamespace("MAPI");
+                    TryLogon(ns);
+                    dynamic nsDyn = ns!;
+                    folder = nsDyn.GetDefaultFolder(OlFolderCalendar);
+
+                    dynamic folderDyn = folder!;
+                    items = folderDyn.Items;
+                    dynamic itemsDyn = items!;
+                    itemsDyn.IncludeRecurrences = true;
+                    itemsDyn.Sort("[Start]");
+
+                    var fromFilter = fromLocal.ToString("MM/dd/yyyy HH:mm");
+                    var toFilter = toLocal.ToString("MM/dd/yyyy HH:mm");
+                    var filter = $"[Start] < '{toFilter}' AND [End] > '{fromFilter}'";
+                    restricted = itemsDyn.Restrict(filter);
+
+                    var events = new List<OutlookCalendarEvent>();
+                    foreach (var raw in (System.Collections.IEnumerable)restricted!)
+                    {
+                        object? appointment = raw;
+                        try
+                        {
+                            dynamic a = appointment!;
+                            DateTime start = Convert.ToDateTime(a.Start).ToLocalTime();
+                            DateTime end = Convert.ToDateTime(a.End).ToLocalTime();
+                            if (end <= fromLocal || start >= toLocal)
+                                continue;
+
+                            var body = Convert.ToString(a.Body) ?? string.Empty;
+                            var location = Convert.ToString(a.Location) ?? string.Empty;
+                            var joinUrl = ExtractTeamsUrl(body, location);
+
+                            events.Add(new OutlookCalendarEvent
+                            {
+                                Id = Convert.ToString(a.EntryID) ?? Guid.NewGuid().ToString("N"),
+                                Subject = string.IsNullOrWhiteSpace(Convert.ToString(a.Subject)) ? "(Kein Betreff)" : Convert.ToString(a.Subject)!,
+                                StartLocal = start,
+                                EndLocal = end,
+                                IsAllDay = Convert.ToBoolean(a.AllDayEvent),
+                                Location = location,
+                                Organizer = Convert.ToString(a.Organizer) ?? string.Empty,
+                                BodyPreview = body.Length > 240 ? body[..240] : body,
+                                OnlineMeetingJoinUrl = joinUrl,
+                                Categories = Convert.ToString(a.Categories) ?? string.Empty
+                            });
+                        }
+                        catch
+                        {
+                            // ignore non-appointment entries
+                        }
+                        finally
+                        {
+                            SafeReleaseComObject(appointment);
+                        }
+                    }
+
+                    return (true, events, string.Empty);
+                }
+                finally
+                {
+                    SafeReleaseComObject(restricted);
+                    SafeReleaseComObject(items);
+                    SafeReleaseComObject(folder);
+                    SafeReleaseComObject(ns);
+                    SafeReleaseComObject(app);
+                }
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.Error(BuildOutlookExceptionLog("GetCalendarEvents", ex, fromLocal, toLocal));
+            return (false, new List<OutlookCalendarEvent>(), BuildUserFacingOutlookError(ex));
+        }
+    }
+
+    private static string ExtractTeamsUrl(string body, string location)
+    {
+        var pattern = @"https?://[^\s""']+";
+        foreach (Match match in Regex.Matches($"{body}\n{location}", pattern, RegexOptions.IgnoreCase))
+        {
+            var url = match.Value.TrimEnd('.', ',', ';', ')');
+            if (url.Contains("teams.microsoft.com", StringComparison.OrdinalIgnoreCase)
+                || url.Contains("meetup-join", StringComparison.OrdinalIgnoreCase))
+                return url;
+        }
+
+        return string.Empty;
     }
 
     public (bool ok, string error) TestConnection()
