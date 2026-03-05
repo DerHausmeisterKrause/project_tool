@@ -3,6 +3,7 @@
     <OutputType>WinExe</OutputType>
     <TargetFramework>net8.0-windows</TargetFramework>
     <UseWPF>true</UseWPF>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
@@ -18,6 +19,8 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Include="**\*.cs" Exclude="bin\**\*;obj\**\*" />
+    <Compile Remove="ViewModels\WeekViewModel.cs" />
     <PackageReference Include="Microsoft.Data.Sqlite" Version="8.0.8" />
   </ItemGroup>
 
