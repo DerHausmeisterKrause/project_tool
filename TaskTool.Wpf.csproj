@@ -20,6 +20,7 @@
 
   <ItemGroup>
     <Compile Include="**\*.cs" Exclude="bin\**\*;obj\**\*" />
+    <Compile Remove="ViewModels\WeekViewModel.cs" />
     <PackageReference Include="Microsoft.Data.Sqlite" Version="8.0.8" />
   </ItemGroup>
 
