@@ -301,6 +301,15 @@ public class OutlookInteropService
                             var busyRaw = Convert.ToString(a.BusyStatus) ?? string.Empty;
                             var iCalUid = Convert.ToString(a.GlobalAppointmentID) ?? string.Empty;
 
+                            string sensitivity;
+                            bool isPrivate;
+                            bool isRecurring;
+                            bool isInstance;
+                            try { sensitivity = Convert.ToString(a.Sensitivity) ?? string.Empty; } catch { sensitivity = string.Empty; }
+                            try { isPrivate = Convert.ToInt32(a.Sensitivity) == 2; } catch { try { isPrivate = Convert.ToBoolean(a.IsPrivate); } catch { isPrivate = false; } }
+                            try { isRecurring = Convert.ToBoolean(a.IsRecurring); } catch { isRecurring = false; }
+                            try { isInstance = Convert.ToInt32(a.RecurrenceState) == 2 || Convert.ToInt32(a.RecurrenceState) == 3; } catch { isInstance = false; }
+
                             events.Add(new OutlookCalendarEvent
                             {
                                 Id = string.IsNullOrWhiteSpace(entryId) ? Guid.NewGuid().ToString("N") : entryId,
@@ -308,6 +317,10 @@ public class OutlookInteropService
                                 ICalUId = iCalUid,
                                 CalendarName = calendarName,
                                 BusyStatus = busyRaw,
+                                Sensitivity = sensitivity,
+                                IsPrivate = isPrivate,
+                                IsRecurring = isRecurring,
+                                IsInstance = isInstance,
                                 Subject = string.IsNullOrWhiteSpace(Convert.ToString(a.Subject)) ? "(Kein Betreff)" : Convert.ToString(a.Subject)!,
                                 StartLocal = start,
                                 EndLocal = end,

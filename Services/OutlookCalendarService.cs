@@ -41,10 +41,20 @@ public class OutlookCalendarService : IDisposable
     {
         lock (_syncLock)
         {
-            return _cache
-                .Where(e => e.EndLocal > fromLocal && e.StartLocal < toLocal)
-                .OrderBy(e => e.StartLocal)
-                .ToList();
+            var visible = new List<OutlookCalendarEvent>();
+            foreach (var e in _cache)
+            {
+                if (e.EndLocal > fromLocal && e.StartLocal < toLocal)
+                {
+                    visible.Add(e);
+                }
+                else
+                {
+                    _logger.Info($"[OutlookEventFiltered] subject='{e.Subject}' reason=FilteredByTimeRange start={e.StartLocal:O} end={e.EndLocal:O} from={fromLocal:O} to={toLocal:O}");
+                }
+            }
+
+            return visible.OrderBy(e => e.StartLocal).ToList();
         }
     }
 
@@ -71,6 +81,11 @@ public class OutlookCalendarService : IDisposable
                 LastError = result.error;
                 _logger.Error($"[OutlookCalendarSync] Failed: {result.error}");
                 return;
+            }
+
+            foreach (var e in result.events)
+            {
+                _logger.Info($"[OutlookRawEvent] subject='{e.Subject}' start={e.StartLocal:O} end={e.EndLocal:O} isAllDay={e.IsAllDay} busyStatus='{e.BusyStatus}' sensitivity='{e.Sensitivity}' isPrivate={e.IsPrivate} categories='{e.Categories}' location='{e.Location}' calendar='{e.CalendarName}' entryId='{e.EntryId}' iCalUId='{e.ICalUId}' isRecurring={e.IsRecurring} isInstance={e.IsInstance}");
             }
 
             lock (_syncLock)

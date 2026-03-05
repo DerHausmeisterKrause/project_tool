@@ -7,6 +7,10 @@ public class OutlookCalendarEvent
     public string ICalUId { get; set; } = string.Empty;
     public string CalendarName { get; set; } = string.Empty;
     public string BusyStatus { get; set; } = string.Empty;
+    public string Sensitivity { get; set; } = string.Empty;
+    public bool IsPrivate { get; set; }
+    public bool IsRecurring { get; set; }
+    public bool IsInstance { get; set; }
     public string Subject { get; set; } = string.Empty;
     public DateTime StartLocal { get; set; }
     public DateTime EndLocal { get; set; }

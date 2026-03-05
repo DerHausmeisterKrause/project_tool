@@ -826,9 +826,32 @@ public class WeekViewModel : ObservableObject
     {
         var dayStart = dayDate.Date.AddHours(CalendarStartHour);
         var dayEnd = dayDate.Date.AddHours(CalendarEndHour);
+        var selected = new List<OutlookCalendarEvent>();
 
-        return source
-             .Where(e => !e.IsAllDay && e.EndLocal >= dayStart && e.StartLocal <= dayEnd && !consumedEventIds.Contains(e.Id))
+        foreach (var e in source)
+        {
+            if (e.IsAllDay)
+            {
+                ServiceLocator.Logger.Info($"[OutlookEventFiltered] subject='{e.Subject}' reason=FilteredByAllDayForTimedGrid day={dayDate:yyyy-MM-dd} start={e.StartLocal:O} end={e.EndLocal:O}");
+                continue;
+            }
+
+            if (consumedEventIds.Contains(e.Id))
+            {
+                ServiceLocator.Logger.Info($"[OutlookEventFiltered] subject='{e.Subject}' reason=FilteredByMarkerConsumption day={dayDate:yyyy-MM-dd} entryId='{e.EntryId}'");
+                continue;
+            }
+
+            if (!(e.EndLocal >= dayStart && e.StartLocal <= dayEnd))
+            {
+                ServiceLocator.Logger.Info($"[OutlookEventFiltered] subject='{e.Subject}' reason=FilteredByTimeRange day={dayDate:yyyy-MM-dd} start={e.StartLocal:O} end={e.EndLocal:O} visibleStart={dayStart:O} visibleEnd={dayEnd:O}");
+                continue;
+            }
+
+            selected.Add(e);
+        }
+
+        return selected
             .GroupBy(e => $"{e.Id}|{e.StartLocal:O}|{e.EndLocal:O}|{e.Subject}")
             .Select(g => g.First())
             .Select(e =>
@@ -855,8 +878,10 @@ public class WeekViewModel : ObservableObject
                     IsCompact = isCompact,
                     ShowLocation = !isCompact && !string.IsNullOrWhiteSpace(e.Location),
                     ShowActions = !isCompact,
-                    TooltipText = $"Outlook: {e.Subject}\n{e.StartLocal:HH:mm} - {e.EndLocal:HH:mm}" +
-                                  (string.IsNullOrWhiteSpace(e.Location) ? string.Empty : $"\nOrt: {e.Location}")
+                    TooltipText = $"Outlook: {e.Subject}
+{e.StartLocal:HH:mm} - {e.EndLocal:HH:mm}" +
+                                  (string.IsNullOrWhiteSpace(e.Location) ? string.Empty : $"
+Ort: {e.Location}")
                 };
             })
             .OrderBy(e => e.DisplayTop)
@@ -865,8 +890,28 @@ public class WeekViewModel : ObservableObject
 
     private List<PlenaroWeekAllDayPillModel> BuildAllDayPills(DateTime dayDate, IReadOnlyList<OutlookCalendarEvent> source, HashSet<string> consumedEventIds)
     {
-        return source
-            .Where(e => e.IsAllDay && EventSpansDayExclusive(e, dayDate) && !consumedEventIds.Contains(e.Id))
+        var selected = new List<OutlookCalendarEvent>();
+        foreach (var e in source)
+        {
+            if (!e.IsAllDay)
+                continue;
+
+            if (consumedEventIds.Contains(e.Id))
+            {
+                ServiceLocator.Logger.Info($"[OutlookEventFiltered] subject='{e.Subject}' reason=FilteredByMarkerConsumption day={dayDate:yyyy-MM-dd} entryId='{e.EntryId}'");
+                continue;
+            }
+
+            if (!EventSpansDayExclusive(e, dayDate))
+            {
+                ServiceLocator.Logger.Info($"[OutlookEventFiltered] subject='{e.Subject}' reason=FilteredByTimeRange day={dayDate:yyyy-MM-dd} start={e.StartLocal:O} end={e.EndLocal:O}");
+                continue;
+            }
+
+            selected.Add(e);
+        }
+
+        return selected
             .GroupBy(e => $"{e.Id}|{e.StartLocal:O}|{e.EndLocal:O}|{e.Subject}")
             .Select(g => g.First())
             .Select(e => new PlenaroWeekAllDayPillModel
