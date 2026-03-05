@@ -217,7 +217,7 @@ public class WeekViewModel : ObservableObject
         var eventId = evtObj switch
         {
             WeekOutlookCalendarBlock b => b.Id,
-            WeekAllDayPillItem p => p.Id,
+            WeekAllDayCalendarPillModel p => p.Id,
             _ => string.Empty
         };
 
@@ -231,7 +231,7 @@ public class WeekViewModel : ObservableObject
         var teamsLink = evtObj switch
         {
             WeekOutlookCalendarBlock b => b.TeamsJoinUrl,
-            WeekAllDayPillItem p => p.TeamsJoinUrl,
+            WeekAllDayCalendarPillModel p => p.TeamsJoinUrl,
             _ => string.Empty
         };
 
@@ -244,7 +244,7 @@ public class WeekViewModel : ObservableObject
         var subject = evtObj switch
         {
             WeekOutlookCalendarBlock b => b.Subject,
-            WeekAllDayPillItem p => p.Subject,
+            WeekAllDayCalendarPillModel p => p.Subject,
             _ => "Outlook Termin"
         };
 
@@ -377,7 +377,7 @@ public class WeekViewModel : ObservableObject
                 IsBr = displayIsBr,
                 IsHo = displayIsHo,
                 Summary = $"Soll {Fmt(target)} | Ist {Fmt(net)} | Ü {Fmt(overtime)}",
-                AllDayEvents = new ObservableCollection<WeekAllDayPillItem>(BuildAllDayPills(day.Date, outlookEvents, markerResult.ConsumedEventIds))
+                AllDayEvents = new ObservableCollection<WeekAllDayCalendarPillModel>(BuildAllDayPills(day.Date, outlookEvents, markerResult.ConsumedEventIds))
             });
         }
 
@@ -639,15 +639,15 @@ public class WeekViewModel : ObservableObject
 
     private void ApplySharedOverlapLayout(List<WeekCalendarItem> segments, List<WeekOutlookCalendarBlock> external)
     {
-        var blocks = new List<WeekLayoutBlockRef>();
-        blocks.AddRange(segments.Where(s => s.DisplayEnd > s.DisplayStart).Select(s => new WeekLayoutBlockRef(s.DisplayStart, s.DisplayEnd,
+        var blocks = new List<WeekSharedLayoutBlock>();
+        blocks.AddRange(segments.Where(s => s.DisplayEnd > s.DisplayStart).Select(s => new WeekSharedLayoutBlock(s.DisplayStart, s.DisplayEnd,
             (col, count) =>
             {
                 s.OverlapColumn = col;
                 s.OverlapColumnCount = count;
             })));
 
-        blocks.AddRange(external.Where(e => e.EndLocal > e.StartLocal).Select(e => new WeekLayoutBlockRef(e.StartLocal, e.EndLocal,
+        blocks.AddRange(external.Where(e => e.EndLocal > e.StartLocal).Select(e => new WeekSharedLayoutBlock(e.StartLocal, e.EndLocal,
             (col, count) =>
             {
                 e.OverlapColumn = col;
@@ -658,7 +658,7 @@ public class WeekViewModel : ObservableObject
             return;
 
         var sorted = blocks.OrderBy(b => b.Start).ThenBy(b => b.End).ToList();
-        var group = new List<WeekLayoutBlockRef>();
+        var group = new List<WeekSharedLayoutBlock>();
         var groupEnd = DateTime.MinValue;
 
         foreach (var block in sorted)
@@ -688,7 +688,7 @@ public class WeekViewModel : ObservableObject
             AssignSharedGroup(group, segments, external);
     }
 
-    private void AssignSharedGroup(List<WeekLayoutBlockRef> group, List<WeekCalendarItem> segments, List<WeekOutlookCalendarBlock> external)
+    private void AssignSharedGroup(List<WeekSharedLayoutBlock> group, List<WeekCalendarItem> segments, List<WeekOutlookCalendarBlock> external)
     {
         var columnsEnd = new List<DateTime>();
         foreach (var block in group.OrderBy(i => i.Start).ThenBy(i => i.End))
@@ -771,14 +771,14 @@ public class WeekViewModel : ObservableObject
             .ToList();
     }
 
-    private List<WeekAllDayPillItem> BuildAllDayPills(DateTime dayDate, IReadOnlyList<OutlookCalendarEvent> source, HashSet<string> consumedEventIds)
+    private List<WeekAllDayCalendarPillModel> BuildAllDayPills(DateTime dayDate, IReadOnlyList<OutlookCalendarEvent> source, HashSet<string> consumedEventIds)
     {
         var dayStart = dayDate.Date;
         var dayEnd = dayStart.AddDays(1);
 
         return source
             .Where(e => e.IsAllDay && e.EndLocal > dayStart && e.StartLocal < dayEnd && !consumedEventIds.Contains(e.Id))
-            .Select(e => new WeekAllDayPillItem
+            .Select(e => new WeekAllDayCalendarPillModel
             {
                 Id = e.Id,
                 Subject = e.Subject,
@@ -841,7 +841,7 @@ public class WeekDayGroup : ObservableObject
     public string DayLabel { get; set; } = string.Empty;
     public ObservableCollection<WeekCalendarItem> CalendarItems { get; set; } = new();
     public ObservableCollection<WeekOutlookCalendarBlock> ExternalEvents { get; set; } = new();
-    public ObservableCollection<WeekAllDayPillItem> AllDayEvents { get; set; } = new();
+    public ObservableCollection<WeekAllDayCalendarPillModel> AllDayEvents { get; set; } = new();
 
     private string _dayType = "Normal";
     public string DayType { get => _dayType; set => Set(ref _dayType, value); }
@@ -896,6 +896,54 @@ public class WeekCalendarItem
         (string.IsNullOrWhiteSpace(TaskDescription) ? string.Empty : $"\n{TaskDescription}") +
         (string.IsNullOrWhiteSpace(TicketUrl) ? string.Empty : $"\nTicket: {TicketUrl}") +
         (string.IsNullOrWhiteSpace(OutlookConflictText) ? string.Empty : $"\n{OutlookConflictText}");
+}
+
+public class WeekOutlookCalendarBlock
+{
+    public string Id { get; set; } = string.Empty;
+    public string Subject { get; set; } = string.Empty;
+    public string TimeLabel { get; set; } = string.Empty;
+    public string Location { get; set; } = string.Empty;
+    public string TeamsJoinUrl { get; set; } = string.Empty;
+    public DateTime StartLocal { get; set; }
+    public DateTime EndLocal { get; set; }
+    public double DisplayTop { get; set; }
+    public double DisplayHeight { get; set; }
+    public double DisplayLeft { get; set; }
+    public double DisplayWidth { get; set; }
+    public int OverlapColumn { get; set; }
+    public int OverlapColumnCount { get; set; }
+    public bool IsCompact { get; set; }
+    public bool ShowLocation { get; set; }
+    public bool ShowActions { get; set; }
+    public bool HasTeamsLink => !string.IsNullOrWhiteSpace(TeamsJoinUrl);
+    public string TooltipText { get; set; } = string.Empty;
+}
+
+
+
+public class WeekAllDayCalendarPillModel
+{
+    public string Id { get; set; } = string.Empty;
+    public string Subject { get; set; } = string.Empty;
+    public string Location { get; set; } = string.Empty;
+    public string TeamsJoinUrl { get; set; } = string.Empty;
+    public bool HasTeamsLink => !string.IsNullOrWhiteSpace(TeamsJoinUrl);
+}
+
+internal sealed class WeekSharedLayoutBlock
+{
+    public DateTime Start { get; }
+    public DateTime End { get; }
+    public Action<int, int> Assign { get; }
+    public int Column { get; set; }
+
+    public WeekSharedLayoutBlock(DateTime start, DateTime end, Action<int, int> assign)
+    {
+        Start = start;
+        End = end;
+        Assign = assign;
+    }
 }
 
 public class WeekOutlookCalendarBlock
