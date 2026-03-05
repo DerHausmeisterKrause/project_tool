@@ -451,12 +451,8 @@ public class TodayViewModel : ObservableObject
 
     private static bool IsMarkerEligibleAllDayEvent(OutlookCalendarEvent evt, TimeSpan duration)
     {
-        if (evt.IsAllDay)
-            return true;
-
-        var startsAtMidnight = evt.StartLocal.TimeOfDay == TimeSpan.Zero;
-        var endsAtMidnight = evt.EndLocal.TimeOfDay == TimeSpan.Zero;
-        return startsAtMidnight && endsAtMidnight && duration.TotalHours >= 20;
+        _ = duration;
+        return evt.IsAllDay;
     }
 
     private bool ConfirmConflictIfRequired(DateTime startLocal, DateTime endLocal)

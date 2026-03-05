@@ -270,6 +270,7 @@ public class OutlookInteropService
                     folder = nsDyn.GetDefaultFolder(OlFolderCalendar);
 
                     dynamic folderDyn = folder!;
+                    var calendarName = Convert.ToString(folderDyn.Name) ?? string.Empty;
                     items = folderDyn.Items;
                     dynamic itemsDyn = items!;
                     itemsDyn.IncludeRecurrences = true;
@@ -296,9 +297,17 @@ public class OutlookInteropService
                             var location = Convert.ToString(a.Location) ?? string.Empty;
                             var joinUrl = ExtractTeamsUrl(body, location);
 
+                            var entryId = Convert.ToString(a.EntryID) ?? string.Empty;
+                            var busyRaw = Convert.ToString(a.BusyStatus) ?? string.Empty;
+                            var iCalUid = Convert.ToString(a.GlobalAppointmentID) ?? string.Empty;
+
                             events.Add(new OutlookCalendarEvent
                             {
-                                Id = Convert.ToString(a.EntryID) ?? Guid.NewGuid().ToString("N"),
+                                Id = string.IsNullOrWhiteSpace(entryId) ? Guid.NewGuid().ToString("N") : entryId,
+                                EntryId = entryId,
+                                ICalUId = iCalUid,
+                                CalendarName = calendarName,
+                                BusyStatus = busyRaw,
                                 Subject = string.IsNullOrWhiteSpace(Convert.ToString(a.Subject)) ? "(Kein Betreff)" : Convert.ToString(a.Subject)!,
                                 StartLocal = start,
                                 EndLocal = end,

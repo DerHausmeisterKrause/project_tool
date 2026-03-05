@@ -3,6 +3,10 @@ namespace TaskTool.Models;
 public class OutlookCalendarEvent
 {
     public string Id { get; set; } = string.Empty;
+    public string EntryId { get; set; } = string.Empty;
+    public string ICalUId { get; set; } = string.Empty;
+    public string CalendarName { get; set; } = string.Empty;
+    public string BusyStatus { get; set; } = string.Empty;
     public string Subject { get; set; } = string.Empty;
     public DateTime StartLocal { get; set; }
     public DateTime EndLocal { get; set; }
