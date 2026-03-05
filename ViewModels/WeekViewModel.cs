@@ -957,6 +957,7 @@ internal sealed class PlenaroWeekSharedLayoutBlock
     }
 }
 
+
 public class TimeAxisLabel
 {
     public string Label { get; set; } = string.Empty;
