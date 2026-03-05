@@ -1,5 +1,9 @@
+using System.Collections.Generic;
+using System;
+using System.Linq;
 using System.Collections.ObjectModel;
 using System.Globalization;
+using System.Windows;
 using System.Windows.Threading;
 using TaskTool.Infrastructure;
 using TaskTool.Models;
@@ -12,6 +16,7 @@ public class WeekViewModel : ObservableObject
     private readonly TaskService _tasks;
     private readonly WorkDayService _workDays;
     private readonly SettingsService _settings;
+    private readonly OutlookCalendarService _outlookCalendar;
 
     private const int CalendarStartHour = 6;
     private const int CalendarEndHour = 18;
@@ -27,9 +32,6 @@ public class WeekViewModel : ObservableObject
     public double PixelsPerMinute => PixelsPerMinuteConst;
     public double CalendarBodyHeight => (CalendarEndHour - CalendarStartHour) * 60 * PixelsPerMinute;
     public double FullDayColumnHeight => CalendarBodyHeight + 58;
-    public double DayAreaWidth => DayColumnWidth * 7;
-    public double DayInnerOffset => DayInnerPadding;
-    public double NowLineWidth => DayAreaWidth - DayInnerOffset;
 
     public ObservableCollection<TimeAxisLabel> TimeAxisLabels { get; } = new();
     public ObservableCollection<TimeGridLine> TimeGridLines { get; } = new();
@@ -118,17 +120,20 @@ public class WeekViewModel : ObservableObject
     public RelayCommand<WeekDayGroup> SelectDayCommand { get; }
     public RelayCommand<WeekCalendarItem> OpenCalendarItemCommand { get; }
     public RelayCommand<string> OpenTicketUrlCommand { get; }
+    public RelayCommand<string> OpenTeamsUrlCommand { get; }
+    public RelayCommand<OutlookCalendarBlock> OpenOutlookEventCommand { get; }
     public RelayCommand SetDayTypeNormalCommand { get; }
     public RelayCommand SetDayTypeUlCommand { get; }
     public RelayCommand SetDayTypeAmCommand { get; }
     public RelayCommand ToggleHoCommand { get; }
     public RelayCommand ToggleBrCommand { get; }
 
-    public WeekViewModel(TaskService tasks, WorkDayService workDays, SettingsService settings)
+    public WeekViewModel(TaskService tasks, WorkDayService workDays, SettingsService settings, OutlookCalendarService outlookCalendar)
     {
         _tasks = tasks;
         _workDays = workDays;
         _settings = settings;
+        _outlookCalendar = outlookCalendar;
 
         BuildTimeScale();
 
@@ -143,6 +148,8 @@ public class WeekViewModel : ObservableObject
         }, d => d != null);
         OpenCalendarItemCommand = new RelayCommand<WeekCalendarItem>(OpenCalendarItem, i => i != null);
         OpenTicketUrlCommand = new RelayCommand<string>(OpenTicketUrlFromWeek, url => !string.IsNullOrWhiteSpace(url));
+        OpenTeamsUrlCommand = new RelayCommand<string>(OpenTeamsUrlFromWeek, url => !string.IsNullOrWhiteSpace(url));
+        OpenOutlookEventCommand = new RelayCommand<OutlookCalendarBlock>(OpenOutlookEvent, evt => evt != null);
         SetDayTypeNormalCommand = new RelayCommand(() => SetDayType("Normal"), () => SelectedDayGroup != null);
         SetDayTypeUlCommand = new RelayCommand(() => SetDayType("UL"), () => SelectedDayGroup != null);
         SetDayTypeAmCommand = new RelayCommand(() => SetDayType("AM"), () => SelectedDayGroup != null);
@@ -153,7 +160,9 @@ public class WeekViewModel : ObservableObject
         _nowIndicatorTimer.Tick += (_, _) => UpdateNowIndicator();
         _nowIndicatorTimer.Start();
 
+        _outlookCalendar.EventsUpdated += OnOutlookEventsUpdated;
         LoadWeek();
+        _ = _outlookCalendar.TriggerSyncAsync("week-init");
         UpdateNowIndicator();
     }
 
@@ -194,6 +203,40 @@ public class WeekViewModel : ObservableObject
         UrlLauncher.TryOpen(url, out _);
     }
 
+    private void OpenTeamsUrlFromWeek(string? url)
+    {
+        UrlLauncher.TryOpen(url, out _);
+    }
+
+    private void OpenOutlookEvent(OutlookCalendarBlock? evt)
+    {
+        if (evt == null)
+            return;
+
+        var opened = ServiceLocator.Outlook.OpenCalendarEvent(evt.Id);
+        if (opened.ok)
+            return;
+
+        if (!string.IsNullOrWhiteSpace(evt.TeamsJoinUrl))
+        {
+            UrlLauncher.TryOpen(evt.TeamsJoinUrl, out _);
+            return;
+        }
+
+        var details = $"Outlook-Termin konnte nicht geöffnet werden.
+
+{opened.error}
+
+{evt.Subject}
+{evt.TimeLabel}";
+        MessageBox.Show(details, "Outlook", MessageBoxButton.OK, MessageBoxImage.Information);
+    }
+
+    private void OnOutlookEventsUpdated()
+    {
+        App.Current?.Dispatcher.Invoke(LoadWeek);
+    }
+
     private void SetDayType(string type)
     {
         if (SelectedDayGroup == null) return;
@@ -214,9 +257,13 @@ public class WeekViewModel : ObservableObject
     {
         var previousSelectionDate = SelectedDayGroup?.DayDate;
 
+        if (_settings.Current.OutlookCalendarEnabled)
+            _ = _outlookCalendar.TriggerSyncAsync("week-load");
+
         Days.Clear();
         var from = WeekStart.Date;
         var to = WeekStart.AddDays(7).Date;
+        var outlookEvents = _outlookCalendar.GetEvents(from, to);
 
         var workDays = _workDays.GetWorkDaysInRange(from, to.AddDays(-1)).ToDictionary(w => w.Day, w => w);
         var segmentsInWeek = _tasks.GetSegmentsForRange(from, to)
@@ -286,15 +333,27 @@ public class WeekViewModel : ObservableObject
 
             LayoutDayItemsCore(day.Date, calendarItems);
 
+            var markerResult = ResolveOutlookDerivedMarker(day.Date, outlookEvents);
+            var external = BuildExternalEventsForDay(day.Date, outlookEvents, markerResult.ConsumedEventIds);
+            ApplySharedOverlapLayout(calendarItems, external);
+            MarkSegmentConflicts(calendarItems, external);
+
+            var displayDayType = wd.DayType;
+            if (displayDayType == "Normal" && (markerResult.DerivedDayType == "UL" || markerResult.DerivedDayType == "AM"))
+                displayDayType = markerResult.DerivedDayType;
+
+            var displayIsHo = wd.IsHo || markerResult.DerivedHo;
+
             Days.Add(new WeekDayGroup
             {
                 DayDate = day,
                 DayLabel = day.ToString("ddd dd.MM", CultureInfo.CurrentCulture),
                 IsToday = day.Date == DateTime.Today,
                 CalendarItems = new ObservableCollection<WeekCalendarItem>(calendarItems.OrderBy(c => c.DisplayTop)),
-                DayType = wd.DayType,
+                ExternalEvents = new ObservableCollection<OutlookCalendarBlock>(external),
+                DayType = displayDayType,
                 IsBr = wd.IsBr,
-                IsHo = wd.IsHo,
+                IsHo = displayIsHo,
                 Summary = $"Soll {Fmt(target)} | Ist {Fmt(net)} | Ü {Fmt(overtime)}"
             });
         }
@@ -448,6 +507,205 @@ public class WeekViewModel : ObservableObject
         }
     }
 
+    private (string DerivedDayType, bool DerivedHo, HashSet<string> ConsumedEventIds) ResolveOutlookDerivedMarker(DateTime dayDate, IReadOnlyList<OutlookCalendarEvent> events)
+    {
+        var consumed = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (!_settings.Current.OutlookInterpretAllDayAsMarkers)
+            return ("Normal", false, consumed);
+
+        var dayStart = dayDate.Date;
+        var dayEnd = dayDate.Date.AddDays(1);
+
+        string derivedDayType = "Normal";
+        var derivedHo = false;
+
+        foreach (var evt in events.Where(e => e.EndLocal > dayStart && e.StartLocal < dayEnd))
+        {
+            var duration = evt.EndLocal - evt.StartLocal;
+            var eligible = evt.IsAllDay || duration.TotalHours >= 6;
+            if (!eligible)
+                continue;
+
+            if (TryMapDayMarker(evt.Subject, out var mapped))
+            {
+                consumed.Add(evt.Id);
+                if (mapped == "HO")
+                    derivedHo = true;
+                else
+                    derivedDayType = mapped;
+            }
+        }
+
+        return (derivedDayType, derivedHo, consumed);
+    }
+
+    private static bool TryMapDayMarker(string subject, out string mapped)
+    {
+        mapped = "Normal";
+        if (string.IsNullOrWhiteSpace(subject))
+            return false;
+
+        var s = subject.ToLowerInvariant();
+        if (s.Contains("homeoffice") || s.Contains(" ho ") || s.StartsWith("ho") || s.EndsWith("ho"))
+        {
+            mapped = "HO";
+            return true;
+        }
+
+        if (s.Contains("urlaub") || s.Contains(" ul ") || s.StartsWith("ul") || s.EndsWith("ul"))
+        {
+            mapped = "UL";
+            return true;
+        }
+
+        if (s.Contains("maz"))
+        {
+            mapped = "AM";
+            return true;
+        }
+
+        return false;
+    }
+
+    private void ApplySharedOverlapLayout(List<WeekCalendarItem> segments, List<OutlookCalendarBlock> external)
+    {
+        var blocks = new List<LayoutBlockRef>();
+        blocks.AddRange(segments.Where(s => s.DisplayEnd > s.DisplayStart).Select(s => new LayoutBlockRef(s.DisplayStart, s.DisplayEnd,
+            (col, count) =>
+            {
+                s.OverlapColumn = col;
+                s.OverlapColumnCount = count;
+            })));
+
+        blocks.AddRange(external.Where(e => e.EndLocal > e.StartLocal).Select(e => new LayoutBlockRef(e.StartLocal, e.EndLocal,
+            (col, count) =>
+            {
+                e.OverlapColumn = col;
+                e.OverlapColumnCount = count;
+            })));
+
+        if (blocks.Count == 0)
+            return;
+
+        var sorted = blocks.OrderBy(b => b.Start).ThenBy(b => b.End).ToList();
+        var group = new List<LayoutBlockRef>();
+        var groupEnd = DateTime.MinValue;
+
+        foreach (var block in sorted)
+        {
+            if (group.Count == 0)
+            {
+                group.Add(block);
+                groupEnd = block.End;
+                continue;
+            }
+
+            if (block.Start < groupEnd)
+            {
+                group.Add(block);
+                if (block.End > groupEnd)
+                    groupEnd = block.End;
+                continue;
+            }
+
+            AssignSharedGroup(group, segments, external);
+            group.Clear();
+            group.Add(block);
+            groupEnd = block.End;
+        }
+
+        if (group.Count > 0)
+            AssignSharedGroup(group, segments, external);
+    }
+
+    private void AssignSharedGroup(List<LayoutBlockRef> group, List<WeekCalendarItem> segments, List<OutlookCalendarBlock> external)
+    {
+        var columnsEnd = new List<DateTime>();
+        foreach (var block in group.OrderBy(i => i.Start).ThenBy(i => i.End))
+        {
+            var placed = false;
+            for (var col = 0; col < columnsEnd.Count; col++)
+            {
+                if (block.Start >= columnsEnd[col])
+                {
+                    block.Column = col;
+                    columnsEnd[col] = block.End;
+                    placed = true;
+                    break;
+                }
+            }
+
+            if (!placed)
+            {
+                block.Column = columnsEnd.Count;
+                columnsEnd.Add(block.End);
+            }
+        }
+
+        var columnCount = Math.Max(1, columnsEnd.Count);
+        var availableWidth = DayColumnWidth - (DayInnerPadding * 2);
+        var blockWidth = Math.Max(42, (availableWidth - ((columnCount - 1) * OverlapGap)) / columnCount);
+
+        foreach (var block in group)
+            block.Assign(block.Column, columnCount);
+
+        foreach (var seg in segments.Where(s => s.OverlapColumnCount == columnCount && s.DisplayEnd > s.DisplayStart && group.Any(g => g.Start == s.DisplayStart && g.End == s.DisplayEnd)))
+        {
+            seg.DisplayLeft = DayInnerPadding + (seg.OverlapColumn * (blockWidth + OverlapGap));
+            seg.DisplayWidth = blockWidth;
+        }
+
+        foreach (var ext in external.Where(e => e.OverlapColumnCount == columnCount && group.Any(g => g.Start == e.StartLocal && g.End == e.EndLocal)))
+        {
+            ext.DisplayLeft = DayInnerPadding + (ext.OverlapColumn * (blockWidth + OverlapGap));
+            ext.DisplayWidth = blockWidth;
+        }
+    }
+
+    private List<OutlookCalendarBlock> BuildExternalEventsForDay(DateTime dayDate, IReadOnlyList<OutlookCalendarEvent> source, HashSet<string> consumedEventIds)
+    {
+        var dayStart = dayDate.Date.AddHours(CalendarStartHour);
+        var dayEnd = dayDate.Date.AddHours(CalendarEndHour);
+
+        return source
+             .Where(e => e.EndLocal > dayStart && e.StartLocal < dayEnd && !consumedEventIds.Contains(e.Id))
+            .Select(e =>
+            {
+                var start = e.StartLocal < dayStart ? dayStart : e.StartLocal;
+                var end = e.EndLocal > dayEnd ? dayEnd : e.EndLocal;
+                var top = MapToCalendarY(start, dayDate);
+                var height = Math.Max(24, (end - start).TotalMinutes * PixelsPerMinute - 2);
+                return new OutlookCalendarBlock
+                {
+                    Id = e.Id,
+                    StartLocal = e.StartLocal,
+                    EndLocal = e.EndLocal,
+                    Subject = e.Subject,
+                    TimeLabel = $"{e.StartLocal:HH:mm} - {e.EndLocal:HH:mm}",
+                    Location = e.Location,
+                    TeamsJoinUrl = _settings.Current.OutlookTeamsButtonEnabled ? e.OnlineMeetingJoinUrl : string.Empty,
+                    DisplayTop = top,
+                    DisplayHeight = height,
+                    DisplayLeft = DayInnerPadding,
+                    DisplayWidth = Math.Max(46, DayColumnWidth - (DayInnerPadding * 2)),
+                    TooltipText = $"Outlook: {e.Subject}\n{e.StartLocal:HH:mm} - {e.EndLocal:HH:mm}" +
+                                  (string.IsNullOrWhiteSpace(e.Location) ? string.Empty : $"\nOrt: {e.Location}")
+                };
+            })
+            .OrderBy(e => e.DisplayTop)
+            .ToList();
+    }
+
+    private static void MarkSegmentConflicts(List<WeekCalendarItem> segments, List<OutlookCalendarBlock> external)
+    {
+        foreach (var segment in segments)
+        {
+            var conflict = external.FirstOrDefault(e => segment.SegmentEnd > e.StartLocal && segment.SegmentStart < e.EndLocal);
+            segment.HasOutlookConflict = conflict != null;
+            segment.OutlookConflictText = conflict == null ? string.Empty : $"Konflikt mit Outlook-Termin: {conflict.Subject}";
+        }
+    }
+
     private WeekDayGroup ResolveSelectedDay(DateTime? previousSelectionDate)
     {
         if (previousSelectionDate.HasValue)
@@ -475,7 +733,11 @@ public class WeekViewModel : ObservableObject
         return date.Date.AddDays(-diff);
     }
 
-    public void Refresh() => LoadWeek();
+    public void Refresh()
+    {
+        _ = _outlookCalendar.TriggerSyncAsync("week-refresh");
+        LoadWeek();
+    }
 
     public override string ToString() => Title;
 }
@@ -485,6 +747,7 @@ public class WeekDayGroup : ObservableObject
     public DateTime DayDate { get; set; }
     public string DayLabel { get; set; } = string.Empty;
     public ObservableCollection<WeekCalendarItem> CalendarItems { get; set; } = new();
+    public ObservableCollection<OutlookCalendarBlock> ExternalEvents { get; set; } = new();
 
     private string _dayType = "Normal";
     public string DayType { get => _dayType; set => Set(ref _dayType, value); }
@@ -530,12 +793,51 @@ public class WeekCalendarItem
     public bool IsCompact { get; set; }
     public bool ShowNote { get; set; }
     public bool ShowTime { get; set; }
+    public bool HasOutlookConflict { get; set; }
+    public string OutlookConflictText { get; set; } = string.Empty;
 
     public string TooltipText =>
         $"{TaskTitle}\n{TimeLabel}\nStatus: {TaskStatus}" +
         (string.IsNullOrWhiteSpace(SegmentNote) ? string.Empty : $"\nNotiz: {SegmentNote}") +
         (string.IsNullOrWhiteSpace(TaskDescription) ? string.Empty : $"\n{TaskDescription}") +
-        (string.IsNullOrWhiteSpace(TicketUrl) ? string.Empty : $"\nTicket: {TicketUrl}");
+        (string.IsNullOrWhiteSpace(TicketUrl) ? string.Empty : $"\nTicket: {TicketUrl}") +
+        (string.IsNullOrWhiteSpace(OutlookConflictText) ? string.Empty : $"\n{OutlookConflictText}");
+}
+
+public class OutlookCalendarBlock
+{
+    public string Id { get; set; } = string.Empty;
+    public string Subject { get; set; } = string.Empty;
+    public string TimeLabel { get; set; } = string.Empty;
+    public string Location { get; set; } = string.Empty;
+    public string TeamsJoinUrl { get; set; } = string.Empty;
+    public DateTime StartLocal { get; set; }
+    public DateTime EndLocal { get; set; }
+    public double DisplayTop { get; set; }
+    public double DisplayHeight { get; set; }
+    public double DisplayLeft { get; set; }
+    public double DisplayWidth { get; set; }
+    public int OverlapColumn { get; set; }
+    public int OverlapColumnCount { get; set; }
+    public bool HasTeamsLink => !string.IsNullOrWhiteSpace(TeamsJoinUrl);
+    public string TooltipText { get; set; } = string.Empty;
+}
+
+
+
+internal sealed class LayoutBlockRef
+{
+    public DateTime Start { get; }
+    public DateTime End { get; }
+    public Action<int, int> Assign { get; }
+    public int Column { get; set; }
+
+    public LayoutBlockRef(DateTime start, DateTime end, Action<int, int> assign)
+    {
+        Start = start;
+        End = end;
+        Assign = assign;
+    }
 }
 
 public class TimeAxisLabel
