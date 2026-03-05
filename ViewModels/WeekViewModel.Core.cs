@@ -137,6 +137,9 @@ public class WeekViewModel : ObservableObject
         _outlookCalendar = outlookCalendar;
 
         BuildTimeScale();
+#if DEBUG
+        LogMarkerVerificationGuide();
+#endif
 
         WeekStart = StartOfWeek(DateTime.Today);
         PreviousWeekCommand = new RelayCommand(() => { WeekStart = WeekStart.AddDays(-7); LoadWeek(); });
@@ -166,6 +169,15 @@ public class WeekViewModel : ObservableObject
         _ = _outlookCalendar.TriggerSyncAsync("week-init");
         UpdateNowIndicator();
     }
+
+#if DEBUG
+    private static void LogMarkerVerificationGuide()
+    {
+        ServiceLocator.Logger.Info("[OutlookDayMarkerVerify] Case1: Only normal meeting on Wednesday 08:00-17:00 => Wednesday marker must remain Normal (no HO pill).");
+        ServiceLocator.Logger.Info("[OutlookDayMarkerVerify] Case2: Add all-day 'Homeoffice' on Tuesday => only Tuesday marker HO, Wednesday remains Normal.");
+        ServiceLocator.Logger.Info("[OutlookDayMarkerVerify] Case3: Remove Tuesday Homeoffice and refresh => no day keeps stale HO marker.");
+    }
+#endif
 
     private void BuildTimeScale()
     {
@@ -354,7 +366,8 @@ public class WeekViewModel : ObservableObject
 
             LayoutDayItemsCore(day.Date, calendarItems);
 
-            var markerResult = ResolveOutlookDerivedMarker(day.Date, outlookEvents);
+            var dayEvents = outlookEvents.Where(e => EventOccursOnDay(e, day.Date)).ToList();
+            var markerResult = ResolveOutlookDerivedMarker(day.Date, dayEvents);
             var external = BuildExternalEventsForDay(day.Date, outlookEvents, markerResult.ConsumedEventIds);
             ApplySharedOverlapLayout(calendarItems, external);
             MarkSegmentConflicts(calendarItems, external);
@@ -363,9 +376,10 @@ public class WeekViewModel : ObservableObject
             if (displayDayType == "Normal" && (markerResult.DerivedDayType == "UL" || markerResult.DerivedDayType == "AM"))
                 displayDayType = markerResult.DerivedDayType;
 
+            // HO is set here either by explicit TaskTool day marker (wd.IsHo) or explicit Outlook marker mapping only.
             var displayIsHo = wd.IsHo || markerResult.DerivedHo;
             var displayIsBr = wd.IsBr || markerResult.DerivedBr;
-            LogDayHeaderMarkerDecision(day.Date, wd, markerResult, displayDayType, displayIsHo);
+            LogDayHeaderMarkerDecision(day.Date, wd, dayEvents, markerResult, displayDayType, displayIsHo);
 
             var allDayEvents = BuildAllDayPills(day.Date, outlookEvents, markerResult.ConsumedEventIds);
             var visibleAllDayEvents = allDayEvents.Take(2).ToList();
@@ -544,14 +558,11 @@ public class WeekViewModel : ObservableObject
         if (!_settings.Current.OutlookInterpretAllDayAsMarkers)
             return ("Normal", false, false, consumed, markerCandidates);
 
-        var dayStart = dayDate.Date;
-        var dayEnd = dayDate.Date.AddDays(1);
-
         string derivedDayType = "Normal";
         var derivedHo = false;
         var derivedBr = false;
 
-        foreach (var evt in events.Where(e => e.EndLocal > dayStart && e.StartLocal < dayEnd))
+        foreach (var evt in events)
         {
             var duration = evt.EndLocal - evt.StartLocal;
             if (!IsMarkerEligibleAllDayEvent(evt, duration))
@@ -563,7 +574,7 @@ public class WeekViewModel : ObservableObject
             markerCandidates.Add(evt);
             var marker = OutlookAllDayMarkerMapper.TryMapAllDayMarker(evt, out var criterion);
             var resultMarker = marker ?? "NONE";
-            ServiceLocator.Logger.Info($"[OutlookDayMarker] subject='{evt.Subject}' categories='{evt.Categories}' isAllDay={evt.IsAllDay} resultMarker={resultMarker} criterion={criterion}");
+            ServiceLocator.Logger.Info($"[OutlookDayMarker] day={dayDate:yyyy-MM-dd} subject='{evt.Subject}' categories='{evt.Categories}' isAllDay={evt.IsAllDay} resultMarker={resultMarker} {criterion}");
             if (marker == null)
                 continue;
 
@@ -575,6 +586,17 @@ public class WeekViewModel : ObservableObject
         }
 
         return (derivedDayType, derivedHo, derivedBr, consumed, markerCandidates);
+    }
+
+    private static bool EventOccursOnDay(OutlookCalendarEvent evt, DateTime dayDate)
+    {
+        var dayStart = dayDate.Date;
+        var dayEnd = dayStart.AddDays(1);
+
+        if (evt.IsAllDay)
+            return EventSpansDayExclusive(evt, dayDate);
+
+        return evt.EndLocal > dayStart && evt.StartLocal < dayEnd;
     }
 
     private static bool EventSpansDayExclusive(OutlookCalendarEvent evt, DateTime dayDate)
@@ -597,6 +619,7 @@ public class WeekViewModel : ObservableObject
     private void LogDayHeaderMarkerDecision(
         DateTime dayDate,
         WorkDayRecord wd,
+        IReadOnlyList<OutlookCalendarEvent> dayEvents,
         (string DerivedDayType, bool DerivedHo, bool DerivedBr, HashSet<string> ConsumedEventIds, List<OutlookCalendarEvent> MarkerCandidates) markerResult,
         string displayDayType,
         bool displayIsHo)
@@ -606,16 +629,20 @@ public class WeekViewModel : ObservableObject
             ? "TaskTool"
             : (markerResult.DerivedHo || markerResult.DerivedDayType is "UL" or "AM" ? "Outlook" : "None");
 
-        if (markerResult.MarkerCandidates.Count == 0)
+        ServiceLocator.Logger.Info($"[OutlookDayMarkerDay] day={dayDate:yyyy-MM-dd} markerResult={resultMarker} markerSource={source}");
+
+        if (dayEvents.Count == 0)
         {
-            ServiceLocator.Logger.Info($"[OutlookDayMarkerDay] day={dayDate:yyyy-MM-dd} resultMarker={resultMarker} source={source} candidates=[]");
+            ServiceLocator.Logger.Info($"[OutlookDayMarkerDayEvent] day={dayDate:yyyy-MM-dd} events=[]");
             return;
         }
 
-        var candidates = string.Join(" || ", markerResult.MarkerCandidates.Select(e =>
-            $"subject='{e.Subject}' start={e.StartLocal:O} end={e.EndLocal:O} isAllDay={e.IsAllDay} categories='{e.Categories}' busyStatus='{e.BusyStatus}' location='{e.Location}' entryId='{e.EntryId}' iCalUId='{e.ICalUId}' calendar='{e.CalendarName}'"));
-
-        ServiceLocator.Logger.Info($"[OutlookDayMarkerDay] day={dayDate:yyyy-MM-dd} resultMarker={resultMarker} source={source} candidates=[{candidates}]");
+        foreach (var e in dayEvents)
+        {
+            var matchedRule = OutlookAllDayMarkerMapper.GetMatchedRule(e);
+            ServiceLocator.Logger.Info(
+                $"[OutlookDayMarkerDayEvent] day={dayDate:yyyy-MM-dd} subject='{e.Subject}' start={e.StartLocal:O} end={e.EndLocal:O} isAllDay={e.IsAllDay} categories='{e.Categories}' location='{e.Location}' busyStatus='{e.BusyStatus}' calendar='{e.CalendarName}' entryId='{e.EntryId}' iCalUId='{e.ICalUId}' {matchedRule}");
+        }
     }
 
     private void ApplySharedOverlapLayout(List<WeekCalendarItem> segments, List<PlenaroWeekOutlookEventBlock> external)
