@@ -555,23 +555,17 @@ public class WeekViewModel : ObservableObject
             if (!IsMarkerEligibleAllDayEvent(evt, duration))
                 continue;
 
-            var subject = evt.Subject ?? string.Empty;
-            var normalized = NormalizeStatusSubject(subject);
-            if (!TryMapDayMarker(normalized, out var mapped, out var rule))
-            {
-                ServiceLocator.Logger.Info($"[OutlookDayMarker] subject='{subject}' isAllDay={evt.IsAllDay} start={evt.StartLocal:O} end={evt.EndLocal:O} normalized='{normalized}' markerDetected=false marker=NONE reason=no_exact_or_prefix_match");
+            var marker = OutlookAllDayMarkerMapper.TryMapAllDayMarker(evt, out var criterion);
+            var resultMarker = marker ?? "NONE";
+            ServiceLocator.Logger.Info($"[OutlookDayMarker] subject='{evt.Subject}' categories='{evt.Categories}' isAllDay={evt.IsAllDay} resultMarker={resultMarker} criterion={criterion}");
+            if (marker == null)
                 continue;
-            }
 
             consumed.Add(evt.Id);
-            ServiceLocator.Logger.Info($"[OutlookDayMarker] subject='{subject}' isAllDay={evt.IsAllDay} start={evt.StartLocal:O} end={evt.EndLocal:O} normalized='{normalized}' markerDetected=true marker={mapped} rule={rule}");
-
-            if (mapped == "HO")
+            if (marker == "HO")
                 derivedHo = true;
-            else if (mapped == "BR")
-                derivedBr = true;
             else
-                derivedDayType = mapped;
+                derivedDayType = marker;
         }
 
         return (derivedDayType, derivedHo, derivedBr, consumed);
@@ -585,82 +579,6 @@ public class WeekViewModel : ObservableObject
         var startsAtMidnight = evt.StartLocal.TimeOfDay == TimeSpan.Zero;
         var endsAtMidnight = evt.EndLocal.TimeOfDay == TimeSpan.Zero;
         return startsAtMidnight && endsAtMidnight && duration.TotalHours >= 20;
-    }
-
-    private static bool TryMapDayMarker(string normalizedSubject, out string mapped, out string rule)
-    {
-        mapped = "Normal";
-        rule = string.Empty;
-
-        if (string.IsNullOrWhiteSpace(normalizedSubject))
-            return false;
-
-        var rules = new (string Marker, string[] Keys)[]
-        {
-            ("AM", new[] { "MAZ", "AM" }),
-            ("HO", new[] { "HOMEOFFICE", "HO" }),
-            ("UL", new[] { "URLAUB", "UL" }),
-            ("BR", new[] { "RUFBEREITSCHAFT", "BEREITSCHAFT", "BR" })
-        };
-
-        foreach (var entry in rules)
-        {
-            foreach (var key in entry.Keys)
-            {
-                if (string.Equals(normalizedSubject, key, StringComparison.Ordinal))
-                {
-                    mapped = entry.Marker;
-                    rule = "EXACT";
-                    return true;
-                }
-
-                if (HasPrefixWithSeparator(normalizedSubject, key))
-                {
-                    mapped = entry.Marker;
-                    rule = "PREFIX_WITH_SEPARATOR";
-                    return true;
-                }
-
-                if (HasWholeWord(normalizedSubject, key))
-                {
-                    mapped = entry.Marker;
-                    rule = "WHOLE_WORD";
-                    return true;
-                }
-            }
-        }
-
-        return false;
-    }
-
-    private static bool HasPrefixWithSeparator(string normalizedSubject, string key)
-    {
-        if (!normalizedSubject.StartsWith(key, StringComparison.Ordinal))
-            return false;
-
-        var suffix = normalizedSubject[key.Length..];
-        var validSeparators = new[] { ":", " -", " |", " –", " /" };
-        return validSeparators.Any(s => suffix.StartsWith(s, StringComparison.Ordinal));
-    }
-
-    private static bool HasWholeWord(string normalizedSubject, string key)
-    {
-        if (string.IsNullOrWhiteSpace(normalizedSubject) || string.IsNullOrWhiteSpace(key))
-            return false;
-
-        var pattern = $@"(?<![A-Z0-9]){System.Text.RegularExpressions.Regex.Escape(key)}(?![A-Z0-9])";
-        return System.Text.RegularExpressions.Regex.IsMatch(normalizedSubject, pattern, System.Text.RegularExpressions.RegexOptions.CultureInvariant);
-    }
-
-    private static string NormalizeStatusSubject(string subject)
-    {
-        if (string.IsNullOrWhiteSpace(subject))
-            return string.Empty;
-
-        var s = subject.Trim().ToUpperInvariant();
-        s = System.Text.RegularExpressions.Regex.Replace(s, @"\s+", " ");
-        s = s.Trim(' ', '[', ']', '(', ')', '{', '}');
-        return s;
     }
 
     private void ApplySharedOverlapLayout(List<WeekCalendarItem> segments, List<PlenaroWeekOutlookEventBlock> external)

@@ -446,8 +446,7 @@ public class TodayViewModel : ObservableObject
         if (!IsMarkerEligibleAllDayEvent(evt, duration))
             return false;
 
-        var normalized = NormalizeStatusSubject(evt.Subject ?? string.Empty);
-        return TryDetectMarker(normalized, out _);
+        return OutlookAllDayMarkerMapper.TryMapAllDayMarker(evt, out _) != null;
     }
 
     private static bool IsMarkerEligibleAllDayEvent(OutlookCalendarEvent evt, TimeSpan duration)
@@ -458,67 +457,6 @@ public class TodayViewModel : ObservableObject
         var startsAtMidnight = evt.StartLocal.TimeOfDay == TimeSpan.Zero;
         var endsAtMidnight = evt.EndLocal.TimeOfDay == TimeSpan.Zero;
         return startsAtMidnight && endsAtMidnight && duration.TotalHours >= 20;
-    }
-
-    private static bool TryDetectMarker(string normalizedSubject, out string marker)
-    {
-        marker = string.Empty;
-        if (string.IsNullOrWhiteSpace(normalizedSubject))
-            return false;
-
-        var rules = new (string Marker, string[] Keys)[]
-        {
-            ("AM", new[] { "MAZ", "AM" }),
-            ("HO", new[] { "HOMEOFFICE", "HO" }),
-            ("UL", new[] { "URLAUB", "UL" }),
-            ("BR", new[] { "RUFBEREITSCHAFT", "BEREITSCHAFT", "BR" })
-        };
-
-        foreach (var entry in rules)
-        {
-            foreach (var key in entry.Keys)
-            {
-                if (string.Equals(normalizedSubject, key, StringComparison.Ordinal)
-                    || HasPrefixWithSeparator(normalizedSubject, key)
-                    || HasWholeWord(normalizedSubject, key))
-                {
-                    marker = entry.Marker;
-                    return true;
-                }
-            }
-        }
-
-        return false;
-    }
-
-    private static bool HasPrefixWithSeparator(string normalizedSubject, string key)
-    {
-        if (!normalizedSubject.StartsWith(key, StringComparison.Ordinal))
-            return false;
-
-        var suffix = normalizedSubject[key.Length..];
-        var validSeparators = new[] { ":", " -", " |", " –", " /" };
-        return validSeparators.Any(s => suffix.StartsWith(s, StringComparison.Ordinal));
-    }
-
-    private static bool HasWholeWord(string normalizedSubject, string key)
-    {
-        if (string.IsNullOrWhiteSpace(normalizedSubject) || string.IsNullOrWhiteSpace(key))
-            return false;
-
-        var pattern = $@"(?<![A-Z0-9]){System.Text.RegularExpressions.Regex.Escape(key)}(?![A-Z0-9])";
-        return System.Text.RegularExpressions.Regex.IsMatch(normalizedSubject, pattern, System.Text.RegularExpressions.RegexOptions.CultureInvariant);
-    }
-
-    private static string NormalizeStatusSubject(string subject)
-    {
-        if (string.IsNullOrWhiteSpace(subject))
-            return string.Empty;
-
-        var s = subject.Trim().ToUpperInvariant();
-        s = System.Text.RegularExpressions.Regex.Replace(s, @"\s+", " ");
-        s = s.Trim(' ', '[', ']', '(', ')', '{', '}');
-        return s;
     }
 
     private bool ConfirmConflictIfRequired(DateTime startLocal, DateTime endLocal)
