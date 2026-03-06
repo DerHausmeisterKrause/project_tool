@@ -289,16 +289,20 @@ public class WeekViewModel : ObservableObject
     {
         var previousSelectionDate = SelectedDayGroup?.DayDate;
 
-        if (_settings.Current.OutlookCalendarEnabled)
-            _ = _outlookCalendar.TriggerSyncAsync("week-load");
-
         Days.Clear();
         var dayCount = ShowWeekend ? 7 : 5;
         var from = WeekStart.Date;
         var toExclusive = from.AddDays(dayCount);
+
+        if (_settings.Current.OutlookCalendarEnabled)
+            _ = _outlookCalendar.TriggerSyncAsync(from, toExclusive, "week-load-visible-range");
         var weekEndInclusive = toExclusive.AddDays(-1);
         ServiceLocator.Logger.Info($"[OutlookRangeBuild] fromInclusiveLocal={from:yyyy-MM-dd HH:mm:ss} kind={from.Kind} weekStart={from:yyyy-MM-dd} weekEndInclusive={weekEndInclusive:yyyy-MM-dd} toExclusiveLocal={toExclusive:yyyy-MM-dd HH:mm:ss} kind={toExclusive.Kind} tz={TimeZoneInfo.Local.Id} showWeekend={ShowWeekend} dayCount={dayCount}");
         var outlookEvents = _outlookCalendar.GetEvents(from, toExclusive);
+        foreach (var evt in outlookEvents)
+        {
+            ServiceLocator.Logger.Info($"[OutlookMappedEvent] subject='{evt.Subject}' startLocal={evt.StartLocal:O} endLocal={evt.EndLocal:O} isAllDay={evt.IsAllDay} targetDay={evt.StartLocal:yyyy-MM-dd} entryId='{evt.EntryId}' mappedType=OutlookCalendarEvent");
+        }
 
         var workDays = _workDays.GetWorkDaysInRange(from, toExclusive.AddDays(-1)).ToDictionary(w => w.Day, w => w);
         var segmentsInWeek = _tasks.GetSegmentsForRange(from, toExclusive)
@@ -386,6 +390,7 @@ public class WeekViewModel : ObservableObject
             LogDayHeaderMarkerDecision(day.Date, wd, dayEvents, markerResult, displayDayType, displayIsHo);
             LogOutlookClassificationForDay(day.Date, dayEvents, markerResult.ConsumedEventIds, external, allDayEvents);
             var visibleAllDayEvents = allDayEvents.Take(2).ToList();
+            ServiceLocator.Logger.Info($"[WeekDayFinalCollection] day={day:yyyy-MM-dd} countTimed={external.Count} countAllDay={allDayEvents.Count} timedTitles='{string.Join(" | ", external.Select(x => x.Subject))}' allDayTitles='{string.Join(" | ", allDayEvents.Select(x => x.Subject))}'");
 
             Days.Add(new WeekDayGroup
             {
@@ -834,24 +839,28 @@ public class WeekViewModel : ObservableObject
         {
             if (e.IsAllDay)
             {
-                ServiceLocator.Logger.Info($"[OutlookEventFiltered] subject='{e.Subject}' reason=FilteredByAllDayForTimedGrid day={dayDate:yyyy-MM-dd} start={e.StartLocal:O} end={e.EndLocal:O}");
+                ServiceLocator.Logger.Info($"[WeekDayRejected] subject='{e.Subject}' day={dayDate:yyyy-MM-dd} reason=AllDayHandledInPills entryId='{e.EntryId}'");
+                ServiceLocator.Logger.Info($"[WeekDayAssign] day={dayDate:yyyy-MM-dd} subject='{e.Subject}' startLocal={e.StartLocal:O} endLocal={e.EndLocal:O} overlap=False added=False reason=AllDayHandledInPills");
                 continue;
             }
 
             if (consumedEventIds.Contains(e.Id))
             {
-                ServiceLocator.Logger.Info($"[OutlookEventFiltered] subject='{e.Subject}' reason=FilteredByMarkerConsumption day={dayDate:yyyy-MM-dd} entryId='{e.EntryId}'");
+                ServiceLocator.Logger.Info($"[WeekDayRejected] subject='{e.Subject}' day={dayDate:yyyy-MM-dd} reason=MarkerConsumed entryId='{e.EntryId}'");
+                ServiceLocator.Logger.Info($"[WeekDayAssign] day={dayDate:yyyy-MM-dd} subject='{e.Subject}' startLocal={e.StartLocal:O} endLocal={e.EndLocal:O} overlap=False added=False reason=MarkerConsumed");
                 continue;
             }
 
             var overlap = e.StartLocal < dayEnd && e.EndLocal > dayStart;
             if (!overlap)
             {
-                ServiceLocator.Logger.Info($"[OutlookEventFiltered] subject='{e.Subject}' reason=FilteredByTimeRange day={dayDate:yyyy-MM-dd} start={e.StartLocal:O} end={e.EndLocal:O} visibleStart={dayStart:O} visibleEnd={dayEnd:O} overlap={overlap}");
+                ServiceLocator.Logger.Info($"[WeekDayRejected] subject='{e.Subject}' day={dayDate:yyyy-MM-dd} reason=NoDayOverlap start={e.StartLocal:O} end={e.EndLocal:O} visibleStart={dayStart:O} visibleEnd={dayEnd:O}");
+                ServiceLocator.Logger.Info($"[WeekDayAssign] day={dayDate:yyyy-MM-dd} subject='{e.Subject}' startLocal={e.StartLocal:O} endLocal={e.EndLocal:O} overlap={overlap} added=False reason=NoDayOverlap");
                 continue;
             }
 
             selected.Add(e);
+            ServiceLocator.Logger.Info($"[WeekDayAssign] day={dayDate:yyyy-MM-dd} subject='{e.Subject}' startLocal={e.StartLocal:O} endLocal={e.EndLocal:O} overlap={overlap} added=True reason=TimedOverlap");
         }
 
         return selected
@@ -899,18 +908,21 @@ public class WeekViewModel : ObservableObject
 
             if (consumedEventIds.Contains(e.Id))
             {
-                ServiceLocator.Logger.Info($"[OutlookEventFiltered] subject='{e.Subject}' reason=FilteredByMarkerConsumption day={dayDate:yyyy-MM-dd} entryId='{e.EntryId}'");
+                ServiceLocator.Logger.Info($"[WeekDayRejected] subject='{e.Subject}' day={dayDate:yyyy-MM-dd} reason=AllDayMarkerConsumed entryId='{e.EntryId}'");
+                ServiceLocator.Logger.Info($"[WeekDayAssign] day={dayDate:yyyy-MM-dd} subject='{e.Subject}' startLocal={e.StartLocal:O} endLocal={e.EndLocal:O} overlap=False added=False reason=AllDayMarkerConsumed");
                 continue;
             }
 
             var overlap = EventSpansDayExclusive(e, dayDate);
             if (!overlap)
             {
-                ServiceLocator.Logger.Info($"[OutlookEventFiltered] subject='{e.Subject}' reason=FilteredByTimeRange day={dayDate:yyyy-MM-dd} start={e.StartLocal:O} end={e.EndLocal:O} overlap={overlap}");
+                ServiceLocator.Logger.Info($"[WeekDayRejected] subject='{e.Subject}' day={dayDate:yyyy-MM-dd} reason=AllDayNoOverlap start={e.StartLocal:O} end={e.EndLocal:O}");
+                ServiceLocator.Logger.Info($"[WeekDayAssign] day={dayDate:yyyy-MM-dd} subject='{e.Subject}' startLocal={e.StartLocal:O} endLocal={e.EndLocal:O} overlap={overlap} added=False reason=AllDayNoOverlap");
                 continue;
             }
 
             selected.Add(e);
+            ServiceLocator.Logger.Info($"[WeekDayAssign] day={dayDate:yyyy-MM-dd} subject='{e.Subject}' startLocal={e.StartLocal:O} endLocal={e.EndLocal:O} overlap={overlap} added=True reason=AllDayOverlap");
         }
 
         return selected
