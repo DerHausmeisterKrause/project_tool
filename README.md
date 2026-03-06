@@ -21,12 +21,13 @@ Output liegt unter:
 `bin/Release/net8.0-windows/win-x64/publish/`
 
 ## Start
-1. `TaskTool.exe` starten.
-2. Beim ersten Start werden automatisch erzeugt (neben der EXE):
+1. Aktuelle `TaskTool.zzip` aus dem Ordner "deploy" entpacken.
+2. `TaskTool.exe` starten.
+3. Beim ersten Start werden automatisch erzeugt (neben der EXE):
    - `TaskTool.db`
    - `settings.json`
    - `logs.txt`
-3. Outlook-Integration kann in **Einstellungen** deaktiviert werden.
+4. Outlook-Integration kann in **Einstellungen** deaktiviert werden.
 
 ## Hinweise
 - Alles bleibt lokal, keine Cloud, kein Webserver.
