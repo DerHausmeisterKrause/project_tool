@@ -247,7 +247,7 @@ public class OutlookInteropService
 
         try
         {
-            return ExecuteOnSta(() =>
+            return ExecuteOnSta<(bool ok, List<OutlookCalendarEvent> events, string error)>(() =>
             {
                 var outlookType = Type.GetTypeFromProgID("Outlook.Application");
                 if (outlookType == null)
