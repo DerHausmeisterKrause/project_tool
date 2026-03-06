@@ -303,21 +303,11 @@ public class OutlookInteropService
 
                     LogProbeScanForMissingDays(itemsDyn, normalizedFrom, normalizedTo);
 
-                    var events = new List<OutlookCalendarEvent>();
-                    foreach (var raw in (System.Collections.IEnumerable)restricted!)
+                    var events = CollectCalendarEvents((System.Collections.IEnumerable)restricted!, calendarName, normalizedFrom, normalizedTo, "Restrict");
+                    if (events.Count == 0)
                     {
-                        object? appointment = raw;
-                        try
-                        {
-                            if (!TryReadCalendarEvent(appointment, calendarName, normalizedFrom, normalizedTo, out OutlookCalendarEvent? evt))
-                                continue;
-
-                            events.Add(evt!);
-                        }
-                        finally
-                        {
-                            SafeReleaseComObject(appointment);
-                        }
+                        _logger.Info("[OutlookFetchRestrict] NoEventsFromRestrict => fallback=ItemsNoRestrict");
+                        events = CollectCalendarEvents((System.Collections.IEnumerable)itemsDyn, calendarName, normalizedFrom, normalizedTo, "ItemsFallbackNoRestrict");
                     }
 
                     return (true, events, string.Empty);
@@ -340,26 +330,78 @@ public class OutlookInteropService
     }
 
 
-    private bool TryReadCalendarEvent(object? rawItem, string calendarName, DateTime fromInclusive, DateTime toExclusive, out OutlookCalendarEvent? calendarEvent)
+    private List<OutlookCalendarEvent> CollectCalendarEvents(System.Collections.IEnumerable source, string calendarName, DateTime fromInclusive, DateTime toExclusive, string sourceName)
+    {
+        var events = new List<OutlookCalendarEvent>();
+        foreach (var raw in source)
+        {
+            object? itemObj = raw;
+            try
+            {
+                LogRawItem(itemObj, sourceName);
+
+                if (!TryReadCalendarEvent(itemObj, calendarName, fromInclusive, toExclusive, out OutlookCalendarEvent? evt, out var rejectReason))
+                {
+                    LogRejectedItem(itemObj, rejectReason);
+                    continue;
+                }
+
+                _logger.Info($"[OutlookItemAccepted] subject='{evt!.Subject}' start={evt.StartLocal:O} end={evt.EndLocal:O} whyAccepted=CalendarItemWithValidRangeAndOverlap entryId='{evt.EntryId}' source='{sourceName}'");
+                events.Add(evt);
+            }
+            finally
+            {
+                SafeReleaseComObject(itemObj);
+            }
+        }
+
+        return events;
+    }
+
+    private void LogRawItem(object? rawItem, string sourceName)
+    {
+        var runtimeType = rawItem?.GetType().FullName ?? "<null>";
+        var messageClass = ReadComString(rawItem, "MessageClass");
+        var subject = ReadComString(rawItem, "Subject");
+        var start = ReadComDate(rawItem, "Start");
+        var end = ReadComDate(rawItem, "End");
+        var allDay = ReadComBool(rawItem, "AllDayEvent");
+        var meetingStatus = ReadComString(rawItem, "MeetingStatus");
+        var busyStatus = ReadComString(rawItem, "BusyStatus");
+        var isRecurring = ReadComBool(rawItem, "IsRecurring");
+        var entryId = ReadComString(rawItem, "EntryID");
+
+        _logger.Info($"[OutlookRawItem] source='{sourceName}' runtimeType='{runtimeType}' messageClass='{messageClass}' subject='{subject}' start={FormatNullableDate(start)} end={FormatNullableDate(end)} allDay={FormatNullableBool(allDay)} meetingStatus='{meetingStatus}' busyStatus='{busyStatus}' isRecurring={FormatNullableBool(isRecurring)} entryId='{entryId}'");
+    }
+
+    private void LogRejectedItem(object? rawItem, string reason)
+    {
+        var runtimeType = rawItem?.GetType().FullName ?? "<null>";
+        var messageClass = ReadComString(rawItem, "MessageClass");
+        var subject = ReadComString(rawItem, "Subject");
+
+        _logger.Info($"[OutlookItemRejected] subject='{(string.IsNullOrWhiteSpace(subject) ? "<null>" : subject)}' runtimeType='{runtimeType}' messageClass='{messageClass}' reason={reason}");
+    }
+
+    private bool TryReadCalendarEvent(object? rawItem, string calendarName, DateTime fromInclusive, DateTime toExclusive, out OutlookCalendarEvent? calendarEvent, out string rejectReason)
     {
         calendarEvent = null;
+        rejectReason = string.Empty;
+
         if (rawItem == null)
+        {
+            rejectReason = "NullItem";
             return false;
+        }
 
         dynamic item = rawItem;
 
+        var runtimeType = rawItem.GetType().FullName ?? rawItem.GetType().Name;
         string messageClass;
         try { messageClass = Convert.ToString(item.MessageClass) ?? string.Empty; } catch { messageClass = string.Empty; }
 
-        var className = rawItem.GetType().Name;
         var entryId = SafeRead(() => Convert.ToString(item.EntryID)) ?? string.Empty;
         var subject = SafeRead(() => Convert.ToString(item.Subject)) ?? string.Empty;
-
-        if (!IsCalendarLikeItem(messageClass, className))
-        {
-            _logger.Info($"[OutlookEventFiltered] subject='{subject}' reason=FilteredByItemType className='{className}' messageClass='{messageClass}' entryId='{entryId}'");
-            return false;
-        }
 
         DateTime start;
         DateTime end;
@@ -370,14 +412,20 @@ public class OutlookInteropService
         }
         catch
         {
-            _logger.Info($"[OutlookEventFiltered] subject='{subject}' reason=MissingOrInvalidStartEnd className='{className}' messageClass='{messageClass}' entryId='{entryId}'");
+            rejectReason = "MissingOrInvalidStartEnd";
+            return false;
+        }
+
+        if (!IsCalendarLikeItem(messageClass, runtimeType, hasStartEnd: true))
+        {
+            rejectReason = "FilteredByItemType";
             return false;
         }
 
         var overlap = start < toExclusive && end > fromInclusive;
         if (!overlap)
         {
-            _logger.Info($"[OutlookEventFiltered] subject='{subject}' reason=FilteredByTimeRange start={start:O} end={end:O} fromInclusive={fromInclusive:O} toExclusive={toExclusive:O} entryId='{entryId}'");
+            rejectReason = "FilteredByTimeRange";
             return false;
         }
 
@@ -398,8 +446,6 @@ public class OutlookInteropService
 
         var recurrenceState = SafeRead(() => Convert.ToInt32(item.RecurrenceState));
         var isInstance = recurrenceState == 2 || recurrenceState == 3;
-
-        _logger.Info($"[OutlookRawEvent] subject='{subject}' start={start:O} end={end:O} isAllDay={allDay} busyStatus='{busyStatus}' sensitivity='{sensitivity}' isPrivate={isPrivate} isRecurring={isRecurring} isInstance={isInstance} meetingStatus='{meetingStatus}' messageClass='{messageClass}' location='{location}' categories='{categories}' entryId='{entryId}'");
 
         calendarEvent = new OutlookCalendarEvent
         {
@@ -429,13 +475,90 @@ public class OutlookInteropService
         return true;
     }
 
-    private static bool IsCalendarLikeItem(string messageClass, string className)
+    private static bool IsCalendarLikeItem(string messageClass, string runtimeType, bool hasStartEnd)
     {
-        if (!string.IsNullOrWhiteSpace(messageClass) && messageClass.StartsWith("IPM.Appointment", StringComparison.OrdinalIgnoreCase))
+        if (!string.IsNullOrWhiteSpace(messageClass))
+        {
+            if (messageClass.StartsWith("IPM.Appointment", StringComparison.OrdinalIgnoreCase))
+                return true;
+
+
+            if (messageClass.StartsWith("IPM.Task", StringComparison.OrdinalIgnoreCase)
+                || messageClass.StartsWith("IPM.Note", StringComparison.OrdinalIgnoreCase)
+                || messageClass.StartsWith("IPM.StickyNote", StringComparison.OrdinalIgnoreCase))
+                return false;
+        }
+
+        if (runtimeType.Contains("Appointment", StringComparison.OrdinalIgnoreCase))
             return true;
 
-        return className.Contains("Appointment", StringComparison.OrdinalIgnoreCase);
+        return hasStartEnd;
     }
+
+    private static string ReadComString(object? rawItem, string propertyName)
+    {
+        var value = ReadComObject(rawItem, propertyName);
+        return value == null ? string.Empty : Convert.ToString(value) ?? string.Empty;
+    }
+
+    private static DateTime? ReadComDate(object? rawItem, string propertyName)
+    {
+        var value = ReadComObject(rawItem, propertyName);
+        if (value == null)
+            return null;
+
+        try
+        {
+            return NormalizeOutlookDateTime(Convert.ToDateTime(value));
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static bool? ReadComBool(object? rawItem, string propertyName)
+    {
+        var value = ReadComObject(rawItem, propertyName);
+        if (value == null)
+            return null;
+
+        try
+        {
+            return Convert.ToBoolean(value);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static object? ReadComObject(object? rawItem, string propertyName)
+    {
+        if (rawItem == null)
+            return null;
+
+        dynamic item = rawItem;
+        return propertyName switch
+        {
+            "MessageClass" => SafeRead(() => (object?)item.MessageClass),
+            "Subject" => SafeRead(() => (object?)item.Subject),
+            "Start" => SafeRead(() => (object?)item.Start),
+            "End" => SafeRead(() => (object?)item.End),
+            "AllDayEvent" => SafeRead(() => (object?)item.AllDayEvent),
+            "MeetingStatus" => SafeRead(() => (object?)item.MeetingStatus),
+            "BusyStatus" => SafeRead(() => (object?)item.BusyStatus),
+            "IsRecurring" => SafeRead(() => (object?)item.IsRecurring),
+            "EntryID" => SafeRead(() => (object?)item.EntryID),
+            _ => null
+        };
+    }
+
+    private static string FormatNullableDate(DateTime? value)
+        => value.HasValue ? value.Value.ToString("O") : "<null>";
+
+    private static string FormatNullableBool(bool? value)
+        => value.HasValue ? value.Value.ToString() : "<null>";
 
     private static T SafeRead<T>(Func<T> getter, T fallback = default!)
     {
