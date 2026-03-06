@@ -21,7 +21,7 @@ Output liegt unter:
 `bin/Release/net8.0-windows/win-x64/publish/`
 
 ## Start
-1. Aktuelle `TaskTool.zzip` aus dem Ordner "deploy" entpacken.
+1. Aktuelle `TaskTool.zip` aus dem Ordner "deploy" entpacken.
 2. `TaskTool.exe` starten.
 3. Beim ersten Start werden automatisch erzeugt (neben der EXE):
    - `TaskTool.db`
