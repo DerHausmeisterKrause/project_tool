@@ -309,7 +309,7 @@ public class OutlookInteropService
                         object? appointment = raw;
                         try
                         {
-                            if (!TryReadCalendarEvent(appointment, calendarName, normalizedFrom, normalizedTo, out var evt))
+                            if (!TryReadCalendarEvent(appointment, calendarName, normalizedFrom, normalizedTo, out OutlookCalendarEvent? evt))
                                 continue;
 
                             events.Add(evt!);
