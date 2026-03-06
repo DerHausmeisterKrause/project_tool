@@ -5,6 +5,7 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
+using System.Linq;
 using TaskTool.Models;
 
 namespace TaskTool.Services;
@@ -246,7 +247,7 @@ public class OutlookInteropService
 
         try
         {
-            return ExecuteOnSta(() =>
+            return ExecuteOnSta<(bool ok, List<OutlookCalendarEvent> events, string error)>(() =>
             {
                 var outlookType = Type.GetTypeFromProgID("Outlook.Application");
                 if (outlookType == null)
@@ -276,85 +277,37 @@ public class OutlookInteropService
                     var storeId = Convert.ToString(folderDyn.StoreID) ?? string.Empty;
                     string storeName;
                     try { storeName = Convert.ToString(folderDyn.Store?.DisplayName) ?? string.Empty; } catch { storeName = string.Empty; }
-                    _logger.Info($"[OutlookFetchFolder] calendarName='{calendarName}' folderEntryId='{folderEntryId}' storeId='{storeId}' storeName='{storeName}'");
+                    _logger.Info($"[OutlookFetchFolder] folderName='{calendarName}' folderEntryId='{folderEntryId}' storeId='{storeId}' storeName='{storeName}'");
 
                     items = folderDyn.Items;
                     dynamic itemsDyn = items!;
                     itemsDyn.IncludeRecurrences = true;
                     itemsDyn.Sort("[Start]");
 
-                    var fromFilter = FormatOutlookRestrictDate(fromLocal);
-                    var toFilter = FormatOutlookRestrictDate(toLocal);
+                    var normalizedFrom = fromLocal.Date;
+                    var normalizedTo = toLocal.Date;
+                    var fromFilter = FormatOutlookRestrictDate(normalizedFrom);
+                    var toFilter = FormatOutlookRestrictDate(normalizedTo);
                     var filter = $"[Start] < '{toFilter}' AND [End] > '{fromFilter}'";
-                    _logger.Info($"[OutlookFetchRestrict] fromInclusive={fromLocal:O} toExclusive={toLocal:O} filter='{filter}'");
-                    restricted = itemsDyn.Restrict(filter);
+                    _logger.Info($"[OutlookFetchRestrict] fromInclusive={normalizedFrom:O} toExclusive={normalizedTo:O} filter='{filter}'");
 
-                    LogProbeScanForMissingDays(itemsDyn, fromLocal, toLocal);
-
-                    var events = new List<OutlookCalendarEvent>();
-                    foreach (var raw in (System.Collections.IEnumerable)restricted!)
+                    try
                     {
-                        object? appointment = raw;
-                        try
-                        {
-                            dynamic a = appointment!;
-                            var startRaw = Convert.ToDateTime(a.Start);
-                            var endRaw = Convert.ToDateTime(a.End);
-                            DateTime start = NormalizeOutlookDateTime(startRaw);
-                            DateTime end = NormalizeOutlookDateTime(endRaw);
-                            if (end <= fromLocal || start >= toLocal)
-                                continue;
+                        restricted = itemsDyn.Restrict(filter);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.Error($"[OutlookFetchRestrict] RestrictFailed error='{ex.Message}' filter='{filter}'");
+                        restricted = items;
+                    }
 
-                            var body = Convert.ToString(a.Body) ?? string.Empty;
-                            var location = Convert.ToString(a.Location) ?? string.Empty;
-                            var joinUrl = ExtractTeamsUrl(body, location);
+                    LogProbeScanForMissingDays(itemsDyn, normalizedFrom, normalizedTo);
 
-                            var entryId = Convert.ToString(a.EntryID) ?? string.Empty;
-                            var busyRaw = Convert.ToString(a.BusyStatus) ?? string.Empty;
-                            var iCalUid = Convert.ToString(a.GlobalAppointmentID) ?? string.Empty;
-                            var allDayEvent = Convert.ToBoolean(a.AllDayEvent);
-                            var subjectRaw = Convert.ToString(a.Subject) ?? string.Empty;
-                            _logger.Info($"[OutlookRawEvent] subject='{subjectRaw}' start={start:O} end={end:O} allDay={allDayEvent} startKind={start.Kind} endKind={end.Kind} busyStatus='{busyRaw}' sensitivityRaw='{Convert.ToString(a.Sensitivity) ?? string.Empty}' isRecurringRaw='{Convert.ToString(a.IsRecurring) ?? string.Empty}' entryId='{entryId}' calendar='{calendarName}'");
-
-                            string sensitivity;
-                            bool isPrivate;
-                            bool isRecurring;
-                            bool isInstance;
-                            try { sensitivity = Convert.ToString(a.Sensitivity) ?? string.Empty; } catch { sensitivity = string.Empty; }
-                            try { isPrivate = Convert.ToInt32(a.Sensitivity) == 2; } catch { try { isPrivate = Convert.ToBoolean(a.IsPrivate); } catch { isPrivate = false; } }
-                            try { isRecurring = Convert.ToBoolean(a.IsRecurring); } catch { isRecurring = false; }
-                            try { isInstance = Convert.ToInt32(a.RecurrenceState) == 2 || Convert.ToInt32(a.RecurrenceState) == 3; } catch { isInstance = false; }
-
-                            events.Add(new OutlookCalendarEvent
-                            {
-                                Id = string.IsNullOrWhiteSpace(entryId) ? Guid.NewGuid().ToString("N") : entryId,
-                                EntryId = entryId,
-                                ICalUId = iCalUid,
-                                CalendarName = calendarName,
-                                BusyStatus = busyRaw,
-                                Sensitivity = sensitivity,
-                                IsPrivate = isPrivate,
-                                IsRecurring = isRecurring,
-                                IsInstance = isInstance,
-                                Subject = string.IsNullOrWhiteSpace(subjectRaw) ? "(Kein Betreff)" : subjectRaw,
-                                StartLocal = start,
-                                EndLocal = end,
-                                IsAllDay = allDayEvent,
-                                Location = location,
-                                Organizer = Convert.ToString(a.Organizer) ?? string.Empty,
-                                BodyPreview = body.Length > 240 ? body[..240] : body,
-                                OnlineMeetingJoinUrl = joinUrl,
-                                Categories = Convert.ToString(a.Categories) ?? string.Empty
-                            });
-                        }
-                        catch
-                        {
-                            // ignore non-appointment entries
-                        }
-                        finally
-                        {
-                            SafeReleaseComObject(appointment);
-                        }
+                    var events = CollectCalendarEvents((System.Collections.IEnumerable)restricted!, calendarName, normalizedFrom, normalizedTo, "Restrict");
+                    if (events.Count == 0)
+                    {
+                        _logger.Info("[OutlookFetchRestrict] NoEventsFromRestrict => fallback=ItemsNoRestrict");
+                        events = CollectCalendarEvents((System.Collections.IEnumerable)itemsDyn, calendarName, normalizedFrom, normalizedTo, "ItemsFallbackNoRestrict");
                     }
 
                     return (true, events, string.Empty);
@@ -373,6 +326,249 @@ public class OutlookInteropService
         {
             _logger.Error(BuildOutlookExceptionLog("GetCalendarEvents", ex, fromLocal, toLocal));
             return (false, new List<OutlookCalendarEvent>(), BuildUserFacingOutlookError(ex));
+        }
+    }
+
+
+    private List<OutlookCalendarEvent> CollectCalendarEvents(System.Collections.IEnumerable source, string calendarName, DateTime fromInclusive, DateTime toExclusive, string sourceName)
+    {
+        var events = new List<OutlookCalendarEvent>();
+        foreach (var raw in source)
+        {
+            object? itemObj = raw;
+            try
+            {
+                LogRawItem(itemObj, sourceName);
+
+                if (!TryReadCalendarEvent(itemObj, calendarName, fromInclusive, toExclusive, out OutlookCalendarEvent? evt, out var rejectReason))
+                {
+                    LogRejectedItem(itemObj, rejectReason);
+                    continue;
+                }
+
+                _logger.Info($"[OutlookItemAccepted] subject='{evt!.Subject}' start={evt.StartLocal:O} end={evt.EndLocal:O} whyAccepted=CalendarItemWithValidRangeAndOverlap entryId='{evt.EntryId}' source='{sourceName}'");
+                events.Add(evt);
+            }
+            finally
+            {
+                SafeReleaseComObject(itemObj);
+            }
+        }
+
+        return events;
+    }
+
+    private void LogRawItem(object? rawItem, string sourceName)
+    {
+        var runtimeType = rawItem?.GetType().FullName ?? "<null>";
+        var messageClass = ReadComString(rawItem, "MessageClass");
+        var subject = ReadComString(rawItem, "Subject");
+        var start = ReadComDate(rawItem, "Start");
+        var end = ReadComDate(rawItem, "End");
+        var allDay = ReadComBool(rawItem, "AllDayEvent");
+        var meetingStatus = ReadComString(rawItem, "MeetingStatus");
+        var busyStatus = ReadComString(rawItem, "BusyStatus");
+        var isRecurring = ReadComBool(rawItem, "IsRecurring");
+        var entryId = ReadComString(rawItem, "EntryID");
+
+        _logger.Info($"[OutlookRawItem] source='{sourceName}' runtimeType='{runtimeType}' messageClass='{messageClass}' subject='{subject}' start={FormatNullableDate(start)} end={FormatNullableDate(end)} allDay={FormatNullableBool(allDay)} meetingStatus='{meetingStatus}' busyStatus='{busyStatus}' isRecurring={FormatNullableBool(isRecurring)} entryId='{entryId}'");
+    }
+
+    private void LogRejectedItem(object? rawItem, string reason)
+    {
+        var runtimeType = rawItem?.GetType().FullName ?? "<null>";
+        var messageClass = ReadComString(rawItem, "MessageClass");
+        var subject = ReadComString(rawItem, "Subject");
+
+        _logger.Info($"[OutlookItemRejected] subject='{(string.IsNullOrWhiteSpace(subject) ? "<null>" : subject)}' runtimeType='{runtimeType}' messageClass='{messageClass}' reason={reason}");
+    }
+
+    private bool TryReadCalendarEvent(object? rawItem, string calendarName, DateTime fromInclusive, DateTime toExclusive, out OutlookCalendarEvent? calendarEvent, out string rejectReason)
+    {
+        calendarEvent = null;
+        rejectReason = string.Empty;
+
+        if (rawItem == null)
+        {
+            rejectReason = "NullItem";
+            return false;
+        }
+
+        dynamic item = rawItem;
+
+        var runtimeType = rawItem.GetType().FullName ?? rawItem.GetType().Name;
+        string messageClass;
+        try { messageClass = Convert.ToString(item.MessageClass) ?? string.Empty; } catch { messageClass = string.Empty; }
+
+        var entryId = SafeRead(() => Convert.ToString(item.EntryID)) ?? string.Empty;
+        var subject = SafeRead(() => Convert.ToString(item.Subject)) ?? string.Empty;
+
+        DateTime start;
+        DateTime end;
+        try
+        {
+            start = NormalizeOutlookDateTime(Convert.ToDateTime(item.Start));
+            end = NormalizeOutlookDateTime(Convert.ToDateTime(item.End));
+        }
+        catch
+        {
+            rejectReason = "MissingOrInvalidStartEnd";
+            return false;
+        }
+
+        if (!IsCalendarLikeItem(messageClass, runtimeType, hasStartEnd: true))
+        {
+            rejectReason = "FilteredByItemType";
+            return false;
+        }
+
+        var overlap = start < toExclusive && end > fromInclusive;
+        if (!overlap)
+        {
+            rejectReason = "FilteredByTimeRange";
+            return false;
+        }
+
+        var body = SafeRead(() => Convert.ToString(item.Body)) ?? string.Empty;
+        var location = SafeRead(() => Convert.ToString(item.Location)) ?? string.Empty;
+        var joinUrl = ExtractTeamsUrl(body, location);
+        var busyStatus = SafeRead(() => Convert.ToString(item.BusyStatus)) ?? string.Empty;
+        var sensitivity = SafeRead(() => Convert.ToString(item.Sensitivity)) ?? string.Empty;
+        var categories = SafeRead(() => Convert.ToString(item.Categories)) ?? string.Empty;
+        var organizer = SafeRead(() => Convert.ToString(item.Organizer)) ?? string.Empty;
+        var iCalUid = SafeRead(() => Convert.ToString(item.GlobalAppointmentID)) ?? string.Empty;
+        var meetingStatus = SafeRead(() => Convert.ToString(item.MeetingStatus)) ?? string.Empty;
+
+        bool allDay = SafeRead(() => Convert.ToBoolean(item.AllDayEvent));
+        bool isPrivate = SafeRead(() => Convert.ToBoolean(item.IsPrivate));
+        bool isRecurring = SafeRead(() => Convert.ToBoolean(item.IsRecurring));
+        bool isCancelled = SafeRead(() => Convert.ToBoolean(item.IsCancelled));
+
+        var recurrenceState = SafeRead(() => Convert.ToInt32(item.RecurrenceState));
+        var isInstance = recurrenceState == 2 || recurrenceState == 3;
+
+        calendarEvent = new OutlookCalendarEvent
+        {
+            Id = string.IsNullOrWhiteSpace(entryId) ? Guid.NewGuid().ToString("N") : entryId,
+            EntryId = entryId,
+            ICalUId = iCalUid,
+            CalendarName = calendarName,
+            BusyStatus = busyStatus,
+            Sensitivity = sensitivity,
+            IsPrivate = isPrivate,
+            IsRecurring = isRecurring,
+            IsInstance = isInstance,
+            IsCancelled = isCancelled,
+            MeetingStatus = meetingStatus,
+            MessageClass = messageClass,
+            Subject = string.IsNullOrWhiteSpace(subject) ? "(Kein Betreff)" : subject,
+            StartLocal = start,
+            EndLocal = end,
+            IsAllDay = allDay,
+            Location = location,
+            Organizer = organizer,
+            BodyPreview = body.Length > 240 ? body[..240] : body,
+            OnlineMeetingJoinUrl = joinUrl,
+            Categories = categories
+        };
+
+        return true;
+    }
+
+    private static bool IsCalendarLikeItem(string messageClass, string runtimeType, bool hasStartEnd)
+    {
+        if (!string.IsNullOrWhiteSpace(messageClass))
+        {
+            if (messageClass.StartsWith("IPM.Appointment", StringComparison.OrdinalIgnoreCase))
+                return true;
+
+
+            if (messageClass.StartsWith("IPM.Task", StringComparison.OrdinalIgnoreCase)
+                || messageClass.StartsWith("IPM.Note", StringComparison.OrdinalIgnoreCase)
+                || messageClass.StartsWith("IPM.StickyNote", StringComparison.OrdinalIgnoreCase))
+                return false;
+        }
+
+        if (runtimeType.Contains("Appointment", StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        return hasStartEnd;
+    }
+
+    private static string ReadComString(object? rawItem, string propertyName)
+    {
+        var value = ReadComObject(rawItem, propertyName);
+        return value == null ? string.Empty : Convert.ToString(value) ?? string.Empty;
+    }
+
+    private static DateTime? ReadComDate(object? rawItem, string propertyName)
+    {
+        var value = ReadComObject(rawItem, propertyName);
+        if (value == null)
+            return null;
+
+        try
+        {
+            return NormalizeOutlookDateTime(Convert.ToDateTime(value));
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static bool? ReadComBool(object? rawItem, string propertyName)
+    {
+        var value = ReadComObject(rawItem, propertyName);
+        if (value == null)
+            return null;
+
+        try
+        {
+            return Convert.ToBoolean(value);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static object? ReadComObject(object? rawItem, string propertyName)
+    {
+        if (rawItem == null)
+            return null;
+
+        dynamic item = rawItem;
+        return propertyName switch
+        {
+            "MessageClass" => SafeRead(() => (object?)item.MessageClass),
+            "Subject" => SafeRead(() => (object?)item.Subject),
+            "Start" => SafeRead(() => (object?)item.Start),
+            "End" => SafeRead(() => (object?)item.End),
+            "AllDayEvent" => SafeRead(() => (object?)item.AllDayEvent),
+            "MeetingStatus" => SafeRead(() => (object?)item.MeetingStatus),
+            "BusyStatus" => SafeRead(() => (object?)item.BusyStatus),
+            "IsRecurring" => SafeRead(() => (object?)item.IsRecurring),
+            "EntryID" => SafeRead(() => (object?)item.EntryID),
+            _ => null
+        };
+    }
+
+    private static string FormatNullableDate(DateTime? value)
+        => value.HasValue ? value.Value.ToString("O") : "<null>";
+
+    private static string FormatNullableBool(bool? value)
+        => value.HasValue ? value.Value.ToString() : "<null>";
+
+    private static T SafeRead<T>(Func<T> getter, T fallback = default!)
+    {
+        try
+        {
+            return getter();
+        }
+        catch
+        {
+            return fallback;
         }
     }
 
@@ -434,13 +630,12 @@ public class OutlookInteropService
 
     private void LogProbeScanForMissingDays(dynamic itemsDyn, DateTime fromInclusive, DateTime toExclusive)
     {
-        var probeDays = new[]
-        {
-            new DateTime(2026, 3, 4),
-            new DateTime(2026, 3, 6)
-        };
+        var probeDays = Enumerable.Range(0, Math.Max(1, (toExclusive.Date - fromInclusive.Date).Days))
+            .Select(offset => fromInclusive.Date.AddDays(offset))
+            .Take(14)
+            .ToArray();
 
-        _logger.Info($"[OutlookProbeDayScan] days=2026-03-04,2026-03-06 mode=IterateAllItemsNoRestrict fromInclusive={fromInclusive:O} toExclusive={toExclusive:O}");
+        _logger.Info($"[OutlookProbeDayScan] days={string.Join(',', probeDays.Select(d => d.ToString("yyyy-MM-dd")))} mode=IterateAllItemsNoRestrict fromInclusive={fromInclusive:O} toExclusive={toExclusive:O}");
 
         object? raw = null;
         try

@@ -60,7 +60,14 @@ public class OutlookCalendarService : IDisposable
         }
     }
 
-    public async Task TriggerSyncAsync(string reason = "manual")
+    public Task TriggerSyncAsync(string reason = "manual")
+    {
+        var from = DateTime.Today.AddDays(-Math.Max(0, _settings.Current.OutlookCalendarRangePastDays));
+        var to = DateTime.Today.AddDays(Math.Max(1, _settings.Current.OutlookCalendarRangeFutureDays + 1));
+        return TriggerSyncAsync(from, to, reason);
+    }
+
+    public async Task TriggerSyncAsync(DateTime fromInclusiveLocal, DateTime toExclusiveLocal, string reason)
     {
         if (_disposed || !_settings.Current.OutlookCalendarEnabled)
             return;
@@ -73,8 +80,8 @@ public class OutlookCalendarService : IDisposable
 
         try
         {
-            var from = DateTime.Today.AddDays(-Math.Max(0, _settings.Current.OutlookCalendarRangePastDays));
-            var to = DateTime.Today.AddDays(Math.Max(1, _settings.Current.OutlookCalendarRangeFutureDays + 1));
+            var from = fromInclusiveLocal;
+            var to = toExclusiveLocal;
 
             _logger.Info($"[OutlookCalendarSync] Start reason={reason} from={from:O} to={to:O}");
             var result = await Task.Run(() => _outlook.GetCalendarEvents(from, to));
@@ -87,7 +94,8 @@ public class OutlookCalendarService : IDisposable
 
             foreach (var e in result.events)
             {
-                _logger.Info($"[OutlookRawEvent] subject='{e.Subject}' start={e.StartLocal:O} end={e.EndLocal:O} isAllDay={e.IsAllDay} busyStatus='{e.BusyStatus}' sensitivity='{e.Sensitivity}' isPrivate={e.IsPrivate} categories='{e.Categories}' location='{e.Location}' calendar='{e.CalendarName}' entryId='{e.EntryId}' iCalUId='{e.ICalUId}' isRecurring={e.IsRecurring} isInstance={e.IsInstance}");
+                _logger.Info($"[OutlookFetchedEvent] subject='{e.Subject}' start={e.StartLocal:O} end={e.EndLocal:O} isAllDay={e.IsAllDay} entryId='{e.EntryId}'");
+                _logger.Info($"[OutlookRawEvent] subject='{e.Subject}' start={e.StartLocal:O} end={e.EndLocal:O} isAllDay={e.IsAllDay} busyStatus='{e.BusyStatus}' sensitivity='{e.Sensitivity}' isPrivate={e.IsPrivate} isRecurring={e.IsRecurring} isInstance={e.IsInstance} meetingStatus='{e.MeetingStatus}' messageClass='{e.MessageClass}' isCancelled={e.IsCancelled} categories='{e.Categories}' location='{e.Location}' calendar='{e.CalendarName}' entryId='{e.EntryId}' iCalUId='{e.ICalUId}'");
             }
 
             lock (_syncLock)

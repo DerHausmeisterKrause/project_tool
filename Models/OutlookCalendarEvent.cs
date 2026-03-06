@@ -20,6 +20,9 @@ public class OutlookCalendarEvent
     public string BodyPreview { get; set; } = string.Empty;
     public string OnlineMeetingJoinUrl { get; set; } = string.Empty;
     public string Categories { get; set; } = string.Empty;
+    public string MeetingStatus { get; set; } = string.Empty;
+    public string MessageClass { get; set; } = string.Empty;
+    public bool IsCancelled { get; set; }
 
     public bool HasTeamsLink => !string.IsNullOrWhiteSpace(OnlineMeetingJoinUrl);
 }
