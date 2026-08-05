@@ -43,7 +43,7 @@ Die Ticketsystem-Anbindung nutzt den Znuny/OTRS 6.3.x `GenericTicketConnectorRES
 
 `https://SERVER/nph-genericinterface.pl/Webservice/GenericTicketConnectorREST`
 
-Die Anmeldung erfolgt mit Benutzername und Passwort; API-Tokens werden für diesen Connector nicht verwendet. Die Anwendung versucht die Znuny UserID automatisch über `SessionGet` zu ermitteln. Falls der Webservice keine `UserID`/`UserId` zurückliefert, kann in den Einstellungen die **Znuny Agenten-ID** als Fallback hinterlegt werden. Diese ID wird anschließend für `OwnerIDs` und `ResponsibleIDs` in `TicketSearch` verwendet.
+Die Anmeldung für `TicketSearch` und `TicketGet` erfolgt standardmäßig direkt pro Operation mit `UserLogin` und `Password`; API-Tokens werden für diesen Connector nicht verwendet. In den Einstellungen muss eine **Znuny Agenten-ID** hinterlegt werden. Diese interne numerische ID wird für `OwnerIDs` und `ResponsibleIDs` in `TicketSearch` verwendet. Die TicketSearch-Route (`POST /Ticket/Search` oder kompatibel `GET /Ticket`) und das TicketGet-Route-Template sind konfigurierbar. `SessionGet` wird im normalen Sync nicht benötigt und ist nur noch Diagnose/Fallback.
 
 ## Start
 1. Aktuelle `TaskTool.zip` aus dem Ordner "deploy" entpacken.

@@ -32,6 +32,10 @@ public class SettingsViewModel : ObservableObject
     public string TicketSystemUsername { get => _settings.Current.TicketSystemUsername; set { _settings.Current.TicketSystemUsername = value; Save(); } }
     public string TicketSystemPassword { get => _settings.GetTicketSystemPassword(); set { _settings.SetTicketSystemPassword(value); Save(); } }
     public int TicketSystemAgentId { get => _settings.Current.TicketSystemAgentId; set { _settings.Current.TicketSystemAgentId = value; Save(); } }
+    public string TicketSystemTicketSearchRoute { get => _settings.Current.TicketSystemTicketSearchRoute; set { _settings.Current.TicketSystemTicketSearchRoute = value; Save(); } }
+    public string TicketSystemTicketSearchMethod { get => _settings.Current.TicketSystemTicketSearchMethod; set { _settings.Current.TicketSystemTicketSearchMethod = value; Save(); } }
+    public string TicketSystemTicketGetRouteTemplate { get => _settings.Current.TicketSystemTicketGetRouteTemplate; set { _settings.Current.TicketSystemTicketGetRouteTemplate = value; Save(); } }
+    public string TicketSystemTicketGetAuthMode { get => _settings.Current.TicketSystemTicketGetAuthMode; set { _settings.Current.TicketSystemTicketGetAuthMode = value; Save(); } }
     public int TicketSystemSyncIntervalMinutes { get => _settings.Current.TicketSystemSyncIntervalMinutes; set { _settings.Current.TicketSystemSyncIntervalMinutes = value; Save(); } }
     public bool TicketSystemOnlyOpenTickets { get => _settings.Current.TicketSystemOnlyOpenTickets; set { _settings.Current.TicketSystemOnlyOpenTickets = value; Save(); } }
     public bool TicketSystemShowClosedTickets { get => _settings.Current.TicketSystemShowClosedTickets; set { _settings.Current.TicketSystemShowClosedTickets = value; Save(); } }
@@ -53,12 +57,15 @@ public class SettingsViewModel : ObservableObject
     public bool DynamicIslandEnabled { get => _settings.Current.DynamicIslandEnabled; set { _settings.Current.DynamicIslandEnabled = value; Save(); } }
 
     public List<string> OutlookSyncModes { get; } = new() { "Manual", "Periodic" };
+    public List<string> TicketSystemSearchMethods { get; } = new() { "POST", "GET" };
+    public List<string> TicketSystemTicketGetAuthModes { get; } = new() { "Direct", "Session" };
 
     public RelayCommand TestReminderCommand { get; }
     public RelayCommand RefreshOutlookCalendarCommand { get; }
     public RelayCommand TestOutlookConnectionCommand { get; }
     public RelayCommand ImportTicketSystemTasksCommand { get; }
     public RelayCommand TestTicketSystemConnectionCommand { get; }
+    public RelayCommand TestTicketSystemRoutesCommand { get; }
 
     public SettingsViewModel(SettingsService settings, NotificationService notifications, OutlookCalendarService outlookCalendar, TaskService tasks, TicketSystemService ticketSystem)
     {
@@ -72,6 +79,15 @@ public class SettingsViewModel : ObservableObject
         TestOutlookConnectionCommand = new RelayCommand(TestOutlookConnection);
         ImportTicketSystemTasksCommand = new RelayCommand(async () => await ImportTicketSystemTasksAsync());
         TestTicketSystemConnectionCommand = new RelayCommand(async () => await TestTicketSystemConnectionAsync());
+        TestTicketSystemRoutesCommand = new RelayCommand(async () => await TestTicketSystemRoutesAsync());
+    }
+
+    private async Task TestTicketSystemRoutesAsync()
+    {
+        TicketSystemStatus = "Znuny API-Routen werden getestet ...";
+        var result = await _ticketSystem.TestRoutesAsync();
+        TicketSystemStatus = result.message;
+        MessageBox.Show(result.message, "Znuny API-Routentest", MessageBoxButton.OK, result.success ? MessageBoxImage.Information : MessageBoxImage.Warning);
     }
 
     private async Task TestTicketSystemConnectionAsync()

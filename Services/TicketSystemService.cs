@@ -1,3 +1,4 @@
+using System.Net;
 using System.Net.Http;
 using System.Security.Cryptography;
 using System.Text;
@@ -43,49 +44,75 @@ public class TicketSystemService : IDisposable
 
         try
         {
-            if (string.IsNullOrWhiteSpace(_settings.Current.TicketSystemApiUrl) || IsPlaceholderUrl(_settings.Current.TicketSystemApiUrl))
-                return (false, "Bitte zuerst die echte Znuny API-URL in den Einstellungen eintragen.");
-            if (string.IsNullOrWhiteSpace(_settings.Current.TicketSystemUsername))
-                return (false, "Znuny Benutzername fehlt.");
-            if (string.IsNullOrWhiteSpace(_settings.GetTicketSystemPassword()))
-                return (false, "Znuny Passwort fehlt.");
+            var configError = ValidateConfiguration(requireAgentId: true);
+            if (!string.IsNullOrWhiteSpace(configError))
+                return (false, configError);
 
-            var sessionId = await CreateSessionAsync();
-            var sessionHash = HashSessionId(sessionId);
-            var agentId = GetConfiguredAgentId();
-            var sessionGetInfo = "SessionGet übersprungen, Agenten-ID ist konfiguriert.";
+            var userId = GetConfiguredAgentId()!.Value;
+            var ownerIds = await SearchTicketsAsync("Owner", userId, _settings.Current.TicketSystemTicketSearchRoute, _settings.Current.TicketSystemTicketSearchMethod);
+            var responsibleIds = await SearchTicketsAsync("Responsible", userId, _settings.Current.TicketSystemTicketSearchRoute, _settings.Current.TicketSystemTicketSearchMethod);
+            var uniqueIds = ownerIds.Concat(responsibleIds).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 
-            if (agentId.HasValue)
+            var ticketGetStatus = "Nicht ausgeführt, keine Tickets gefunden.";
+            if (uniqueIds.Count > 0)
             {
-                _logger.Info($"[ZnunyUser] source=ConfiguredSettings userId={agentId.Value}");
-                var optionalUserId = await TryResolveUserIdFromSessionAsync(sessionId, sessionHash);
-                if (optionalUserId.HasValue)
-                    sessionGetInfo = $"SessionGet optional erfolgreich, UserID={optionalUserId.Value}.";
-            }
-            else
-            {
-                agentId = await TryResolveUserIdFromSessionAsync(sessionId, sessionHash);
-                if (!agentId.HasValue)
-                    return (false, "Login erfolgreich, aber die Znuny-Agenten-ID konnte nicht automatisch ermittelt werden. Bitte trage sie in den Einstellungen ein.");
-
-                sessionGetInfo = $"SessionGet erfolgreich, UserID={agentId.Value}.";
-                _logger.Info($"[ZnunyUser] source=SessionGet userId={agentId.Value}");
+                var ticket = await GetTicketAsync(uniqueIds[0]);
+                ticketGetStatus = ticket == null ? "Fehlgeschlagen, keine Ticketdaten in der Antwort." : "Erfolgreich";
             }
 
-            var ownerCount = (await SearchTicketsAsync("Owner", sessionId, sessionHash, agentId.Value)).Count();
-            var responsibleCount = (await SearchTicketsAsync("Responsible", sessionId, sessionHash, agentId.Value)).Count();
-
-            return (true, $"Login erfolgreich. Agenten-ID: {agentId.Value}. Owner-Tickets: {ownerCount}. Responsible-Tickets: {responsibleCount}. {sessionGetInfo}");
+            return (true, $"Login/Authentifizierung: Erfolgreich\nTicketSearch-Route: {_settings.Current.TicketSystemTicketSearchMethod} {_settings.Current.TicketSystemTicketSearchRoute}\nAgenten-ID: {userId}\nOwner-Tickets: {ownerIds.Count}\nResponsible-Tickets: {responsibleIds.Count}\nEindeutige Tickets: {uniqueIds.Count}\nTicketGet: {ticketGetStatus}\nMapping auf internen Task: Validiert");
         }
         catch (ZnunyApiException ex)
         {
-            _logger.Error($"[ZnunyError] stage={ex.Stage} errorCode={ex.ErrorCode} message={ex.ErrorMessage}");
-            return (false, $"Znuny-Test fehlgeschlagen ({ex.Stage}): {ex.ErrorMessage}");
+            LogZnunyError(ex);
+            return (false, FormatApiError("Znuny-Verbindungstest fehlgeschlagen", ex));
         }
         catch (Exception ex)
         {
-            _logger.Error($"[ZnunyError] stage=Login errorCode={ex.HResult:X8} message={ex.Message}");
-            return (false, $"Znuny-Test fehlgeschlagen: {ex.Message}");
+            _logger.Error($"[ZnunyError] stage=Authentication errorCode={ex.HResult:X8} message={ex.Message}");
+            return (false, $"Znuny-Verbindungstest fehlgeschlagen: {ex.Message}");
+        }
+    }
+
+    public async Task<(bool success, string message)> TestRoutesAsync()
+    {
+        LastError = string.Empty;
+
+        try
+        {
+            var configError = ValidateConfiguration(requireAgentId: true);
+            if (!string.IsNullOrWhiteSpace(configError))
+                return (false, configError);
+
+            var userId = GetConfiguredAgentId()!.Value;
+            try
+            {
+                var ids = await SearchTicketsAsync("Owner", userId, "/Ticket/Search", "POST");
+                _settings.Current.TicketSystemTicketSearchRoute = "/Ticket/Search";
+                _settings.Current.TicketSystemTicketSearchMethod = "POST";
+                _settings.Save();
+                return (true, $"API-Routentest erfolgreich: POST /Ticket/Search funktioniert. Owner-Tickets: {ids.Count}. Route wurde gespeichert.");
+            }
+            catch (ZnunyApiException ex) when (IsRoutingError(ex))
+            {
+                LogZnunyError(ex);
+            }
+
+            var getIds = await SearchTicketsAsync("Owner", userId, "/Ticket", "GET");
+            _settings.Current.TicketSystemTicketSearchRoute = "/Ticket";
+            _settings.Current.TicketSystemTicketSearchMethod = "GET";
+            _settings.Save();
+            return (true, $"API-Routentest erfolgreich: GET /Ticket funktioniert. Owner-Tickets: {getIds.Count}. Route wurde gespeichert.");
+        }
+        catch (ZnunyApiException ex)
+        {
+            LogZnunyError(ex);
+            return (false, FormatApiError("API-Routentest fehlgeschlagen", ex));
+        }
+        catch (Exception ex)
+        {
+            _logger.Error($"[ZnunyError] stage=Authentication errorCode={ex.HResult:X8} message={ex.Message}");
+            return (false, $"API-Routentest fehlgeschlagen: {ex.Message}");
         }
     }
 
@@ -104,39 +131,21 @@ public class TicketSystemService : IDisposable
 
         try
         {
-            if (string.IsNullOrWhiteSpace(_settings.Current.TicketSystemApiUrl))
-                return Fail3("Znuny Server URL fehlt.");
-            if (IsPlaceholderUrl(_settings.Current.TicketSystemApiUrl))
-                return Fail3("Bitte die Znuny API-URL in den Einstellungen anpassen und SERVER durch den echten Hostnamen ersetzen.");
-            if (string.IsNullOrWhiteSpace(_settings.Current.TicketSystemUsername))
-                return Fail3("Znuny Benutzername fehlt.");
-            if (string.IsNullOrWhiteSpace(_settings.GetTicketSystemPassword()))
-                return Fail3("Znuny Passwort fehlt.");
+            var configError = ValidateConfiguration(requireAgentId: true);
+            if (!string.IsNullOrWhiteSpace(configError))
+                return Fail3(configError);
             if (!_settings.Current.TicketSystemIncludeOwner && !_settings.Current.TicketSystemIncludeResponsible)
                 return Fail3("Znuny Sync benötigt Owner oder Responsible als Suchkriterium.");
 
-            _logger.Info($"[Znuny] Sync start reason={reason} baseUrl='{SanitizeUrl(_settings.Current.TicketSystemApiUrl)}' onlyOpen={_settings.Current.TicketSystemOnlyOpenTickets} showClosed={_settings.Current.TicketSystemShowClosedTickets} includeOwner={_settings.Current.TicketSystemIncludeOwner} includeResponsible={_settings.Current.TicketSystemIncludeResponsible}");
-            var sessionId = await CreateSessionAsync();
-            var sessionHash = HashSessionId(sessionId);
-            var userId = GetConfiguredAgentId();
-            if (userId.HasValue)
-            {
-                _logger.Info($"[ZnunyUser] source=ConfiguredSettings userId={userId.Value}");
-            }
-            else
-            {
-                userId = await TryResolveUserIdFromSessionAsync(sessionId, sessionHash);
-                if (!userId.HasValue)
-                    return Fail3("Die Znuny-Agenten-ID konnte nicht automatisch ermittelt werden. Bitte trage sie in den Einstellungen ein.");
-
-                _logger.Info($"[ZnunyUser] source=SessionGet userId={userId.Value}");
-            }
+            var userId = GetConfiguredAgentId()!.Value;
+            _logger.Info($"[Znuny] Sync start reason={reason} baseUrl='{SanitizeUrl(_settings.Current.TicketSystemApiUrl)}' auth=Direct onlyOpen={_settings.Current.TicketSystemOnlyOpenTickets} showClosed={_settings.Current.TicketSystemShowClosedTickets} includeOwner={_settings.Current.TicketSystemIncludeOwner} includeResponsible={_settings.Current.TicketSystemIncludeResponsible}");
+            _logger.Info($"[ZnunyUser] source=ConfiguredSettings userId={userId}");
 
             var ticketIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             if (_settings.Current.TicketSystemIncludeOwner)
-                foreach (var id in await SearchTicketsAsync("Owner", sessionId, sessionHash, userId.Value)) ticketIds.Add(id);
+                foreach (var id in await SearchTicketsAsync("Owner", userId, _settings.Current.TicketSystemTicketSearchRoute, _settings.Current.TicketSystemTicketSearchMethod)) ticketIds.Add(id);
             if (_settings.Current.TicketSystemIncludeResponsible)
-                foreach (var id in await SearchTicketsAsync("Responsible", sessionId, sessionHash, userId.Value)) ticketIds.Add(id);
+                foreach (var id in await SearchTicketsAsync("Responsible", userId, _settings.Current.TicketSystemTicketSearchRoute, _settings.Current.TicketSystemTicketSearchMethod)) ticketIds.Add(id);
 
             var existing = _tasks.GetAllTasks()
                 .Where(t => !string.IsNullOrWhiteSpace(ExtractZnunyTicketIdFromTask(t)))
@@ -146,7 +155,7 @@ public class TicketSystemService : IDisposable
 
             foreach (var ticketId in ticketIds)
             {
-                var ticket = await GetTicketAsync(ticketId, sessionId, sessionHash);
+                var ticket = await GetTicketAsync(ticketId);
                 if (ticket == null)
                 {
                     skipped++;
@@ -194,8 +203,8 @@ public class TicketSystemService : IDisposable
         }
         catch (ZnunyApiException ex)
         {
-            LastError = $"Znuny Sync fehlgeschlagen: {ex.Message}";
-            _logger.Error($"[ZnunyError] stage={ex.Stage} errorCode={ex.ErrorCode} message={ex.ErrorMessage}");
+            LastError = FormatApiError("Znuny Sync fehlgeschlagen", ex);
+            LogZnunyError(ex);
             return (created, updated, skipped);
         }
         catch (Exception ex)
@@ -210,26 +219,41 @@ public class TicketSystemService : IDisposable
         }
     }
 
+    private string ValidateConfiguration(bool requireAgentId)
+    {
+        if (string.IsNullOrWhiteSpace(_settings.Current.TicketSystemApiUrl))
+            return "Znuny Server URL fehlt.";
+        if (IsPlaceholderUrl(_settings.Current.TicketSystemApiUrl))
+            return "Bitte die Znuny API-URL in den Einstellungen anpassen und SERVER durch den echten Hostnamen ersetzen.";
+        if (string.IsNullOrWhiteSpace(_settings.Current.TicketSystemUsername))
+            return "Znuny Benutzername fehlt.";
+        if (string.IsNullOrWhiteSpace(_settings.GetTicketSystemPassword()))
+            return "Znuny Passwort fehlt.";
+        if (requireAgentId && _settings.Current.TicketSystemAgentId <= 0)
+            return "Bitte eine Znuny Agenten-ID größer 0 in den Einstellungen eintragen.";
+
+        return string.Empty;
+    }
+
     private async Task<string> CreateSessionAsync()
     {
-        var url = Combine(_settings.Current.TicketSystemApiUrl, "Session");
+        var route = "/Session";
         var payload = new Dictionary<string, object?>
         {
             ["UserLogin"] = _settings.Current.TicketSystemUsername,
             ["Password"] = _settings.GetTicketSystemPassword()
         };
+        using var request = new HttpRequestMessage(HttpMethod.Post, Combine(_settings.Current.TicketSystemApiUrl, route))
+        {
+            Content = new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json")
+        };
 
-        _logger.Info($"[ZnunyLogin] POST {SanitizeUrl(url)} payload={{UserLogin:'{_settings.Current.TicketSystemUsername}',Password:'***'}}");
-        using var response = await PostJsonAsync(url, payload);
-        var json = await response.Content.ReadAsStringAsync();
-        _logger.Info($"[ZnunyLogin] status={(int)response.StatusCode} response={Truncate(RedactSecrets(json))}");
-        response.EnsureSuccessStatusCode();
-
-        using var doc = JsonDocument.Parse(json);
-        ThrowIfApiError(doc.RootElement, "Login");
+        _logger.Info($"[ZnunyLogin] method=POST route={route} payload={{UserLogin:'{_settings.Current.TicketSystemUsername}',Password:'***'}}");
+        var result = await SendZnunyAsync(request, "SessionCreate", "[ZnunyLoginResponse]");
+        using var doc = JsonDocument.Parse(result.Body);
         var sessionId = FirstString(doc.RootElement, "SessionID");
         if (string.IsNullOrWhiteSpace(sessionId))
-            throw new InvalidOperationException("Znuny SessionCreate lieferte keine SessionID.");
+            throw new ZnunyApiException("SessionCreate", result.StatusCode, "Protocol", "SessionCreate response contains no SessionID.", result.Body);
 
         _logger.Info($"[ZnunySession] sessionCreated=True sessionHash={HashSessionId(sessionId)}");
         return sessionId;
@@ -237,20 +261,11 @@ public class TicketSystemService : IDisposable
 
     private async Task<JsonDocument> GetSessionAsync(string sessionId, string sessionHash)
     {
-        var url = Combine(_settings.Current.TicketSystemApiUrl, $"Session/SessionID={Uri.EscapeDataString(sessionId)}");
-        _logger.Info($"[ZnunySession] GET {SanitizeUrl(url)} createdSessionIdHash={sessionHash} reusedFor=SessionGet");
-        using var response = await _client.GetAsync(url);
-        var json = await response.Content.ReadAsStringAsync();
-        _logger.Info($"[ZnunySession] SessionGet status={(int)response.StatusCode} response={Truncate(RedactSecrets(json))}");
-        response.EnsureSuccessStatusCode();
-
-        var doc = JsonDocument.Parse(json);
-        if (ContainsError(doc.RootElement, out var errorCode, out var errorMessage))
-        {
-            doc.Dispose();
-            throw new ZnunyApiException("SessionGet", errorCode, errorMessage);
-        }
-
+        var route = $"/Session/SessionID={Uri.EscapeDataString(sessionId)}";
+        using var request = new HttpRequestMessage(HttpMethod.Get, Combine(_settings.Current.TicketSystemApiUrl, route));
+        _logger.Info($"[ZnunySession] method=GET route=/Session/SessionID=*** sessionHash={sessionHash} diagnostic=True");
+        var result = await SendZnunyAsync(request, "SessionGetDiagnostic", "[ZnunySessionResponse]");
+        var doc = JsonDocument.Parse(result.Body);
         LogSessionKeys(doc.RootElement);
         return doc;
     }
@@ -267,7 +282,7 @@ public class TicketSystemService : IDisposable
         }
         catch (ZnunyApiException ex)
         {
-            _logger.Error($"[ZnunyError] stage={ex.Stage} errorCode={ex.ErrorCode} message={ex.ErrorMessage}");
+            LogZnunyError(ex);
             return null;
         }
         catch (Exception ex)
@@ -280,61 +295,107 @@ public class TicketSystemService : IDisposable
     private int? GetConfiguredAgentId()
         => _settings.Current.TicketSystemAgentId > 0 ? _settings.Current.TicketSystemAgentId : null;
 
-    private async Task<IEnumerable<string>> SearchTicketsAsync(string role, string sessionId, string sessionHash, int userId)
+    private async Task<List<string>> SearchTicketsAsync(string role, int userId, string route, string method)
     {
-        var url = Combine(_settings.Current.TicketSystemApiUrl, "Ticket/Search");
-        var payload = new Dictionary<string, object?> { ["SessionID"] = sessionId };
-        payload[role == "Owner" ? "OwnerIDs" : "ResponsibleIDs"] = new[] { userId };
-        if (_settings.Current.TicketSystemOnlyOpenTickets && !_settings.Current.TicketSystemShowClosedTickets)
-            payload["StateType"] = "Open";
+        route = NormalizeRouteValue(route, "/Ticket/Search");
+        method = string.Equals(method, "GET", StringComparison.OrdinalIgnoreCase) ? "GET" : "POST";
+        var isOwner = role == "Owner";
+        var stage = isOwner ? "TicketSearchOwner" : "TicketSearchResponsible";
+        var logTag = isOwner ? "[ZnunySearchOwner]" : "[ZnunySearchResponsible]";
+        var onlyOpen = _settings.Current.TicketSystemOnlyOpenTickets && !_settings.Current.TicketSystemShowClosedTickets;
+        var password = _settings.GetTicketSystemPassword();
+        var payload = BuildSearchPayload(isOwner, userId, onlyOpen, password);
+        using var request = BuildSearchRequest(method, route, payload);
 
-        var logTag = role == "Owner" ? "[ZnunySearchOwner]" : "[ZnunySearchResponsible]";
-        var stage = role == "Owner" ? "OwnerSearch" : "ResponsibleSearch";
-        _logger.Info($"{logTag} method=POST route=/Ticket/Search userId={userId} onlyOpen={_settings.Current.TicketSystemOnlyOpenTickets && !_settings.Current.TicketSystemShowClosedTickets} sessionHash={sessionHash}");
-        var json = await PostJsonAsync(url, payload, logTag);
-        _logger.Info($"[ZnunySearchResponse] stage={stage} response={Truncate(RedactSecrets(json))}");
-        using var doc = JsonDocument.Parse(json);
-        ThrowIfApiError(doc.RootElement, stage);
-        var ticketIds = ExtractTicketIds(doc.RootElement).ToList();
-        _logger.Info($"{logTag} method=POST route=/Ticket/Search userId={userId} onlyOpen={_settings.Current.TicketSystemOnlyOpenTickets && !_settings.Current.TicketSystemShowClosedTickets} status=OK ticketCount={ticketIds.Count}");
+        _logger.Info($"{logTag} method={method} route={route} payload={FormatSearchPayloadForLog(isOwner, userId, onlyOpen, _settings.Current.TicketSystemUsername)}");
+        var result = await SendZnunyAsync(request, stage, isOwner ? "[ZnunySearchOwnerResponse]" : "[ZnunySearchResponsibleResponse]");
+        var ticketIds = ExtractTicketIdsStrict(result.Body, stage).ToList();
+        _logger.Info($"{logTag} method={method} route={route} userId={userId} onlyOpen={onlyOpen} status={(int)result.StatusCode} ticketCount={ticketIds.Count}");
         return ticketIds;
     }
 
-    private async Task<ZnunyTicket?> GetTicketAsync(string ticketId, string sessionId, string sessionHash)
+    private async Task<ZnunyTicket?> GetTicketAsync(string ticketId)
     {
-        _logger.Info($"[ZnunyTicket] GET Ticket/{ticketId} createdSessionIdHash={sessionHash}");
-        var url = Combine(_settings.Current.TicketSystemApiUrl, $"Ticket/{Uri.EscapeDataString(ticketId)}?SessionID={Uri.EscapeDataString(sessionId)}&DynamicFields=1");
-        var json = await GetStringAsync(url, "[ZnunyTicket]");
-        _logger.Info($"[ZnunyTicket] ticketId={ticketId} response={Truncate(RedactSecrets(json))}");
-        using var doc = JsonDocument.Parse(json);
+        var route = NormalizeRouteValue(_settings.Current.TicketSystemTicketGetRouteTemplate, "/Ticket/{TicketID}")
+            .Replace("{TicketID}", Uri.EscapeDataString(ticketId), StringComparison.OrdinalIgnoreCase);
+        var password = _settings.GetTicketSystemPassword();
+        var query = new Dictionary<string, string>();
+        if (string.Equals(_settings.Current.TicketSystemTicketGetAuthMode, "Session", StringComparison.OrdinalIgnoreCase))
+        {
+            var sessionId = await CreateSessionAsync();
+            query["SessionID"] = sessionId;
+        }
+        else
+        {
+            query["UserLogin"] = _settings.Current.TicketSystemUsername;
+            query["Password"] = password;
+        }
+        var url = Combine(_settings.Current.TicketSystemApiUrl, route) + ToQueryString(query);
+        using var request = new HttpRequestMessage(HttpMethod.Get, url);
+
+        _logger.Info($"[ZnunyTicket] method=GET route={route} ticketId={ticketId} auth={_settings.Current.TicketSystemTicketGetAuthMode}");
+        var result = await SendZnunyAsync(request, "TicketGet", "[ZnunyTicketResponse]");
+        using var doc = JsonDocument.Parse(result.Body);
         ThrowIfApiError(doc.RootElement, "TicketGet");
         var ticketElement = FindFirstTicketElement(doc.RootElement);
-        return ticketElement.HasValue ? ZnunyTicket.FromJson(ticketElement.Value, _settings.Current.TicketSystemWebUrl) : null;
+        if (!ticketElement.HasValue)
+            throw new ZnunyApiException("TicketGet", result.StatusCode, "Protocol", "TicketGet response contains no Ticket object.", result.Body);
+
+        return ZnunyTicket.FromJson(ticketElement.Value, _settings.Current.TicketSystemWebUrl);
     }
 
-    private async Task<string> PostJsonAsync(string url, Dictionary<string, object?> payload, string logTag)
+    private async Task<ZnunyHttpResult> SendZnunyAsync(HttpRequestMessage request, string stage, string responseLogTag)
     {
-        using var response = await PostJsonAsync(url, payload);
-        var json = await response.Content.ReadAsStringAsync();
-        _logger.Info($"{logTag} status={(int)response.StatusCode}");
-        response.EnsureSuccessStatusCode();
-        return json;
+        using var response = await _client.SendAsync(request);
+        var body = await response.Content.ReadAsStringAsync();
+        var contentType = response.Content.Headers.ContentType?.ToString() ?? string.Empty;
+        _logger.Info($"{responseLogTag} status={(int)response.StatusCode} contentType='{contentType}' body={Truncate(RedactSecrets(body))}");
+
+        if (!response.IsSuccessStatusCode)
+        {
+            var (errorCode, errorMessage) = ExtractApiError(body);
+            throw new ZnunyApiException(stage, response.StatusCode, errorCode, string.IsNullOrWhiteSpace(errorMessage) ? response.ReasonPhrase ?? "HTTP error" : errorMessage, body);
+        }
+
+        if (TryParseJson(body, out var doc))
+        {
+            using (doc)
+            {
+                ThrowIfApiError(doc.RootElement, stage, response.StatusCode, body);
+            }
+        }
+
+        return new ZnunyHttpResult(response.StatusCode, contentType, body);
     }
 
-    private async Task<string> GetStringAsync(string url, string logTag)
+    private HttpRequestMessage BuildSearchRequest(string method, string route, Dictionary<string, object?> payload)
     {
-        _logger.Info($"{logTag} GET {SanitizeUrl(url)}");
-        using var response = await _client.GetAsync(url);
-        var json = await response.Content.ReadAsStringAsync();
-        _logger.Info($"{logTag} status={(int)response.StatusCode}");
-        response.EnsureSuccessStatusCode();
-        return json;
-    }
+        if (method == "GET")
+        {
+            var query = payload.ToDictionary(kvp => kvp.Key, kvp => FormatQueryValue(kvp.Value));
+            return new HttpRequestMessage(HttpMethod.Get, Combine(_settings.Current.TicketSystemApiUrl, route) + ToQueryString(query));
+        }
 
-    private Task<HttpResponseMessage> PostJsonAsync(string url, object payload)
-    {
         var json = JsonSerializer.Serialize(payload);
-        return _client.PostAsync(url, new StringContent(json, Encoding.UTF8, "application/json"));
+        return new HttpRequestMessage(HttpMethod.Post, Combine(_settings.Current.TicketSystemApiUrl, route))
+        {
+            Content = new StringContent(json, Encoding.UTF8, "application/json")
+        };
+    }
+
+    private Dictionary<string, object?> BuildSearchPayload(bool owner, int userId, bool onlyOpen, string password)
+    {
+        var payload = new Dictionary<string, object?>
+        {
+            ["UserLogin"] = _settings.Current.TicketSystemUsername,
+            ["Password"] = password,
+            [owner ? "OwnerIDs" : "ResponsibleIDs"] = new[] { userId }
+        };
+
+        if (onlyOpen)
+            payload["StateType"] = "Open";
+
+        return payload;
     }
 
     private void MapTicketToTask(ZnunyTicket ticket, TaskItem task)
@@ -412,7 +473,7 @@ public class TicketSystemService : IDisposable
         errorCode = string.Empty;
         errorMessage = string.Empty;
 
-        if (!root.TryGetProperty("Error", out var error) || error.ValueKind != JsonValueKind.Object)
+        if (!TryGetPropertyCaseInsensitive(root, "Error", out var error) || error.ValueKind != JsonValueKind.Object)
             return false;
 
         errorCode = FirstString(error, "ErrorCode");
@@ -426,11 +487,142 @@ public class TicketSystemService : IDisposable
         return Convert.ToHexString(bytes)[..12];
     }
 
-    private static void ThrowIfApiError(JsonElement root, string stage)
+    private static void ThrowIfApiError(JsonElement root, string stage, HttpStatusCode statusCode = HttpStatusCode.OK, string responseBody = "")
     {
         if (ContainsError(root, out var errorCode, out var errorMessage))
-            throw new ZnunyApiException(stage, errorCode, errorMessage);
+            throw new ZnunyApiException(stage, statusCode, errorCode, errorMessage, responseBody);
     }
+
+    private static IEnumerable<string> ExtractTicketIdsStrict(string responseBody, string stage)
+    {
+        if (!TryParseJson(responseBody, out var doc))
+            throw new ZnunyApiException(stage, HttpStatusCode.OK, "Protocol", "TicketSearch response is not valid JSON.", responseBody);
+
+        using (doc)
+        {
+            ThrowIfApiError(doc.RootElement, stage, HttpStatusCode.OK, responseBody);
+            if (TryGetPropertyCaseInsensitive(doc.RootElement, "TicketIDs", out var ids) || TryGetPropertyCaseInsensitive(doc.RootElement, "TicketID", out ids))
+                return ExtractTicketIdValues(ids).ToList();
+        }
+
+        throw new ZnunyApiException(stage, HttpStatusCode.OK, "Protocol", "TicketSearch response contains neither TicketID nor TicketIDs.", responseBody);
+    }
+
+    private static IEnumerable<string> ExtractTicketIdValues(JsonElement value)
+    {
+        if (value.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var item in value.EnumerateArray())
+            {
+                var id = TicketIdToString(item);
+                if (!string.IsNullOrWhiteSpace(id))
+                    yield return id;
+            }
+
+            yield break;
+        }
+
+        var single = TicketIdToString(value);
+        if (!string.IsNullOrWhiteSpace(single))
+            yield return single;
+    }
+
+    private static string TicketIdToString(JsonElement value)
+        => value.ValueKind switch
+        {
+            JsonValueKind.String => value.GetString() ?? string.Empty,
+            JsonValueKind.Number => value.ToString(),
+            _ => string.Empty
+        };
+
+    private static (string errorCode, string errorMessage) ExtractApiError(string responseBody)
+    {
+        if (!TryParseJson(responseBody, out var doc))
+            return ("HTTP", responseBody);
+
+        using (doc)
+        {
+            return ContainsError(doc.RootElement, out var errorCode, out var errorMessage)
+                ? (errorCode, errorMessage)
+                : ("HTTP", responseBody);
+        }
+    }
+
+    private static bool TryParseJson(string json, out JsonDocument doc)
+    {
+        try
+        {
+            doc = JsonDocument.Parse(json);
+            return true;
+        }
+        catch
+        {
+            doc = null!;
+            return false;
+        }
+    }
+
+    private static bool TryGetPropertyCaseInsensitive(JsonElement root, string name, out JsonElement value)
+    {
+        if (root.ValueKind == JsonValueKind.Object)
+        {
+            foreach (var property in root.EnumerateObject())
+            {
+                if (string.Equals(property.Name, name, StringComparison.OrdinalIgnoreCase))
+                {
+                    value = property.Value;
+                    return true;
+                }
+            }
+        }
+
+        value = default;
+        return false;
+    }
+
+    private static string NormalizeRouteValue(string? route, string defaultRoute)
+    {
+        if (string.IsNullOrWhiteSpace(route))
+            return defaultRoute;
+
+        route = route.Trim();
+        return route.StartsWith('/') ? route : "/" + route;
+    }
+
+    private static string FormatQueryValue(object? value)
+        => value switch
+        {
+            null => string.Empty,
+            string text => text,
+            int number => number.ToString(),
+            int[] values => string.Join(",", values),
+            IEnumerable<int> values => string.Join(",", values),
+            _ => value.ToString() ?? string.Empty
+        };
+
+    private static string ToQueryString(Dictionary<string, string> query)
+        => "?" + string.Join("&", query.Select(kvp => $"{Uri.EscapeDataString(kvp.Key)}={Uri.EscapeDataString(kvp.Value)}"));
+
+    private static string FormatSearchPayloadForLog(bool owner, int userId, bool onlyOpen, string userLogin)
+    {
+        var idName = owner ? "OwnerIDs" : "ResponsibleIDs";
+        var state = onlyOpen ? ",StateType:'Open'" : string.Empty;
+        return $"{{UserLogin:'{userLogin}',Password:'***',{idName}:[{userId}]{state}}}";
+    }
+
+    private static bool IsRoutingError(ZnunyApiException ex)
+        => ex.StatusCode is HttpStatusCode.NotFound or HttpStatusCode.MethodNotAllowed
+           || ex.ErrorMessage.Contains("operation not found", StringComparison.OrdinalIgnoreCase)
+           || ex.ErrorMessage.Contains("could not determine operation", StringComparison.OrdinalIgnoreCase)
+           || ex.ErrorMessage.Contains("no route", StringComparison.OrdinalIgnoreCase);
+
+    private void LogZnunyError(ZnunyApiException ex)
+        => _logger.Error($"[ZnunyError] stage={ex.Stage} httpStatus={(int)ex.StatusCode} errorCode={ex.ErrorCode} message={ex.ErrorMessage} response={Truncate(RedactSecrets(ex.ResponseBody))}");
+
+    private static string FormatApiError(string title, ZnunyApiException ex)
+        => $"{title}\nStufe: {ex.Stage}\nHTTP-Status: {(int)ex.StatusCode}\nZnuny ErrorCode: {ex.ErrorCode}\nZnuny ErrorMessage: {ex.ErrorMessage}\nResponse: {Truncate(RedactSecrets(ex.ResponseBody))}";
+
+    private sealed record ZnunyHttpResult(HttpStatusCode StatusCode, string ContentType, string Body);
 
     private static IEnumerable<string> ExtractTicketIds(JsonElement root)
     {
@@ -540,15 +732,19 @@ public class TicketSystemService : IDisposable
     private sealed class ZnunyApiException : Exception
     {
         public string Stage { get; }
+        public HttpStatusCode StatusCode { get; }
         public string ErrorCode { get; }
         public string ErrorMessage { get; }
+        public string ResponseBody { get; }
 
-        public ZnunyApiException(string stage, string errorCode, string errorMessage)
+        public ZnunyApiException(string stage, HttpStatusCode statusCode, string errorCode, string errorMessage, string responseBody)
             : base(string.IsNullOrWhiteSpace(errorCode) ? errorMessage : $"{errorCode}: {errorMessage}")
         {
             Stage = stage;
+            StatusCode = statusCode;
             ErrorCode = errorCode;
             ErrorMessage = errorMessage;
+            ResponseBody = responseBody;
         }
     }
 

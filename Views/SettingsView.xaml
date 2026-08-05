@@ -50,6 +50,14 @@
                         <TextBlock Text="Znuny Agenten-ID" Foreground="{StaticResource MutedTextBrush}"/>
                         <TextBox Text="{Binding TicketSystemAgentId, UpdateSourceTrigger=PropertyChanged}" Width="120"/>
                         <TextBlock Text="Interne numerische Agenten-ID für Owner- und Responsible-Suche. Sie kann in Znuny unter Admin → Agenten bzw. in der URL des geöffneten Agenten gefunden werden." Foreground="{StaticResource MutedTextBrush}" TextWrapping="Wrap" Margin="0,0,0,8"/>
+                        <TextBlock Text="TicketSearch Route" Foreground="{StaticResource MutedTextBrush}"/>
+                        <TextBox Text="{Binding TicketSystemTicketSearchRoute, UpdateSourceTrigger=PropertyChanged}" Width="220"/>
+                        <TextBlock Text="TicketSearch HTTP-Methode" Foreground="{StaticResource MutedTextBrush}"/>
+                        <ComboBox Width="120" Style="{StaticResource DarkComboBoxStyle}" ItemsSource="{Binding TicketSystemSearchMethods}" SelectedItem="{Binding TicketSystemTicketSearchMethod}"/>
+                        <TextBlock Text="TicketGet Route Template" Foreground="{StaticResource MutedTextBrush}"/>
+                        <TextBox Text="{Binding TicketSystemTicketGetRouteTemplate, UpdateSourceTrigger=PropertyChanged}" Width="220"/>
+                        <TextBlock Text="TicketGet Authentifizierung" Foreground="{StaticResource MutedTextBrush}"/>
+                        <ComboBox Width="120" Style="{StaticResource DarkComboBoxStyle}" ItemsSource="{Binding TicketSystemTicketGetAuthModes}" SelectedItem="{Binding TicketSystemTicketGetAuthMode}"/>
                         <TextBlock Text="Synchronisationsintervall (Minuten)" Foreground="{StaticResource MutedTextBrush}"/>
                         <TextBox Text="{Binding TicketSystemSyncIntervalMinutes, UpdateSourceTrigger=PropertyChanged}" Width="120"/>
                         <CheckBox Content="Nur offene Tickets synchronisieren" IsChecked="{Binding TicketSystemOnlyOpenTickets}" Margin="0,8,0,4"/>
@@ -60,6 +68,7 @@
                                    Foreground="{StaticResource MutedTextBrush}" TextWrapping="Wrap" Margin="0,0,0,8"/>
                         <StackPanel Orientation="Horizontal" Margin="0,0,0,0">
                             <Button Content="Znuny-Verbindung testen" Width="220" Style="{StaticResource SecondaryButtonStyle}" Command="{Binding TestTicketSystemConnectionCommand}" Margin="0,0,8,0"/>
+                            <Button Content="API-Routen testen" Width="180" Style="{StaticResource SecondaryButtonStyle}" Command="{Binding TestTicketSystemRoutesCommand}" Margin="0,0,8,0"/>
                             <Button Content="Znuny Tickets jetzt synchronisieren" Width="300" Style="{StaticResource SecondaryButtonStyle}" Command="{Binding ImportTicketSystemTasksCommand}"/>
                         </StackPanel>
                         <TextBlock Text="{Binding TicketSystemStatus}" Foreground="#FBBF24" TextWrapping="Wrap" Margin="0,4,0,0"/>

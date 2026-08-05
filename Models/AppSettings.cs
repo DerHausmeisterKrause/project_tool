@@ -26,6 +26,10 @@ public class AppSettings
     public string TicketSystemPasswordEncrypted { get; set; } = string.Empty;
     public string TicketSystemPassword { get; set; } = string.Empty;
     public int TicketSystemAgentId { get; set; } = 0;
+    public string TicketSystemTicketSearchRoute { get; set; } = "/Ticket/Search";
+    public string TicketSystemTicketSearchMethod { get; set; } = "POST";
+    public string TicketSystemTicketGetRouteTemplate { get; set; } = "/Ticket/{TicketID}";
+    public string TicketSystemTicketGetAuthMode { get; set; } = "Direct";
     public int TicketSystemSyncIntervalMinutes { get; set; } = 15;
     public bool TicketSystemOnlyOpenTickets { get; set; } = true;
     public bool TicketSystemShowClosedTickets { get; set; } = false;

@@ -76,11 +76,22 @@ public class SettingsService
         settings.TicketSystemPasswordEncrypted ??= string.Empty;
         settings.TicketSystemPassword ??= string.Empty;
         settings.TicketSystemAgentId = Math.Max(0, settings.TicketSystemAgentId);
+        settings.TicketSystemTicketSearchRoute = NormalizeRoute(settings.TicketSystemTicketSearchRoute, "/Ticket/Search");
+        settings.TicketSystemTicketSearchMethod = string.Equals(settings.TicketSystemTicketSearchMethod, "GET", StringComparison.OrdinalIgnoreCase) ? "GET" : "POST";
+        settings.TicketSystemTicketGetRouteTemplate = NormalizeRoute(settings.TicketSystemTicketGetRouteTemplate, "/Ticket/{TicketID}");
+        settings.TicketSystemTicketGetAuthMode = string.Equals(settings.TicketSystemTicketGetAuthMode, "Session", StringComparison.OrdinalIgnoreCase) ? "Session" : "Direct";
         settings.TicketSystemSyncIntervalMinutes = settings.TicketSystemSyncIntervalMinutes <= 0 ? 15 : Math.Clamp(settings.TicketSystemSyncIntervalMinutes, 1, 1440);
         if (!settings.TicketSystemIncludeOwner && !settings.TicketSystemIncludeResponsible)
             settings.TicketSystemIncludeOwner = true;
         if (settings.TicketSystemOnlyOpenTickets)
             settings.TicketSystemShowClosedTickets = false;
+    }
+
+    private static string NormalizeRoute(string? route, string defaultRoute)
+    {
+        if (string.IsNullOrWhiteSpace(route)) return defaultRoute;
+        route = route.Trim();
+        return route.StartsWith('/') ? route : "/" + route;
     }
 
     public string GetTicketSystemPassword()
