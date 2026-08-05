@@ -18,6 +18,11 @@ public class OutlookCalendarService : IDisposable
     private readonly object _syncLock = new();
 
     private List<OutlookCalendarEvent> _cache = new();
+    private DateTime? _cacheFromInclusiveLocal;
+    private DateTime? _cacheToExclusiveLocal;
+    private DateTime? _pendingFromInclusiveLocal;
+    private DateTime? _pendingToExclusiveLocal;
+    private string _pendingReason = string.Empty;
     private bool _isSyncing;
     private bool _disposed;
 
@@ -72,39 +77,78 @@ public class OutlookCalendarService : IDisposable
         if (_disposed || !_settings.Current.OutlookCalendarEnabled)
             return;
 
-        if (_isSyncing)
-            return;
+        var requestedFrom = fromInclusiveLocal.Date;
+        var requestedTo = toExclusiveLocal.Date;
+        if (requestedTo <= requestedFrom)
+            requestedTo = requestedFrom.AddDays(1);
 
-        _isSyncing = true;
-        var sw = Stopwatch.StartNew();
-
-        try
+        lock (_syncLock)
         {
-            var from = fromInclusiveLocal;
-            var to = toExclusiveLocal;
-
-            _logger.Info($"[OutlookCalendarSync] Start reason={reason} from={from:O} to={to:O}");
-            var result = await Task.Run(() => _outlook.GetCalendarEvents(from, to));
-            if (!result.ok)
+            if (IsCacheCoveringRange(requestedFrom, requestedTo)
+                && string.Equals(reason, "week-load-visible-range", StringComparison.OrdinalIgnoreCase))
             {
-                LastError = result.error;
-                _logger.Error($"[OutlookCalendarSync] Failed: {result.error}");
+                _logger.Info($"[OutlookCalendarSync] Skip reason={reason} from={requestedFrom:O} to={requestedTo:O} cacheFrom={_cacheFromInclusiveLocal:O} cacheTo={_cacheToExclusiveLocal:O}");
                 return;
             }
 
-            foreach (var e in result.events)
+            if (_isSyncing)
             {
-                _logger.Info($"[OutlookFetchedEvent] subject='{e.Subject}' start={e.StartLocal:O} end={e.EndLocal:O} isAllDay={e.IsAllDay} entryId='{e.EntryId}'");
-                _logger.Info($"[OutlookRawEvent] subject='{e.Subject}' start={e.StartLocal:O} end={e.EndLocal:O} isAllDay={e.IsAllDay} busyStatus='{e.BusyStatus}' sensitivity='{e.Sensitivity}' isPrivate={e.IsPrivate} isRecurring={e.IsRecurring} isInstance={e.IsInstance} meetingStatus='{e.MeetingStatus}' messageClass='{e.MessageClass}' isCancelled={e.IsCancelled} categories='{e.Categories}' location='{e.Location}' calendar='{e.CalendarName}' entryId='{e.EntryId}' iCalUId='{e.ICalUId}'");
+                QueuePendingSync(requestedFrom, requestedTo, reason);
+                return;
             }
 
-            lock (_syncLock)
-                _cache = result.events.OrderBy(e => e.StartLocal).ToList();
+            _isSyncing = true;
+        }
 
-            LastError = string.Empty;
-            LastSyncAtLocal = DateTime.Now;
-            _logger.Info($"[OutlookCalendarSync] End events={_cache.Count} durationMs={sw.ElapsedMilliseconds}");
-            EventsUpdated?.Invoke();
+        var from = requestedFrom;
+        var to = requestedTo;
+        var syncReason = reason;
+
+        try
+        {
+            while (!_disposed && _settings.Current.OutlookCalendarEnabled)
+            {
+                var sw = Stopwatch.StartNew();
+                _logger.Info($"[OutlookCalendarSync] Start reason={syncReason} from={from:O} to={to:O}");
+                var result = await Task.Run(() => _outlook.GetCalendarEvents(from, to));
+                if (!result.ok)
+                {
+                    LastError = result.error;
+                    _logger.Error($"[OutlookCalendarSync] Failed: {result.error}");
+                    return;
+                }
+
+                foreach (var e in result.events)
+                {
+                    _logger.Info($"[OutlookFetchedEvent] subject='{e.Subject}' start={e.StartLocal:O} end={e.EndLocal:O} isAllDay={e.IsAllDay} entryId='{e.EntryId}'");
+                    _logger.Info($"[OutlookRawEvent] subject='{e.Subject}' start={e.StartLocal:O} end={e.EndLocal:O} isAllDay={e.IsAllDay} busyStatus='{e.BusyStatus}' sensitivity='{e.Sensitivity}' isPrivate={e.IsPrivate} isRecurring={e.IsRecurring} isInstance={e.IsInstance} meetingStatus='{e.MeetingStatus}' messageClass='{e.MessageClass}' isCancelled={e.IsCancelled} categories='{e.Categories}' location='{e.Location}' calendar='{e.CalendarName}' entryId='{e.EntryId}' iCalUId='{e.ICalUId}'");
+                }
+
+                lock (_syncLock)
+                {
+                    _cache = result.events.OrderBy(e => e.StartLocal).ToList();
+                    _cacheFromInclusiveLocal = from;
+                    _cacheToExclusiveLocal = to;
+                }
+
+                LastError = string.Empty;
+                LastSyncAtLocal = DateTime.Now;
+                _logger.Info($"[OutlookCalendarSync] End events={result.events.Count} durationMs={sw.ElapsedMilliseconds}");
+                EventsUpdated?.Invoke();
+
+                lock (_syncLock)
+                {
+                    if (!_pendingFromInclusiveLocal.HasValue || !_pendingToExclusiveLocal.HasValue)
+                        break;
+
+                    from = _pendingFromInclusiveLocal.Value;
+                    to = _pendingToExclusiveLocal.Value;
+                    syncReason = string.IsNullOrWhiteSpace(_pendingReason) ? "queued" : _pendingReason;
+                    _pendingFromInclusiveLocal = null;
+                    _pendingToExclusiveLocal = null;
+                    _pendingReason = string.Empty;
+                }
+            }
         }
         catch (Exception ex)
         {
@@ -113,7 +157,8 @@ public class OutlookCalendarService : IDisposable
         }
         finally
         {
-            _isSyncing = false;
+            lock (_syncLock)
+                _isSyncing = false;
         }
     }
 
@@ -138,9 +183,49 @@ public class OutlookCalendarService : IDisposable
         else
         {
             lock (_syncLock)
+            {
                 _cache.Clear();
+                _cacheFromInclusiveLocal = null;
+                _cacheToExclusiveLocal = null;
+                _pendingFromInclusiveLocal = null;
+                _pendingToExclusiveLocal = null;
+                _pendingReason = string.Empty;
+            }
             EventsUpdated?.Invoke();
         }
+    }
+
+    private bool IsCacheCoveringRange(DateTime fromInclusiveLocal, DateTime toExclusiveLocal)
+    {
+        return string.IsNullOrWhiteSpace(LastError)
+               && _cacheFromInclusiveLocal.HasValue
+               && _cacheToExclusiveLocal.HasValue
+               && _cacheFromInclusiveLocal.Value <= fromInclusiveLocal
+               && _cacheToExclusiveLocal.Value >= toExclusiveLocal;
+    }
+
+    private void QueuePendingSync(DateTime fromInclusiveLocal, DateTime toExclusiveLocal, string reason)
+    {
+        if (_pendingFromInclusiveLocal.HasValue && _pendingToExclusiveLocal.HasValue)
+        {
+            _pendingFromInclusiveLocal = _pendingFromInclusiveLocal.Value <= fromInclusiveLocal
+                ? _pendingFromInclusiveLocal.Value
+                : fromInclusiveLocal;
+            _pendingToExclusiveLocal = _pendingToExclusiveLocal.Value >= toExclusiveLocal
+                ? _pendingToExclusiveLocal.Value
+                : toExclusiveLocal;
+            _pendingReason = string.IsNullOrWhiteSpace(_pendingReason)
+                ? reason
+                : $"{_pendingReason}+{reason}";
+        }
+        else
+        {
+            _pendingFromInclusiveLocal = fromInclusiveLocal;
+            _pendingToExclusiveLocal = toExclusiveLocal;
+            _pendingReason = reason;
+        }
+
+        _logger.Info($"[OutlookCalendarSync] Queued reason={reason} from={fromInclusiveLocal:O} to={toExclusiveLocal:O} pendingFrom={_pendingFromInclusiveLocal:O} pendingTo={_pendingToExclusiveLocal:O}");
     }
 
     public void Dispose()
