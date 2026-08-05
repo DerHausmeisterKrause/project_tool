@@ -30,8 +30,12 @@ public class SettingsViewModel : ObservableObject
     public string TicketSystemWebUrl { get => _settings.Current.TicketSystemWebUrl; set { _settings.Current.TicketSystemWebUrl = value; Save(); } }
     public string TicketSystemApiUrl { get => _settings.Current.TicketSystemApiUrl; set { _settings.Current.TicketSystemApiUrl = value; Save(); } }
     public string TicketSystemUsername { get => _settings.Current.TicketSystemUsername; set { _settings.Current.TicketSystemUsername = value; Save(); } }
-    public string TicketSystemPassword { get => _settings.Current.TicketSystemPassword; set { _settings.Current.TicketSystemPassword = value; Save(); } }
-    public string TicketSystemApiToken { get => _settings.Current.TicketSystemApiToken; set { _settings.Current.TicketSystemApiToken = value; Save(); } }
+    public string TicketSystemPassword { get => _settings.GetTicketSystemPassword(); set { _settings.SetTicketSystemPassword(value); Save(); } }
+    public int TicketSystemSyncIntervalMinutes { get => _settings.Current.TicketSystemSyncIntervalMinutes; set { _settings.Current.TicketSystemSyncIntervalMinutes = value; Save(); } }
+    public bool TicketSystemOnlyOpenTickets { get => _settings.Current.TicketSystemOnlyOpenTickets; set { _settings.Current.TicketSystemOnlyOpenTickets = value; Save(); } }
+    public bool TicketSystemShowClosedTickets { get => _settings.Current.TicketSystemShowClosedTickets; set { _settings.Current.TicketSystemShowClosedTickets = value; Save(); } }
+    public bool TicketSystemIncludeOwner { get => _settings.Current.TicketSystemIncludeOwner; set { _settings.Current.TicketSystemIncludeOwner = value; Save(); } }
+    public bool TicketSystemIncludeResponsible { get => _settings.Current.TicketSystemIncludeResponsible; set { _settings.Current.TicketSystemIncludeResponsible = value; Save(); } }
 
     private string _ticketSystemStatus = string.Empty;
     public string TicketSystemStatus { get => _ticketSystemStatus; set => Set(ref _ticketSystemStatus, value); }
@@ -72,7 +76,7 @@ public class SettingsViewModel : ObservableObject
         TicketSystemStatus = "Tickets werden abgerufen ...";
         var result = await _ticketSystem.ImportAssignedOpenTicketsAsync();
         TicketSystemStatus = string.IsNullOrWhiteSpace(_ticketSystem.LastError)
-            ? $"Tickets importiert: {result.created} neu, {result.skipped} übersprungen."
+            ? $"Znuny Sync fertig: {result.created} neu, {result.updated} aktualisiert, {result.skipped} übersprungen."
             : _ticketSystem.LastError;
     }
 
@@ -105,6 +109,7 @@ public class SettingsViewModel : ObservableObject
         _settings.Save();
         _notifications.HandleSettingsChanged();
         _outlookCalendar.HandleSettingsChanged();
+        _ticketSystem.HandleSettingsChanged();
         Raise(string.Empty);
     }
 

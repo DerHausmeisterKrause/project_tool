@@ -37,20 +37,25 @@
 
                 <Border Style="{StaticResource CardStyle}">
                     <StackPanel>
-                        <TextBlock Text="Ticketsystem API" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,10"/>
+                        <TextBlock Text="Znuny / OTRS Ticketsystem" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,10"/>
                         <TextBlock Text="Webseite URL" Foreground="{StaticResource MutedTextBrush}"/>
-                        <TextBox Text="{Binding TicketSystemWebUrl, UpdateSourceTrigger=PropertyChanged}" Width="520"/>
-                        <TextBlock Text="API URL für offene eigene Tickets" Foreground="{StaticResource MutedTextBrush}"/>
-                        <TextBox Text="{Binding TicketSystemApiUrl, UpdateSourceTrigger=PropertyChanged}" Width="520"/>
+                        <TextBox Text="{Binding TicketSystemWebUrl, UpdateSourceTrigger=PropertyChanged}" Width="560"/>
+                        <TextBlock Text="Server URL (GenericTicketConnectorREST)" Foreground="{StaticResource MutedTextBrush}"/>
+                        <TextBox Text="{Binding TicketSystemApiUrl, UpdateSourceTrigger=PropertyChanged}" Width="560"/>
+                        <TextBlock Text="Beispiel: https://SERVER/nph-genericinterface.pl/Webservice/GenericTicketConnectorREST" Foreground="{StaticResource MutedTextBrush}" TextWrapping="Wrap" Margin="0,0,0,8"/>
                         <TextBlock Text="Benutzername" Foreground="{StaticResource MutedTextBrush}"/>
                         <TextBox Text="{Binding TicketSystemUsername, UpdateSourceTrigger=PropertyChanged}" Width="320"/>
-                        <TextBlock Text="Passwort" Foreground="{StaticResource MutedTextBrush}"/>
+                        <TextBlock Text="Passwort (verschlüsselt gespeichert)" Foreground="{StaticResource MutedTextBrush}"/>
                         <TextBox Text="{Binding TicketSystemPassword, UpdateSourceTrigger=PropertyChanged}" Width="320"/>
-                        <TextBlock Text="API Token (optional, bevorzugt vor Benutzername/Passwort)" Foreground="{StaticResource MutedTextBrush}"/>
-                        <TextBox Text="{Binding TicketSystemApiToken, UpdateSourceTrigger=PropertyChanged}" Width="520"/>
-                        <TextBlock Text="Die API sollte ein JSON-Array liefern oder ein Objekt mit tickets/issues/data/items/results. Unterstützte Felder: title/summary/subject, url/html_url/web_url, description/body."
+                        <TextBlock Text="Synchronisationsintervall (Minuten)" Foreground="{StaticResource MutedTextBrush}"/>
+                        <TextBox Text="{Binding TicketSystemSyncIntervalMinutes, UpdateSourceTrigger=PropertyChanged}" Width="120"/>
+                        <CheckBox Content="Nur offene Tickets synchronisieren" IsChecked="{Binding TicketSystemOnlyOpenTickets}" Margin="0,8,0,4"/>
+                        <CheckBox Content="Geschlossene Tickets anzeigen / übernehmen" IsChecked="{Binding TicketSystemShowClosedTickets}" Margin="0,0,0,4"/>
+                        <CheckBox Content="Tickets berücksichtigen, bei denen ich Owner bin" IsChecked="{Binding TicketSystemIncludeOwner}" Margin="0,0,0,4"/>
+                        <CheckBox Content="Tickets berücksichtigen, bei denen ich Responsible bin" IsChecked="{Binding TicketSystemIncludeResponsible}" Margin="0,0,0,8"/>
+                        <TextBlock Text="Der Sync nutzt SessionCreate, SessionGet, TicketSearch mit OwnerIDs/ResponsibleIDs und TicketGet. API-Tokens werden für diesen Connector nicht verwendet."
                                    Foreground="{StaticResource MutedTextBrush}" TextWrapping="Wrap" Margin="0,0,0,8"/>
-                        <Button Content="Offene eigene Tickets als Tasks importieren" Width="300" Style="{StaticResource SecondaryButtonStyle}" Command="{Binding ImportTicketSystemTasksCommand}"/>
+                        <Button Content="Znuny Tickets jetzt synchronisieren" Width="300" Style="{StaticResource SecondaryButtonStyle}" Command="{Binding ImportTicketSystemTasksCommand}"/>
                         <TextBlock Text="{Binding TicketSystemStatus}" Foreground="#FBBF24" TextWrapping="Wrap" Margin="0,4,0,0"/>
                     </StackPanel>
                 </Border>
