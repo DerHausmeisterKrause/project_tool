@@ -1,4 +1,6 @@
+using System;
 using System.Collections.Generic;
+using System.Windows;
 using TaskTool.Infrastructure;
 using TaskTool.Services;
 
@@ -9,6 +11,7 @@ public class SettingsViewModel : ObservableObject
     private readonly SettingsService _settings;
     private readonly NotificationService _notifications;
     private readonly OutlookCalendarService _outlookCalendar;
+    private readonly TaskService _tasks;
     public string Title => "Einstellungen";
 
     public bool OutlookSyncEnabled { get => _settings.Current.OutlookSyncEnabled; set { _settings.Current.OutlookSyncEnabled = value; Save(); } }
@@ -38,14 +41,41 @@ public class SettingsViewModel : ObservableObject
 
     public RelayCommand TestReminderCommand { get; }
     public RelayCommand RefreshOutlookCalendarCommand { get; }
+    public RelayCommand TestOutlookConnectionCommand { get; }
 
-    public SettingsViewModel(SettingsService settings, NotificationService notifications, OutlookCalendarService outlookCalendar)
+    public SettingsViewModel(SettingsService settings, NotificationService notifications, OutlookCalendarService outlookCalendar, TaskService tasks)
     {
         _settings = settings;
         _notifications = notifications;
         _outlookCalendar = outlookCalendar;
+        _tasks = tasks;
         TestReminderCommand = new RelayCommand(() => _notifications.ShowTestNotification());
         RefreshOutlookCalendarCommand = new RelayCommand(async () => await _outlookCalendar.TriggerSyncAsync("manual-button"));
+        TestOutlookConnectionCommand = new RelayCommand(TestOutlookConnection);
+    }
+
+    private void TestOutlookConnection()
+    {
+        var ok = _tasks.TestOutlookConnection();
+        if (ok)
+        {
+            MessageBox.Show("Outlook Verbindungstest erfolgreich.", "Outlook Test", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        var hex = ExtractHResultHex(_tasks.LastError);
+        MessageBox.Show($"Outlook Test fehlgeschlagen. Details in logs.txt: {hex}", "Outlook Test", MessageBoxButton.OK, MessageBoxImage.Error);
+    }
+
+    private static string ExtractHResultHex(string error)
+    {
+        if (string.IsNullOrWhiteSpace(error)) return "0x00000000";
+        var marker = "0x";
+        var idx = error.IndexOf(marker, StringComparison.OrdinalIgnoreCase);
+        if (idx < 0) return "0x00000000";
+        var end = idx + 2;
+        while (end < error.Length && Uri.IsHexDigit(error[end])) end++;
+        return error[idx..end];
     }
 
     private void Save()
