@@ -435,12 +435,12 @@ public class OutlookInteropService
         var iCalUid = SafeRead(() => Convert.ToString(item.GlobalAppointmentID)) ?? string.Empty;
         var meetingStatus = SafeRead(() => Convert.ToString(item.MeetingStatus)) ?? string.Empty;
 
-        bool allDay = SafeRead(() => Convert.ToBoolean(item.AllDayEvent));
-        bool isPrivate = SafeRead(() => Convert.ToBoolean(item.IsPrivate));
-        bool isRecurring = SafeRead(() => Convert.ToBoolean(item.IsRecurring));
-        bool isCancelled = SafeRead(() => Convert.ToBoolean(item.IsCancelled));
+        var allDay = ReadComBool(rawItem, "AllDayEvent") ?? false;
+        var isPrivate = ReadComBool(rawItem, "IsPrivate") ?? false;
+        var isRecurring = ReadComBool(rawItem, "IsRecurring") ?? false;
+        var isCancelled = ReadComBool(rawItem, "IsCancelled") ?? false;
 
-        var recurrenceState = SafeRead(() => Convert.ToInt32(item.RecurrenceState));
+        var recurrenceState = ReadComInt(rawItem, "RecurrenceState") ?? 0;
         var isInstance = recurrenceState == 2 || recurrenceState == 3;
 
         calendarEvent = new OutlookCalendarEvent
@@ -529,6 +529,22 @@ public class OutlookInteropService
         }
     }
 
+    private static int? ReadComInt(object? rawItem, string propertyName)
+    {
+        var value = ReadComObject(rawItem, propertyName);
+        if (value == null)
+            return null;
+
+        try
+        {
+            return Convert.ToInt32(value);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
     private static object? ReadComObject(object? rawItem, string propertyName)
     {
         if (rawItem == null)
@@ -545,6 +561,9 @@ public class OutlookInteropService
             "MeetingStatus" => SafeRead(() => (object?)item.MeetingStatus),
             "BusyStatus" => SafeRead(() => (object?)item.BusyStatus),
             "IsRecurring" => SafeRead(() => (object?)item.IsRecurring),
+            "IsPrivate" => SafeRead(() => (object?)item.IsPrivate),
+            "IsCancelled" => SafeRead(() => (object?)item.IsCancelled),
+            "RecurrenceState" => SafeRead(() => (object?)item.RecurrenceState),
             "EntryID" => SafeRead(() => (object?)item.EntryID),
             _ => null
         };
