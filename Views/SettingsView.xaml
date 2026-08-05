@@ -46,7 +46,13 @@
                         <TextBlock Text="Benutzername" Foreground="{StaticResource MutedTextBrush}"/>
                         <TextBox Text="{Binding TicketSystemUsername, UpdateSourceTrigger=PropertyChanged}" Width="320"/>
                         <TextBlock Text="Passwort (verschlüsselt gespeichert)" Foreground="{StaticResource MutedTextBrush}"/>
-                        <TextBox Text="{Binding TicketSystemPassword, UpdateSourceTrigger=PropertyChanged}" Width="320"/>
+                        <TextBox x:Name="TicketSystemPasswordTextBox"
+                                 Text="{Binding TicketSystemPassword, UpdateSourceTrigger=LostFocus}"
+                                 Width="320"
+                                 GotKeyboardFocus="TicketSystemPasswordTextBox_GotKeyboardFocus"
+                                 PreviewMouseLeftButtonDown="TicketSystemPasswordTextBox_PreviewMouseLeftButtonDown"
+                                 LostKeyboardFocus="TicketSystemPasswordTextBox_LostKeyboardFocus"
+                                 ToolTip="Beim Bearbeiten sichtbar; nach dem Speichern wird das Passwort maskiert angezeigt."/>
                         <TextBlock Text="Znuny Agenten-ID" Foreground="{StaticResource MutedTextBrush}"/>
                         <TextBox Text="{Binding TicketSystemAgentId, UpdateSourceTrigger=PropertyChanged}" Width="120"/>
                         <TextBlock Text="Interne numerische Agenten-ID für Owner- und Responsible-Suche. Sie kann in Znuny unter Admin → Agenten bzw. in der URL des geöffneten Agenten gefunden werden." Foreground="{StaticResource MutedTextBrush}" TextWrapping="Wrap" Margin="0,0,0,8"/>

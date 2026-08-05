@@ -31,7 +31,18 @@ public class SettingsViewModel : ObservableObject
     public string TicketSystemWebUrl { get => _settings.Current.TicketSystemWebUrl; set { _settings.Current.TicketSystemWebUrl = value; Save(); } }
     public string TicketSystemApiUrl { get => _settings.Current.TicketSystemApiUrl; set { _settings.Current.TicketSystemApiUrl = value; Save(); } }
     public string TicketSystemUsername { get => _settings.Current.TicketSystemUsername; set { _settings.Current.TicketSystemUsername = value; Save(); } }
-    public string TicketSystemPassword { get => _settings.GetTicketSystemPassword(); set { _settings.SetTicketSystemPassword(value); Save(); } }
+    private const string TicketSystemPasswordMask = "••••••••";
+    public string TicketSystemPassword
+    {
+        get => string.IsNullOrWhiteSpace(_settings.GetTicketSystemPassword()) ? string.Empty : TicketSystemPasswordMask;
+        set
+        {
+            if (string.Equals(value, TicketSystemPasswordMask, StringComparison.Ordinal)) return;
+            _settings.SetTicketSystemPassword(value ?? string.Empty);
+            Save();
+            Raise();
+        }
+    }
     public int TicketSystemAgentId { get => _settings.Current.TicketSystemAgentId; set { _settings.Current.TicketSystemAgentId = value; Save(); } }
     public string TicketSystemTicketSearchRoute { get => _settings.Current.TicketSystemTicketSearchRoute; set { _settings.Current.TicketSystemTicketSearchRoute = value; Save(); } }
     public string TicketSystemTicketSearchMethod { get => _settings.Current.TicketSystemTicketSearchMethod; set { _settings.Current.TicketSystemTicketSearchMethod = value; Save(); } }
