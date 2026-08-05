@@ -12,6 +12,7 @@ public static class ServiceLocator
     public static OutlookCalendarService OutlookCalendar { get; private set; } = null!;
     public static TaskService Tasks { get; private set; } = null!;
     public static WorkDayService WorkDays { get; private set; } = null!;
+    public static TicketSystemService TicketSystem { get; private set; } = null!;
     public static MainViewModel MainViewModel { get; private set; } = null!;
 
     public static void Initialize()
@@ -23,8 +24,9 @@ public static class ServiceLocator
         Outlook = new OutlookInteropService(Logger, Settings);
         Tasks = new TaskService(Database, Logger, Outlook, Settings);
         WorkDays = new WorkDayService(Database, Logger);
+        TicketSystem = new TicketSystemService(Settings, Tasks, Logger);
         Notifications = new NotificationService(Logger, Settings, Tasks);
         OutlookCalendar = new OutlookCalendarService(Logger, Settings, Outlook);
-        MainViewModel = new MainViewModel(Tasks, WorkDays, Settings, Notifications, OutlookCalendar, Logger);
+        MainViewModel = new MainViewModel(Tasks, WorkDays, Settings, Notifications, OutlookCalendar, TicketSystem, Logger);
     }
 }

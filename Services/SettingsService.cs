@@ -63,6 +63,12 @@ public class SettingsService
         settings.OutlookCalendarSyncIntervalMinutes = Math.Clamp(settings.OutlookCalendarSyncIntervalMinutes, 1, 60);
         settings.OutlookCalendarRangePastDays = settings.OutlookCalendarRangePastDays <= 0 ? 14 : Math.Clamp(settings.OutlookCalendarRangePastDays, 1, 30);
         settings.OutlookCalendarRangeFutureDays = settings.OutlookCalendarRangeFutureDays <= 0 ? 14 : Math.Clamp(settings.OutlookCalendarRangeFutureDays, 1, 90);
+
+        settings.TicketSystemWebUrl = settings.TicketSystemWebUrl?.Trim() ?? string.Empty;
+        settings.TicketSystemApiUrl = settings.TicketSystemApiUrl?.Trim() ?? string.Empty;
+        settings.TicketSystemUsername = settings.TicketSystemUsername?.Trim() ?? string.Empty;
+        settings.TicketSystemPassword ??= string.Empty;
+        settings.TicketSystemApiToken = settings.TicketSystemApiToken?.Trim() ?? string.Empty;
     }
 
     public void Save()
