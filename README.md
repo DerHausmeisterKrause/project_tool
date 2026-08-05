@@ -20,6 +20,31 @@ dotnet publish -c Release -r win-x64 --self-contained true /p:PublishSingleFile=
 Output liegt unter:
 `bin/Release/net8.0-windows/win-x64/publish/`
 
+
+## Windows-EXE erstellen
+
+Eine veröffentlichungsfertige Windows-x64-EXE kann direkt über das Release-Skript im Projekt-Root erzeugt werden:
+
+- Rechtsklick auf `build-release.ps1` → **Mit PowerShell ausführen**
+- oder im Terminal:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\build-release.ps1
+```
+
+Das Skript führt `dotnet clean`, `dotnet restore` und `dotnet publish` für `TaskTool.Wpf.csproj` aus. Die fertige EXE liegt anschließend unter:
+
+`artifacts\publish\win-x64`
+
+
+## Znuny / OTRS Ticketsystem
+
+Die Ticketsystem-Anbindung nutzt den Znuny/OTRS 6.3.x `GenericTicketConnectorREST` mit `SessionCreate`, `SessionGet`, `TicketSearch` und `TicketGet`. Als Server-URL wird die Basis des Webservice erwartet, zum Beispiel:
+
+`https://SERVER/nph-genericinterface.pl/Webservice/GenericTicketConnectorREST`
+
+Die Anmeldung erfolgt mit Benutzername und Passwort; API-Tokens werden für diesen Connector nicht verwendet. Die Anwendung versucht die Znuny UserID automatisch über `SessionGet` zu ermitteln. Falls der Webservice keine `UserID`/`UserId` zurückliefert, kann in den Einstellungen die **Znuny Agenten-ID** als Fallback hinterlegt werden. Diese ID wird anschließend für `OwnerIDs` und `ResponsibleIDs` in `TicketSearch` verwendet.
+
 ## Start
 1. Aktuelle `TaskTool.zip` aus dem Ordner "deploy" entpacken.
 2. `TaskTool.exe` starten.
