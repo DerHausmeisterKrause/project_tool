@@ -20,6 +20,12 @@ public class AppSettings
     public int ReminderLeadMinutes { get; set; } = 2;
     public string DateTimeFormat { get; set; } = "yyyy-MM-dd HH:mm";
 
+    public string TicketSystemWebUrl { get; set; } = string.Empty;
+    public string TicketSystemApiUrl { get; set; } = string.Empty;
+    public string TicketSystemUsername { get; set; } = string.Empty;
+    public string TicketSystemPassword { get; set; } = string.Empty;
+    public string TicketSystemApiToken { get; set; } = string.Empty;
+
     public int MondayTargetMinutes { get; set; } = 480;
     public int TuesdayTargetMinutes { get; set; } = 480;
     public int WednesdayTargetMinutes { get; set; } = 480;

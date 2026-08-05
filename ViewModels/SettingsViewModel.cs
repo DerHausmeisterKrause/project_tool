@@ -12,6 +12,7 @@ public class SettingsViewModel : ObservableObject
     private readonly NotificationService _notifications;
     private readonly OutlookCalendarService _outlookCalendar;
     private readonly TaskService _tasks;
+    private readonly TicketSystemService _ticketSystem;
     public string Title => "Einstellungen";
 
     public bool OutlookSyncEnabled { get => _settings.Current.OutlookSyncEnabled; set { _settings.Current.OutlookSyncEnabled = value; Save(); } }
@@ -25,6 +26,15 @@ public class SettingsViewModel : ObservableObject
     public int OutlookCalendarSyncIntervalMinutes { get => _settings.Current.OutlookCalendarSyncIntervalMinutes; set { _settings.Current.OutlookCalendarSyncIntervalMinutes = value; Save(); } }
     public int OutlookCalendarRangePastDays { get => _settings.Current.OutlookCalendarRangePastDays; set { _settings.Current.OutlookCalendarRangePastDays = value; Save(); } }
     public int OutlookCalendarRangeFutureDays { get => _settings.Current.OutlookCalendarRangeFutureDays; set { _settings.Current.OutlookCalendarRangeFutureDays = value; Save(); } }
+
+    public string TicketSystemWebUrl { get => _settings.Current.TicketSystemWebUrl; set { _settings.Current.TicketSystemWebUrl = value; Save(); } }
+    public string TicketSystemApiUrl { get => _settings.Current.TicketSystemApiUrl; set { _settings.Current.TicketSystemApiUrl = value; Save(); } }
+    public string TicketSystemUsername { get => _settings.Current.TicketSystemUsername; set { _settings.Current.TicketSystemUsername = value; Save(); } }
+    public string TicketSystemPassword { get => _settings.Current.TicketSystemPassword; set { _settings.Current.TicketSystemPassword = value; Save(); } }
+    public string TicketSystemApiToken { get => _settings.Current.TicketSystemApiToken; set { _settings.Current.TicketSystemApiToken = value; Save(); } }
+
+    private string _ticketSystemStatus = string.Empty;
+    public string TicketSystemStatus { get => _ticketSystemStatus; set => Set(ref _ticketSystemStatus, value); }
 
     public int ReminderLeadMinutes { get => _settings.Current.ReminderLeadMinutes; set { _settings.Current.ReminderLeadMinutes = value; Save(); } }
     public string DateTimeFormat { get => _settings.Current.DateTimeFormat; set { _settings.Current.DateTimeFormat = value; Save(); } }
@@ -42,16 +52,28 @@ public class SettingsViewModel : ObservableObject
     public RelayCommand TestReminderCommand { get; }
     public RelayCommand RefreshOutlookCalendarCommand { get; }
     public RelayCommand TestOutlookConnectionCommand { get; }
+    public RelayCommand ImportTicketSystemTasksCommand { get; }
 
-    public SettingsViewModel(SettingsService settings, NotificationService notifications, OutlookCalendarService outlookCalendar, TaskService tasks)
+    public SettingsViewModel(SettingsService settings, NotificationService notifications, OutlookCalendarService outlookCalendar, TaskService tasks, TicketSystemService ticketSystem)
     {
         _settings = settings;
         _notifications = notifications;
         _outlookCalendar = outlookCalendar;
         _tasks = tasks;
+        _ticketSystem = ticketSystem;
         TestReminderCommand = new RelayCommand(() => _notifications.ShowTestNotification());
         RefreshOutlookCalendarCommand = new RelayCommand(async () => await _outlookCalendar.TriggerSyncAsync("manual-button"));
         TestOutlookConnectionCommand = new RelayCommand(TestOutlookConnection);
+        ImportTicketSystemTasksCommand = new RelayCommand(async () => await ImportTicketSystemTasksAsync());
+    }
+
+    private async Task ImportTicketSystemTasksAsync()
+    {
+        TicketSystemStatus = "Tickets werden abgerufen ...";
+        var result = await _ticketSystem.ImportAssignedOpenTicketsAsync();
+        TicketSystemStatus = string.IsNullOrWhiteSpace(_ticketSystem.LastError)
+            ? $"Tickets importiert: {result.created} neu, {result.skipped} übersprungen."
+            : _ticketSystem.LastError;
     }
 
     private void TestOutlookConnection()
