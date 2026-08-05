@@ -20,6 +20,22 @@ public class AppSettings
     public int ReminderLeadMinutes { get; set; } = 2;
     public string DateTimeFormat { get; set; } = "yyyy-MM-dd HH:mm";
 
+    public string TicketSystemWebUrl { get; set; } = "https://SERVER/otrs/index.pl";
+    public string TicketSystemApiUrl { get; set; } = "https://SERVER/nph-genericinterface.pl/Webservice/GenericTicketConnectorREST";
+    public string TicketSystemUsername { get; set; } = string.Empty;
+    public string TicketSystemPasswordEncrypted { get; set; } = string.Empty;
+    public string TicketSystemPassword { get; set; } = string.Empty;
+    public int TicketSystemAgentId { get; set; } = 0;
+    public string TicketSystemTicketSearchRoute { get; set; } = "/Ticket/Search";
+    public string TicketSystemTicketSearchMethod { get; set; } = "POST";
+    public string TicketSystemTicketGetRouteTemplate { get; set; } = "/Ticket/{TicketID}";
+    public string TicketSystemTicketGetAuthMode { get; set; } = "Direct";
+    public int TicketSystemSyncIntervalMinutes { get; set; } = 15;
+    public bool TicketSystemOnlyOpenTickets { get; set; } = true;
+    public bool TicketSystemShowClosedTickets { get; set; } = false;
+    public bool TicketSystemIncludeOwner { get; set; } = true;
+    public bool TicketSystemIncludeResponsible { get; set; } = true;
+
     public int MondayTargetMinutes { get; set; } = 480;
     public int TuesdayTargetMinutes { get; set; } = 480;
     public int WednesdayTargetMinutes { get; set; } = 480;
