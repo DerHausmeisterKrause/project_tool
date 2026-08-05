@@ -20,6 +20,17 @@ public class AppSettings
     public int ReminderLeadMinutes { get; set; } = 2;
     public string DateTimeFormat { get; set; } = "yyyy-MM-dd HH:mm";
 
+    public string TicketSystemWebUrl { get; set; } = string.Empty;
+    public string TicketSystemApiUrl { get; set; } = string.Empty;
+    public string TicketSystemUsername { get; set; } = string.Empty;
+    public string TicketSystemPasswordEncrypted { get; set; } = string.Empty;
+    public string TicketSystemPassword { get; set; } = string.Empty;
+    public int TicketSystemSyncIntervalMinutes { get; set; } = 15;
+    public bool TicketSystemOnlyOpenTickets { get; set; } = true;
+    public bool TicketSystemShowClosedTickets { get; set; } = false;
+    public bool TicketSystemIncludeOwner { get; set; } = true;
+    public bool TicketSystemIncludeResponsible { get; set; } = true;
+
     public int MondayTargetMinutes { get; set; } = 480;
     public int TuesdayTargetMinutes { get; set; } = 480;
     public int WednesdayTargetMinutes { get; set; } = 480;
