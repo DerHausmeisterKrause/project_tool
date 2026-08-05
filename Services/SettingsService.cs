@@ -66,9 +66,9 @@ public class SettingsService
         settings.OutlookCalendarRangePastDays = settings.OutlookCalendarRangePastDays <= 0 ? 14 : Math.Clamp(settings.OutlookCalendarRangePastDays, 1, 30);
         settings.OutlookCalendarRangeFutureDays = settings.OutlookCalendarRangeFutureDays <= 0 ? 14 : Math.Clamp(settings.OutlookCalendarRangeFutureDays, 1, 90);
 
-        settings.TicketSystemWebUrl = settings.TicketSystemWebUrl?.Trim() ?? "https://SERVER/otrs/index.pl";
+        settings.TicketSystemWebUrl = settings.TicketSystemWebUrl?.Trim() ?? "https://SERVER/index.pl";
         if (string.IsNullOrWhiteSpace(settings.TicketSystemWebUrl))
-            settings.TicketSystemWebUrl = "https://SERVER/otrs/index.pl";
+            settings.TicketSystemWebUrl = "https://SERVER/index.pl";
         settings.TicketSystemApiUrl = settings.TicketSystemApiUrl?.Trim() ?? "https://SERVER/nph-genericinterface.pl/Webservice/GenericTicketConnectorREST";
         if (string.IsNullOrWhiteSpace(settings.TicketSystemApiUrl))
             settings.TicketSystemApiUrl = "https://SERVER/nph-genericinterface.pl/Webservice/GenericTicketConnectorREST";

@@ -13,6 +13,7 @@ public class SettingsViewModel : ObservableObject
     private readonly OutlookCalendarService _outlookCalendar;
     private readonly TaskService _tasks;
     private readonly TicketSystemService _ticketSystem;
+    private readonly Action? _tasksChanged;
     public string Title => "Einstellungen";
 
     public bool OutlookSyncEnabled { get => _settings.Current.OutlookSyncEnabled; set { _settings.Current.OutlookSyncEnabled = value; Save(); } }
@@ -70,13 +71,14 @@ public class SettingsViewModel : ObservableObject
     public RelayCommand TestTicketSystemConnectionCommand { get; }
     public RelayCommand TestTicketSystemRoutesCommand { get; }
 
-    public SettingsViewModel(SettingsService settings, NotificationService notifications, OutlookCalendarService outlookCalendar, TaskService tasks, TicketSystemService ticketSystem)
+    public SettingsViewModel(SettingsService settings, NotificationService notifications, OutlookCalendarService outlookCalendar, TaskService tasks, TicketSystemService ticketSystem, Action? tasksChanged = null)
     {
         _settings = settings;
         _notifications = notifications;
         _outlookCalendar = outlookCalendar;
         _tasks = tasks;
         _ticketSystem = ticketSystem;
+        _tasksChanged = tasksChanged;
         TestReminderCommand = new RelayCommand(() => _notifications.ShowTestNotification());
         RefreshOutlookCalendarCommand = new RelayCommand(async () => await _outlookCalendar.TriggerSyncAsync("manual-button"));
         TestOutlookConnectionCommand = new RelayCommand(TestOutlookConnection);
@@ -105,9 +107,14 @@ public class SettingsViewModel : ObservableObject
     {
         TicketSystemStatus = "Tickets werden abgerufen ...";
         var result = await _ticketSystem.ImportAssignedOpenTicketsAsync();
-        TicketSystemStatus = string.IsNullOrWhiteSpace(_ticketSystem.LastError)
-            ? $"Znuny Sync fertig: {result.created} neu, {result.updated} aktualisiert, {result.skipped} übersprungen."
-            : _ticketSystem.LastError;
+        if (string.IsNullOrWhiteSpace(_ticketSystem.LastError))
+        {
+            _tasksChanged?.Invoke();
+            TicketSystemStatus = $"Znuny Sync fertig: {result.created} neu, {result.updated} aktualisiert, {result.skipped} übersprungen.";
+            return;
+        }
+
+        TicketSystemStatus = _ticketSystem.LastError;
     }
 
     private void TestOutlookConnection()

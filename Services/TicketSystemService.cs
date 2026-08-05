@@ -848,8 +848,31 @@ public class TicketSystemService : IDisposable
         private static string BuildTicketWebUrl(string webBaseUrl, string ticketId)
         {
             if (string.IsNullOrWhiteSpace(webBaseUrl) || string.IsNullOrWhiteSpace(ticketId)) return webBaseUrl;
-            var separator = webBaseUrl.Contains('?') ? '&' : '?';
-            return $"{webBaseUrl.TrimEnd('/')}{separator}Action=AgentTicketZoom;TicketID={Uri.EscapeDataString(ticketId)}";
+
+            var normalizedWebBaseUrl = RemoveOtrsPathSegment(webBaseUrl.Trim());
+            var separator = normalizedWebBaseUrl.Contains('?') ? '&' : '?';
+            return $"{normalizedWebBaseUrl.TrimEnd('/')}{separator}Action=AgentTicketZoom;TicketID={Uri.EscapeDataString(ticketId)}";
+        }
+
+        private static string RemoveOtrsPathSegment(string webBaseUrl)
+        {
+            if (!Uri.TryCreate(webBaseUrl, UriKind.Absolute, out var uri))
+            {
+                return Regex.Replace(webBaseUrl, "/otrs(?=/|$)", string.Empty, RegexOptions.IgnoreCase);
+            }
+
+            var segments = uri.AbsolutePath
+                .Split('/', StringSplitOptions.RemoveEmptyEntries)
+                .Where(segment => !string.Equals(segment, "otrs", StringComparison.OrdinalIgnoreCase))
+                .ToArray();
+            var path = segments.Length == 0 ? "/" : "/" + string.Join("/", segments);
+
+            var builder = new UriBuilder(uri)
+            {
+                Path = path
+            };
+
+            return builder.Uri.ToString();
         }
 
         private static string ExtractDynamicFields(JsonElement item)

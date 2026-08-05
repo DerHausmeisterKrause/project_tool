@@ -277,6 +277,11 @@ public class TodayViewModel : ObservableObject
         DeleteSegmentOutlookCommand.RaiseCanExecuteChanged();
     }
 
+    public void Refresh()
+    {
+        Load();
+    }
+
     private void Load()
     {
         var selectedId = SelectedTask?.Id;
