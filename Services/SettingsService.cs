@@ -76,10 +76,12 @@ public class SettingsService
         settings.TicketSystemPasswordEncrypted ??= string.Empty;
         settings.TicketSystemPassword ??= string.Empty;
         settings.TicketSystemAgentId = Math.Max(0, settings.TicketSystemAgentId);
-        settings.TicketSystemTicketSearchRoute = NormalizeRoute(settings.TicketSystemTicketSearchRoute, "/Ticket/Search");
-        settings.TicketSystemTicketSearchMethod = string.Equals(settings.TicketSystemTicketSearchMethod, "GET", StringComparison.OrdinalIgnoreCase) ? "GET" : "POST";
+        settings.TicketSystemTicketSearchRoute = NormalizeRoute(settings.TicketSystemTicketSearchRoute, "/Ticket");
+        settings.TicketSystemTicketSearchMethod = string.Equals(settings.TicketSystemTicketSearchMethod, "POST", StringComparison.OrdinalIgnoreCase) ? "POST" : "GET";
+        settings.TicketSystemTicketSearchAuthMode = string.Equals(settings.TicketSystemTicketSearchAuthMode, "Direct", StringComparison.OrdinalIgnoreCase) ? "Direct" : "Session";
         settings.TicketSystemTicketGetRouteTemplate = NormalizeRoute(settings.TicketSystemTicketGetRouteTemplate, "/Ticket/{TicketID}");
-        settings.TicketSystemTicketGetAuthMode = string.Equals(settings.TicketSystemTicketGetAuthMode, "Session", StringComparison.OrdinalIgnoreCase) ? "Session" : "Direct";
+        settings.TicketSystemTicketGetMethod = "GET";
+        settings.TicketSystemTicketGetAuthMode = string.Equals(settings.TicketSystemTicketGetAuthMode, "Direct", StringComparison.OrdinalIgnoreCase) ? "Direct" : "Session";
         settings.TicketSystemSyncIntervalMinutes = settings.TicketSystemSyncIntervalMinutes <= 0 ? 15 : Math.Clamp(settings.TicketSystemSyncIntervalMinutes, 1, 1440);
         if (!settings.TicketSystemIncludeOwner && !settings.TicketSystemIncludeResponsible)
             settings.TicketSystemIncludeOwner = true;

@@ -49,14 +49,16 @@ public class TicketSystemService : IDisposable
                 return (false, configError);
 
             var userId = GetConfiguredAgentId()!.Value;
-            var ownerIds = await SearchTicketsAsync("Owner", userId, _settings.Current.TicketSystemTicketSearchRoute, _settings.Current.TicketSystemTicketSearchMethod);
-            var responsibleIds = await SearchTicketsAsync("Responsible", userId, _settings.Current.TicketSystemTicketSearchRoute, _settings.Current.TicketSystemTicketSearchMethod);
+            var sessionId = await CreateSessionAsync();
+            var sessionHash = HashSessionId(sessionId);
+            var ownerIds = await SearchTicketsAsync("Owner", userId, _settings.Current.TicketSystemTicketSearchRoute, _settings.Current.TicketSystemTicketSearchMethod, sessionId, sessionHash);
+            var responsibleIds = await SearchTicketsAsync("Responsible", userId, _settings.Current.TicketSystemTicketSearchRoute, _settings.Current.TicketSystemTicketSearchMethod, sessionId, sessionHash);
             var uniqueIds = ownerIds.Concat(responsibleIds).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 
             var ticketGetStatus = "Nicht ausgeführt, keine Tickets gefunden.";
             if (uniqueIds.Count > 0)
             {
-                var ticket = await GetTicketAsync(uniqueIds[0]);
+                var ticket = await GetTicketAsync(uniqueIds[0], sessionId, sessionHash);
                 ticketGetStatus = ticket == null ? "Fehlgeschlagen, keine Ticketdaten in der Antwort." : "Erfolgreich";
             }
 
@@ -85,24 +87,28 @@ public class TicketSystemService : IDisposable
                 return (false, configError);
 
             var userId = GetConfiguredAgentId()!.Value;
+            var sessionId = await CreateSessionAsync();
+            var sessionHash = HashSessionId(sessionId);
             try
             {
-                var ids = await SearchTicketsAsync("Owner", userId, "/Ticket/Search", "POST");
-                _settings.Current.TicketSystemTicketSearchRoute = "/Ticket/Search";
-                _settings.Current.TicketSystemTicketSearchMethod = "POST";
+                var getIds = await SearchTicketsAsync("Owner", userId, "/Ticket", "GET", sessionId, sessionHash);
+                _settings.Current.TicketSystemTicketSearchRoute = "/Ticket";
+                _settings.Current.TicketSystemTicketSearchMethod = "GET";
+                _settings.Current.TicketSystemTicketSearchAuthMode = "Session";
                 _settings.Save();
-                return (true, $"API-Routentest erfolgreich: POST /Ticket/Search funktioniert. Owner-Tickets: {ids.Count}. Route wurde gespeichert.");
+                return (true, $"API-Routentest erfolgreich: GET /Ticket funktioniert. Owner-Tickets: {getIds.Count}. Route wurde gespeichert.");
             }
             catch (ZnunyApiException ex) when (IsRoutingError(ex))
             {
                 LogZnunyError(ex);
             }
 
-            var getIds = await SearchTicketsAsync("Owner", userId, "/Ticket", "GET");
-            _settings.Current.TicketSystemTicketSearchRoute = "/Ticket";
-            _settings.Current.TicketSystemTicketSearchMethod = "GET";
+            var postIds = await SearchTicketsAsync("Owner", userId, "/Ticket/Search", "POST", sessionId, sessionHash);
+            _settings.Current.TicketSystemTicketSearchRoute = "/Ticket/Search";
+            _settings.Current.TicketSystemTicketSearchMethod = "POST";
+            _settings.Current.TicketSystemTicketSearchAuthMode = "Session";
             _settings.Save();
-            return (true, $"API-Routentest erfolgreich: GET /Ticket funktioniert. Owner-Tickets: {getIds.Count}. Route wurde gespeichert.");
+            return (true, $"API-Routentest erfolgreich: POST /Ticket/Search funktioniert. Owner-Tickets: {postIds.Count}. Route wurde gespeichert.");
         }
         catch (ZnunyApiException ex)
         {
@@ -138,14 +144,16 @@ public class TicketSystemService : IDisposable
                 return Fail3("Znuny Sync benötigt Owner oder Responsible als Suchkriterium.");
 
             var userId = GetConfiguredAgentId()!.Value;
-            _logger.Info($"[Znuny] Sync start reason={reason} baseUrl='{SanitizeUrl(_settings.Current.TicketSystemApiUrl)}' auth=Direct onlyOpen={_settings.Current.TicketSystemOnlyOpenTickets} showClosed={_settings.Current.TicketSystemShowClosedTickets} includeOwner={_settings.Current.TicketSystemIncludeOwner} includeResponsible={_settings.Current.TicketSystemIncludeResponsible}");
+            var sessionId = await CreateSessionAsync();
+            var sessionHash = HashSessionId(sessionId);
+            _logger.Info($"[Znuny] Sync start reason={reason} baseUrl='{SanitizeUrl(_settings.Current.TicketSystemApiUrl)}' auth={_settings.Current.TicketSystemTicketSearchAuthMode} onlyOpen={_settings.Current.TicketSystemOnlyOpenTickets} showClosed={_settings.Current.TicketSystemShowClosedTickets} includeOwner={_settings.Current.TicketSystemIncludeOwner} includeResponsible={_settings.Current.TicketSystemIncludeResponsible}");
             _logger.Info($"[ZnunyUser] source=ConfiguredSettings userId={userId}");
 
             var ticketIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             if (_settings.Current.TicketSystemIncludeOwner)
-                foreach (var id in await SearchTicketsAsync("Owner", userId, _settings.Current.TicketSystemTicketSearchRoute, _settings.Current.TicketSystemTicketSearchMethod)) ticketIds.Add(id);
+                foreach (var id in await SearchTicketsAsync("Owner", userId, _settings.Current.TicketSystemTicketSearchRoute, _settings.Current.TicketSystemTicketSearchMethod, sessionId, sessionHash)) ticketIds.Add(id);
             if (_settings.Current.TicketSystemIncludeResponsible)
-                foreach (var id in await SearchTicketsAsync("Responsible", userId, _settings.Current.TicketSystemTicketSearchRoute, _settings.Current.TicketSystemTicketSearchMethod)) ticketIds.Add(id);
+                foreach (var id in await SearchTicketsAsync("Responsible", userId, _settings.Current.TicketSystemTicketSearchRoute, _settings.Current.TicketSystemTicketSearchMethod, sessionId, sessionHash)) ticketIds.Add(id);
 
             var existing = _tasks.GetAllTasks()
                 .Where(t => !string.IsNullOrWhiteSpace(ExtractZnunyTicketIdFromTask(t)))
@@ -155,7 +163,7 @@ public class TicketSystemService : IDisposable
 
             foreach (var ticketId in ticketIds)
             {
-                var ticket = await GetTicketAsync(ticketId);
+                var ticket = await GetTicketAsync(ticketId, sessionId, sessionHash);
                 if (ticket == null)
                 {
                     skipped++;
@@ -295,45 +303,45 @@ public class TicketSystemService : IDisposable
     private int? GetConfiguredAgentId()
         => _settings.Current.TicketSystemAgentId > 0 ? _settings.Current.TicketSystemAgentId : null;
 
-    private async Task<List<string>> SearchTicketsAsync(string role, int userId, string route, string method)
+    private async Task<List<string>> SearchTicketsAsync(string role, int userId, string route, string method, string sessionId, string sessionHash)
     {
-        route = NormalizeRouteValue(route, "/Ticket/Search");
+        route = NormalizeRouteValue(route, "/Ticket");
         method = string.Equals(method, "GET", StringComparison.OrdinalIgnoreCase) ? "GET" : "POST";
         var isOwner = role == "Owner";
         var stage = isOwner ? "TicketSearchOwner" : "TicketSearchResponsible";
         var logTag = isOwner ? "[ZnunySearchOwner]" : "[ZnunySearchResponsible]";
         var onlyOpen = _settings.Current.TicketSystemOnlyOpenTickets && !_settings.Current.TicketSystemShowClosedTickets;
-        var password = _settings.GetTicketSystemPassword();
-        var payload = BuildSearchPayload(isOwner, userId, onlyOpen, password);
+        if (method == "GET" && string.Equals(_settings.Current.TicketSystemTicketSearchAuthMode, "Direct", StringComparison.OrdinalIgnoreCase))
+            throw new ZnunyApiException(stage, HttpStatusCode.BadRequest, "Configuration", "Direkte Authentifizierung für TicketSearch darf nicht mit GET verwendet werden, weil Credentials in URLs/Logs landen würden.", string.Empty);
+
+        var payload = BuildSearchPayload(isOwner, userId, onlyOpen, sessionId);
         using var request = BuildSearchRequest(method, route, payload);
 
-        _logger.Info($"{logTag} method={method} route={route} payload={FormatSearchPayloadForLog(isOwner, userId, onlyOpen, _settings.Current.TicketSystemUsername)}");
+        _logger.Info($"{logTag} method={method} route={route} userId={userId} onlyOpen={onlyOpen} sessionHash={sessionHash} payload={FormatSearchPayloadForLog(isOwner, userId, onlyOpen, _settings.Current.TicketSystemTicketSearchAuthMode, _settings.Current.TicketSystemUsername)}");
         var result = await SendZnunyAsync(request, stage, isOwner ? "[ZnunySearchOwnerResponse]" : "[ZnunySearchResponsibleResponse]");
         var ticketIds = ExtractTicketIdsStrict(result.Body, stage).ToList();
         _logger.Info($"{logTag} method={method} route={route} userId={userId} onlyOpen={onlyOpen} status={(int)result.StatusCode} ticketCount={ticketIds.Count}");
         return ticketIds;
     }
 
-    private async Task<ZnunyTicket?> GetTicketAsync(string ticketId)
+    private async Task<ZnunyTicket?> GetTicketAsync(string ticketId, string sessionId, string sessionHash)
     {
         var route = NormalizeRouteValue(_settings.Current.TicketSystemTicketGetRouteTemplate, "/Ticket/{TicketID}")
             .Replace("{TicketID}", Uri.EscapeDataString(ticketId), StringComparison.OrdinalIgnoreCase);
-        var password = _settings.GetTicketSystemPassword();
         var query = new Dictionary<string, string>();
-        if (string.Equals(_settings.Current.TicketSystemTicketGetAuthMode, "Session", StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(_settings.Current.TicketSystemTicketGetAuthMode, "Direct", StringComparison.OrdinalIgnoreCase))
         {
-            var sessionId = await CreateSessionAsync();
-            query["SessionID"] = sessionId;
+            query["UserLogin"] = _settings.Current.TicketSystemUsername;
+            query["Password"] = _settings.GetTicketSystemPassword();
         }
         else
         {
-            query["UserLogin"] = _settings.Current.TicketSystemUsername;
-            query["Password"] = password;
+            query["SessionID"] = sessionId;
         }
         var url = Combine(_settings.Current.TicketSystemApiUrl, route) + ToQueryString(query);
         using var request = new HttpRequestMessage(HttpMethod.Get, url);
 
-        _logger.Info($"[ZnunyTicket] method=GET route={route} ticketId={ticketId} auth={_settings.Current.TicketSystemTicketGetAuthMode}");
+        _logger.Info($"[ZnunyTicket] method=GET route={route} ticketId={ticketId} auth={_settings.Current.TicketSystemTicketGetAuthMode} sessionHash={sessionHash}");
         var result = await SendZnunyAsync(request, "TicketGet", "[ZnunyTicketResponse]");
         using var doc = JsonDocument.Parse(result.Body);
         ThrowIfApiError(doc.RootElement, "TicketGet");
@@ -383,14 +391,22 @@ public class TicketSystemService : IDisposable
         };
     }
 
-    private Dictionary<string, object?> BuildSearchPayload(bool owner, int userId, bool onlyOpen, string password)
+    private Dictionary<string, object?> BuildSearchPayload(bool owner, int userId, bool onlyOpen, string sessionId)
     {
         var payload = new Dictionary<string, object?>
         {
-            ["UserLogin"] = _settings.Current.TicketSystemUsername,
-            ["Password"] = password,
-            [owner ? "OwnerIDs" : "ResponsibleIDs"] = new[] { userId }
+            [owner ? "OwnerIDs" : "ResponsibleIDs"] = userId
         };
+
+        if (string.Equals(_settings.Current.TicketSystemTicketSearchAuthMode, "Direct", StringComparison.OrdinalIgnoreCase))
+        {
+            payload["UserLogin"] = _settings.Current.TicketSystemUsername;
+            payload["Password"] = _settings.GetTicketSystemPassword();
+        }
+        else
+        {
+            payload["SessionID"] = sessionId;
+        }
 
         if (onlyOpen)
             payload["StateType"] = "Open";
@@ -603,11 +619,14 @@ public class TicketSystemService : IDisposable
     private static string ToQueryString(Dictionary<string, string> query)
         => "?" + string.Join("&", query.Select(kvp => $"{Uri.EscapeDataString(kvp.Key)}={Uri.EscapeDataString(kvp.Value)}"));
 
-    private static string FormatSearchPayloadForLog(bool owner, int userId, bool onlyOpen, string userLogin)
+    private static string FormatSearchPayloadForLog(bool owner, int userId, bool onlyOpen, string authMode, string userLogin)
     {
         var idName = owner ? "OwnerIDs" : "ResponsibleIDs";
         var state = onlyOpen ? ",StateType:'Open'" : string.Empty;
-        return $"{{UserLogin:'{userLogin}',Password:'***',{idName}:[{userId}]{state}}}";
+        var auth = string.Equals(authMode, "Direct", StringComparison.OrdinalIgnoreCase)
+            ? $"UserLogin:'{userLogin}',Password:'***'"
+            : "SessionID:'***'";
+        return $"{{{auth},{idName}:{userId}{state}}}";
     }
 
     private static bool IsRoutingError(ZnunyApiException ex)

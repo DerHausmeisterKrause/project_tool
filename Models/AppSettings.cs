@@ -26,10 +26,12 @@ public class AppSettings
     public string TicketSystemPasswordEncrypted { get; set; } = string.Empty;
     public string TicketSystemPassword { get; set; } = string.Empty;
     public int TicketSystemAgentId { get; set; } = 0;
-    public string TicketSystemTicketSearchRoute { get; set; } = "/Ticket/Search";
-    public string TicketSystemTicketSearchMethod { get; set; } = "POST";
+    public string TicketSystemTicketSearchRoute { get; set; } = "/Ticket";
+    public string TicketSystemTicketSearchMethod { get; set; } = "GET";
+    public string TicketSystemTicketSearchAuthMode { get; set; } = "Session";
     public string TicketSystemTicketGetRouteTemplate { get; set; } = "/Ticket/{TicketID}";
-    public string TicketSystemTicketGetAuthMode { get; set; } = "Direct";
+    public string TicketSystemTicketGetMethod { get; set; } = "GET";
+    public string TicketSystemTicketGetAuthMode { get; set; } = "Session";
     public int TicketSystemSyncIntervalMinutes { get; set; } = 15;
     public bool TicketSystemOnlyOpenTickets { get; set; } = true;
     public bool TicketSystemShowClosedTickets { get; set; } = false;
