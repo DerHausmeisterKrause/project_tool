@@ -25,6 +25,7 @@ public class AppSettings
     public string TicketSystemUsername { get; set; } = string.Empty;
     public string TicketSystemPasswordEncrypted { get; set; } = string.Empty;
     public string TicketSystemPassword { get; set; } = string.Empty;
+    public int TicketSystemAgentId { get; set; } = 0;
     public int TicketSystemSyncIntervalMinutes { get; set; } = 15;
     public bool TicketSystemOnlyOpenTickets { get; set; } = true;
     public bool TicketSystemShowClosedTickets { get; set; } = false;

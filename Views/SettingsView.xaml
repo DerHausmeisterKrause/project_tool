@@ -47,13 +47,15 @@
                         <TextBox Text="{Binding TicketSystemUsername, UpdateSourceTrigger=PropertyChanged}" Width="320"/>
                         <TextBlock Text="Passwort (verschlüsselt gespeichert)" Foreground="{StaticResource MutedTextBrush}"/>
                         <TextBox Text="{Binding TicketSystemPassword, UpdateSourceTrigger=PropertyChanged}" Width="320"/>
+                        <TextBlock Text="Znuny Agenten-ID (Fallback, falls SessionGet keine UserID liefert)" Foreground="{StaticResource MutedTextBrush}"/>
+                        <TextBox Text="{Binding TicketSystemAgentId, UpdateSourceTrigger=PropertyChanged}" Width="120"/>
                         <TextBlock Text="Synchronisationsintervall (Minuten)" Foreground="{StaticResource MutedTextBrush}"/>
                         <TextBox Text="{Binding TicketSystemSyncIntervalMinutes, UpdateSourceTrigger=PropertyChanged}" Width="120"/>
                         <CheckBox Content="Nur offene Tickets synchronisieren" IsChecked="{Binding TicketSystemOnlyOpenTickets}" Margin="0,8,0,4"/>
                         <CheckBox Content="Geschlossene Tickets anzeigen / übernehmen" IsChecked="{Binding TicketSystemShowClosedTickets}" Margin="0,0,0,4"/>
                         <CheckBox Content="Tickets berücksichtigen, bei denen ich Owner bin" IsChecked="{Binding TicketSystemIncludeOwner}" Margin="0,0,0,4"/>
                         <CheckBox Content="Tickets berücksichtigen, bei denen ich Responsible bin" IsChecked="{Binding TicketSystemIncludeResponsible}" Margin="0,0,0,8"/>
-                        <TextBlock Text="Der Sync nutzt SessionCreate, SessionGet, TicketSearch mit OwnerIDs/ResponsibleIDs und TicketGet. API-Tokens werden für diesen Connector nicht verwendet."
+                        <TextBlock Text="Der Sync nutzt SessionCreate, SessionGet, TicketSearch mit OwnerIDs/ResponsibleIDs und TicketGet. API-Tokens werden für diesen Connector nicht verwendet. Die Agenten-ID wird nur benötigt, wenn SessionGet keine UserID zurückliefert."
                                    Foreground="{StaticResource MutedTextBrush}" TextWrapping="Wrap" Margin="0,0,0,8"/>
                         <Button Content="Znuny Tickets jetzt synchronisieren" Width="300" Style="{StaticResource SecondaryButtonStyle}" Command="{Binding ImportTicketSystemTasksCommand}"/>
                         <TextBlock Text="{Binding TicketSystemStatus}" Foreground="#FBBF24" TextWrapping="Wrap" Margin="0,4,0,0"/>

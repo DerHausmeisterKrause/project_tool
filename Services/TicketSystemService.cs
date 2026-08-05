@@ -1,7 +1,8 @@
-using System.Net;
 using System.Net.Http;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using TaskTool.Models;
 using TaskStatus = TaskTool.Models.TaskStatus;
 
@@ -15,8 +16,6 @@ public class TicketSystemService : IDisposable
     private readonly HttpClient _client = new() { Timeout = TimeSpan.FromSeconds(45) };
     private readonly SemaphoreSlim _syncGate = new(1, 1);
     private readonly System.Threading.Timer _timer;
-    private string _sessionId = string.Empty;
-    private int? _userId;
 
     public string LastError { get; private set; } = string.Empty;
 
@@ -31,9 +30,6 @@ public class TicketSystemService : IDisposable
 
     public void HandleSettingsChanged()
     {
-        _sessionId = string.Empty;
-        _userId = null;
-
         var interval = Math.Clamp(_settings.Current.TicketSystemSyncIntervalMinutes, 1, 1440);
         _timer.Change(TimeSpan.FromMinutes(interval), TimeSpan.FromMinutes(interval));
     }
@@ -66,16 +62,23 @@ public class TicketSystemService : IDisposable
                 return Fail3("Znuny Sync benötigt Owner oder Responsible als Suchkriterium.");
 
             _logger.Info($"[Znuny] Sync start reason={reason} baseUrl='{SanitizeUrl(_settings.Current.TicketSystemApiUrl)}' onlyOpen={_settings.Current.TicketSystemOnlyOpenTickets} showClosed={_settings.Current.TicketSystemShowClosedTickets} includeOwner={_settings.Current.TicketSystemIncludeOwner} includeResponsible={_settings.Current.TicketSystemIncludeResponsible}");
-            await EnsureSessionAsync(forceRenew: false);
-            _userId ??= await ResolveUserIdAsync();
-            if (!_userId.HasValue)
-                return Fail3("Znuny UserID konnte nicht automatisch aus SessionGet ermittelt werden.");
+            var sessionId = await CreateSessionAsync();
+            var sessionHash = HashSessionId(sessionId);
+            using var sessionData = await GetSessionAsync(sessionId, sessionHash);
+            var userId = ResolveUserId(sessionData);
+            if (!userId.HasValue && _settings.Current.TicketSystemAgentId > 0)
+            {
+                userId = _settings.Current.TicketSystemAgentId;
+                _logger.Info($"[ZnunySession] UserID missing in SessionGet response; using configured agentId={userId.Value}");
+            }
+            if (!userId.HasValue)
+                return Fail3("Znuny UserID konnte nicht automatisch aus SessionGet ermittelt werden. Bitte die Znuny Agenten-ID in den Einstellungen hinterlegen.");
 
             var ticketIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             if (_settings.Current.TicketSystemIncludeOwner)
-                foreach (var id in await SearchTicketsAsync("Owner", _userId.Value)) ticketIds.Add(id);
+                foreach (var id in await SearchTicketsAsync("Owner", sessionId, sessionHash, userId.Value)) ticketIds.Add(id);
             if (_settings.Current.TicketSystemIncludeResponsible)
-                foreach (var id in await SearchTicketsAsync("Responsible", _userId.Value)) ticketIds.Add(id);
+                foreach (var id in await SearchTicketsAsync("Responsible", sessionId, sessionHash, userId.Value)) ticketIds.Add(id);
 
             var existing = _tasks.GetAllTasks()
                 .Where(t => !string.IsNullOrWhiteSpace(ExtractZnunyTicketIdFromTask(t)))
@@ -85,7 +88,7 @@ public class TicketSystemService : IDisposable
 
             foreach (var ticketId in ticketIds)
             {
-                var ticket = await GetTicketAsync(ticketId);
+                var ticket = await GetTicketAsync(ticketId, sessionId, sessionHash);
                 if (ticket == null)
                 {
                     skipped++;
@@ -133,8 +136,6 @@ public class TicketSystemService : IDisposable
         }
         catch (Exception ex)
         {
-            _sessionId = string.Empty;
-            _userId = null;
             LastError = $"Znuny Sync fehlgeschlagen: {ex.Message}";
             _logger.Error($"[ZnunyError] {ex}");
             return (created, updated, skipped);
@@ -145,14 +146,8 @@ public class TicketSystemService : IDisposable
         }
     }
 
-    private async Task EnsureSessionAsync(bool forceRenew)
+    private async Task<string> CreateSessionAsync()
     {
-        if (!forceRenew && !string.IsNullOrWhiteSpace(_sessionId))
-            return;
-
-        _sessionId = string.Empty;
-        _userId = null;
-
         var url = Combine(_settings.Current.TicketSystemApiUrl, "Session");
         var payload = new Dictionary<string, object?>
         {
@@ -163,86 +158,83 @@ public class TicketSystemService : IDisposable
         _logger.Info($"[ZnunyLogin] POST {SanitizeUrl(url)} payload={{UserLogin:'{_settings.Current.TicketSystemUsername}',Password:'***'}}");
         using var response = await PostJsonAsync(url, payload);
         var json = await response.Content.ReadAsStringAsync();
-        _logger.Info($"[ZnunyLogin] status={(int)response.StatusCode} response={Truncate(json)}");
+        _logger.Info($"[ZnunyLogin] status={(int)response.StatusCode} response={Truncate(RedactSecrets(json))}");
         response.EnsureSuccessStatusCode();
 
         using var doc = JsonDocument.Parse(json);
-        _sessionId = FirstString(doc.RootElement, "SessionID");
-        if (string.IsNullOrWhiteSpace(_sessionId))
+        var sessionId = FirstString(doc.RootElement, "SessionID");
+        if (string.IsNullOrWhiteSpace(sessionId))
             throw new InvalidOperationException("Znuny SessionCreate lieferte keine SessionID.");
+
+        _logger.Info($"[ZnunySession] createdSessionIdHash={HashSessionId(sessionId)} reusedFor=SessionGet");
+        return sessionId;
     }
 
-    private async Task<int?> ResolveUserIdAsync()
+    private async Task<JsonDocument> GetSessionAsync(string sessionId, string sessionHash)
     {
-        await EnsureSessionAsync(false);
-        _logger.Info("[Znuny] Resolve UserID via SessionGet");
-        var json = await GetStringWithSessionRetryAsync(() => Combine(_settings.Current.TicketSystemApiUrl, $"Session/SessionID={Uri.EscapeDataString(_sessionId)}"));
-        _logger.Info($"[Znuny] SessionGet response={Truncate(json)}");
-        using var doc = JsonDocument.Parse(json);
-        return FindSessionValue(doc.RootElement, "UserID", "UserId", "UserIDRaw") ?? FindInteger(doc.RootElement, "UserID", "UserId");
+        var url = Combine(_settings.Current.TicketSystemApiUrl, $"Session/SessionID={Uri.EscapeDataString(sessionId)}");
+        _logger.Info($"[ZnunySession] GET {SanitizeUrl(url)} createdSessionIdHash={sessionHash} reusedFor=SessionGet");
+        using var response = await _client.GetAsync(url);
+        var json = await response.Content.ReadAsStringAsync();
+        _logger.Info($"[ZnunySession] SessionGet status={(int)response.StatusCode} response={Truncate(RedactSecrets(json))}");
+        response.EnsureSuccessStatusCode();
+
+        var doc = JsonDocument.Parse(json);
+        if (ContainsError(doc.RootElement, out var errorCode, out var errorMessage))
+        {
+            doc.Dispose();
+            throw new InvalidOperationException($"Znuny SessionGet fehlgeschlagen: {errorCode} {errorMessage}".Trim());
+        }
+
+        LogSessionKeys(doc.RootElement);
+        return doc;
     }
 
-    private async Task<IEnumerable<string>> SearchTicketsAsync(string role, int userId)
+    private static int? ResolveUserId(JsonDocument sessionData)
+        => FindSessionValue(sessionData.RootElement, "UserID", "UserId") ?? FindInteger(sessionData.RootElement, "UserID", "UserId");
+
+    private async Task<IEnumerable<string>> SearchTicketsAsync(string role, string sessionId, string sessionHash, int userId)
     {
-        await EnsureSessionAsync(false);
         var url = Combine(_settings.Current.TicketSystemApiUrl, "Ticket/Search");
-        var payload = new Dictionary<string, object?> { ["SessionID"] = _sessionId };
+        var payload = new Dictionary<string, object?> { ["SessionID"] = sessionId };
         payload[role == "Owner" ? "OwnerIDs" : "ResponsibleIDs"] = new[] { userId };
         if (_settings.Current.TicketSystemOnlyOpenTickets && !_settings.Current.TicketSystemShowClosedTickets)
             payload["StateType"] = new[] { "Open" };
 
         var logTag = role == "Owner" ? "[ZnunySearchOwner]" : "[ZnunySearchResponsible]";
-        _logger.Info($"{logTag} POST {SanitizeUrl(url)} payload={{SessionID:'***',{(role == "Owner" ? "OwnerIDs" : "ResponsibleIDs")}:[{userId}],StateType:'{payload.GetValueOrDefault("StateType")}'}}");
-        var json = await PostJsonWithSessionRetryAsync(url, payload);
-        _logger.Info($"{logTag} response={Truncate(json)}");
+        _logger.Info($"{logTag} POST {SanitizeUrl(url)} createdSessionIdHash={sessionHash} payload={{SessionID:'***',{(role == "Owner" ? "OwnerIDs" : "ResponsibleIDs")}:[{userId}],StateType:'{FormatStateTypeForLog(payload)}'}}");
+        var json = await PostJsonAsync(url, payload, logTag);
+        _logger.Info($"{logTag} response={Truncate(RedactSecrets(json))}");
         using var doc = JsonDocument.Parse(json);
         return ExtractTicketIds(doc.RootElement);
     }
 
-    private async Task<ZnunyTicket?> GetTicketAsync(string ticketId)
+    private async Task<ZnunyTicket?> GetTicketAsync(string ticketId, string sessionId, string sessionHash)
     {
-        await EnsureSessionAsync(false);
-        _logger.Info($"[ZnunyTicket] GET Ticket/{ticketId}");
-        var json = await GetStringWithSessionRetryAsync(() => Combine(_settings.Current.TicketSystemApiUrl, $"Ticket/{Uri.EscapeDataString(ticketId)}?SessionID={Uri.EscapeDataString(_sessionId)}&DynamicFields=1"));
-        _logger.Info($"[ZnunyTicket] ticketId={ticketId} response={Truncate(json)}");
+        _logger.Info($"[ZnunyTicket] GET Ticket/{ticketId} createdSessionIdHash={sessionHash}");
+        var url = Combine(_settings.Current.TicketSystemApiUrl, $"Ticket/{Uri.EscapeDataString(ticketId)}?SessionID={Uri.EscapeDataString(sessionId)}&DynamicFields=1");
+        var json = await GetStringAsync(url, "[ZnunyTicket]");
+        _logger.Info($"[ZnunyTicket] ticketId={ticketId} response={Truncate(RedactSecrets(json))}");
         using var doc = JsonDocument.Parse(json);
         var ticketElement = FindFirstTicketElement(doc.RootElement);
         return ticketElement.HasValue ? ZnunyTicket.FromJson(ticketElement.Value, _settings.Current.TicketSystemWebUrl) : null;
     }
 
-    private async Task<string> PostJsonWithSessionRetryAsync(string url, Dictionary<string, object?> payload)
+    private async Task<string> PostJsonAsync(string url, Dictionary<string, object?> payload, string logTag)
     {
         using var response = await PostJsonAsync(url, payload);
         var json = await response.Content.ReadAsStringAsync();
-        if (IsSessionExpired(response, json))
-        {
-            await EnsureSessionAsync(forceRenew: true);
-            payload["SessionID"] = _sessionId;
-            using var retry = await PostJsonAsync(url, payload);
-            var retryJson = await retry.Content.ReadAsStringAsync();
-            retry.EnsureSuccessStatusCode();
-            return retryJson;
-        }
-
+        _logger.Info($"{logTag} status={(int)response.StatusCode}");
         response.EnsureSuccessStatusCode();
         return json;
     }
 
-    private async Task<string> GetStringWithSessionRetryAsync(Func<string> urlFactory)
+    private async Task<string> GetStringAsync(string url, string logTag)
     {
-        var url = urlFactory();
+        _logger.Info($"{logTag} GET {SanitizeUrl(url)}");
         using var response = await _client.GetAsync(url);
         var json = await response.Content.ReadAsStringAsync();
-        if (IsSessionExpired(response, json))
-        {
-            await EnsureSessionAsync(forceRenew: true);
-            url = urlFactory();
-            using var retry = await _client.GetAsync(url);
-            var retryJson = await retry.Content.ReadAsStringAsync();
-            retry.EnsureSuccessStatusCode();
-            return retryJson;
-        }
-
+        _logger.Info($"{logTag} status={(int)response.StatusCode}");
         response.EnsureSuccessStatusCode();
         return json;
     }
@@ -269,9 +261,81 @@ public class TicketSystemService : IDisposable
         return id?.Split(':', 2).ElementAtOrDefault(1) ?? string.Empty;
     }
 
-    private static bool IsSessionExpired(HttpResponseMessage response, string json)
-        => response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden
-           || json.Contains("Session", StringComparison.OrdinalIgnoreCase) && (json.Contains("invalid", StringComparison.OrdinalIgnoreCase) || json.Contains("expired", StringComparison.OrdinalIgnoreCase));
+    private void LogSessionKeys(JsonElement root)
+    {
+        var keys = CollectSessionKeys(root).Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(k => k).ToList();
+        var knownValues = new[]
+        {
+            "UserID", "UserId", "UserLogin", "UserEmail", "UserFirstname", "UserLastname"
+        }.Select(key => $"{key}='{FindSessionString(root, key)}'");
+
+        _logger.Info($"[ZnunySession] SessionGet keys=[{string.Join(",", keys)}] knownFields={{ {string.Join(", ", knownValues)} }}");
+    }
+
+    private static IEnumerable<string> CollectSessionKeys(JsonElement root)
+    {
+        if (!root.TryGetProperty("SessionData", out var data))
+            yield break;
+
+        if (data.ValueKind == JsonValueKind.Object)
+        {
+            foreach (var property in data.EnumerateObject())
+                yield return property.Name;
+            yield break;
+        }
+
+        if (data.ValueKind != JsonValueKind.Array)
+            yield break;
+
+        foreach (var item in data.EnumerateArray())
+        {
+            var key = FirstString(item, "Key");
+            if (!string.IsNullOrWhiteSpace(key))
+                yield return key;
+        }
+    }
+
+    private static string FindSessionString(JsonElement root, string key)
+    {
+        if (!root.TryGetProperty("SessionData", out var data))
+            return string.Empty;
+
+        if (data.ValueKind == JsonValueKind.Object)
+            return FirstString(data, key);
+
+        if (data.ValueKind != JsonValueKind.Array)
+            return string.Empty;
+
+        foreach (var item in data.EnumerateArray())
+        {
+            if (string.Equals(FirstString(item, "Key"), key, StringComparison.OrdinalIgnoreCase))
+                return FirstString(item, "Value");
+        }
+
+        return string.Empty;
+    }
+
+    private static bool ContainsError(JsonElement root, out string errorCode, out string errorMessage)
+    {
+        errorCode = string.Empty;
+        errorMessage = string.Empty;
+
+        if (!root.TryGetProperty("Error", out var error) || error.ValueKind != JsonValueKind.Object)
+            return false;
+
+        errorCode = FirstString(error, "ErrorCode");
+        errorMessage = FirstString(error, "ErrorMessage");
+        return true;
+    }
+
+    private static string FormatStateTypeForLog(Dictionary<string, object?> payload)
+        => payload.TryGetValue("StateType", out var stateType) && stateType is string[] values ? string.Join(",", values) : string.Empty;
+
+    private static string HashSessionId(string sessionId)
+    {
+        var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(sessionId));
+        return Convert.ToHexString(bytes)[..12];
+    }
 
     private static IEnumerable<string> ExtractTicketIds(JsonElement root)
     {
@@ -318,11 +382,17 @@ public class TicketSystemService : IDisposable
 
     private static int? FindInteger(JsonElement item, params string[] names)
     {
+        if (item.ValueKind != JsonValueKind.Object)
+            return null;
+
         foreach (var name in names)
         {
-            if (!item.TryGetProperty(name, out var value)) continue;
-            if (value.ValueKind == JsonValueKind.Number && value.TryGetInt32(out var number)) return number;
-            if (int.TryParse(FirstString(item, name), out var parsed)) return parsed;
+            foreach (var property in item.EnumerateObject())
+            {
+                if (!string.Equals(property.Name, name, StringComparison.OrdinalIgnoreCase)) continue;
+                if (property.Value.ValueKind == JsonValueKind.Number && property.Value.TryGetInt32(out var number)) return number;
+                if (int.TryParse(FirstString(item, name), out var parsed)) return parsed;
+            }
         }
 
         return null;
@@ -333,16 +403,27 @@ public class TicketSystemService : IDisposable
         if (item.ValueKind != JsonValueKind.Object) return string.Empty;
         foreach (var name in names)
         {
-            if (!item.TryGetProperty(name, out var value)) continue;
-            if (value.ValueKind == JsonValueKind.String) return value.GetString() ?? string.Empty;
-            if (value.ValueKind is JsonValueKind.Number or JsonValueKind.True or JsonValueKind.False) return value.ToString();
+            foreach (var property in item.EnumerateObject())
+            {
+                if (!string.Equals(property.Name, name, StringComparison.OrdinalIgnoreCase)) continue;
+
+                var value = property.Value;
+                if (value.ValueKind == JsonValueKind.String) return value.GetString() ?? string.Empty;
+                if (value.ValueKind is JsonValueKind.Number or JsonValueKind.True or JsonValueKind.False) return value.ToString();
+            }
         }
         return string.Empty;
     }
 
     private static string Combine(string baseUrl, string relative) => $"{baseUrl.TrimEnd('/')}/{relative.TrimStart('/')}";
-    private static string SanitizeUrl(string value) => value.Replace("Password=", "Password=***", StringComparison.OrdinalIgnoreCase).Replace("SessionID=", "SessionID=***", StringComparison.OrdinalIgnoreCase);
+    private static string SanitizeUrl(string value)
+    {
+        var sanitized = value.Replace("Password=", "Password=***", StringComparison.OrdinalIgnoreCase);
+        return Regex.Replace(sanitized, "SessionID=[^&/\\s]+", "SessionID=***", RegexOptions.IgnoreCase);
+    }
     private static string Truncate(string value) => value.Length <= 3000 ? value : value[..3000] + "...";
+    private static string RedactSecrets(string value)
+        => Regex.Replace(value, "\"SessionID\"\\s*:\\s*\"[^\"]+\"", "\"SessionID\":\"***\"", RegexOptions.IgnoreCase);
 
     private (int created, int updated, int skipped) Fail3(string error)
     {

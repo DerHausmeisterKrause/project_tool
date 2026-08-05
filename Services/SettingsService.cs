@@ -71,6 +71,7 @@ public class SettingsService
         settings.TicketSystemUsername = settings.TicketSystemUsername?.Trim() ?? string.Empty;
         settings.TicketSystemPasswordEncrypted ??= string.Empty;
         settings.TicketSystemPassword ??= string.Empty;
+        settings.TicketSystemAgentId = Math.Max(0, settings.TicketSystemAgentId);
         settings.TicketSystemSyncIntervalMinutes = settings.TicketSystemSyncIntervalMinutes <= 0 ? 15 : Math.Clamp(settings.TicketSystemSyncIntervalMinutes, 1, 1440);
         if (!settings.TicketSystemIncludeOwner && !settings.TicketSystemIncludeResponsible)
             settings.TicketSystemIncludeOwner = true;

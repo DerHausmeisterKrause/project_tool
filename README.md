@@ -36,6 +36,15 @@ Das Skript führt `dotnet clean`, `dotnet restore` und `dotnet publish` für `Ta
 
 `artifacts\publish\win-x64`
 
+
+## Znuny / OTRS Ticketsystem
+
+Die Ticketsystem-Anbindung nutzt den Znuny/OTRS 6.3.x `GenericTicketConnectorREST` mit `SessionCreate`, `SessionGet`, `TicketSearch` und `TicketGet`. Als Server-URL wird die Basis des Webservice erwartet, zum Beispiel:
+
+`https://SERVER/nph-genericinterface.pl/Webservice/GenericTicketConnectorREST`
+
+Die Anmeldung erfolgt mit Benutzername und Passwort; API-Tokens werden für diesen Connector nicht verwendet. Die Anwendung versucht die Znuny UserID automatisch über `SessionGet` zu ermitteln. Falls der Webservice keine `UserID`/`UserId` zurückliefert, kann in den Einstellungen die **Znuny Agenten-ID** als Fallback hinterlegt werden. Diese ID wird anschließend für `OwnerIDs` und `ResponsibleIDs` in `TicketSearch` verwendet.
+
 ## Start
 1. Aktuelle `TaskTool.zip` aus dem Ordner "deploy" entpacken.
 2. `TaskTool.exe` starten.
