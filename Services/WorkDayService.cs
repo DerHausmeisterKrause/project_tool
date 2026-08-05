@@ -1,4 +1,5 @@
 using Microsoft.Data.Sqlite;
+using System.Globalization;
 using TaskTool.Models;
 
 namespace TaskTool.Services;
@@ -66,7 +67,7 @@ public class WorkDayService
             {
                 Id = Convert.ToInt64(r["id"]),
                 Day = day,
-                StartLocal = DateTime.Parse(r["start_local"].ToString()!),
+                StartLocal = ParseRequiredDateTime(r["start_local"].ToString()),
                 EndLocal = DateTime.TryParse(r["end_local"]?.ToString(), out var e) ? e : null,
                 Note = r["note"]?.ToString() ?? string.Empty
             });
@@ -172,6 +173,17 @@ ON CONFLICT(day) DO UPDATE SET come_local=$c, go_local=$g";
         }
 
         tx.Commit();
+    }
+
+    private static DateTime ParseRequiredDateTime(string? value)
+    {
+        if (DateTime.TryParse(value, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var parsed))
+            return parsed;
+
+        if (DateTime.TryParse(value, CultureInfo.CurrentCulture, DateTimeStyles.AssumeLocal, out parsed))
+            return parsed;
+
+        throw new FormatException($"Ungültiger Datumswert in der Datenbank: '{value ?? "<null>"}'");
     }
 
     private static WorkDayRecord MapWorkDay(SqliteDataReader r, string day) => new()

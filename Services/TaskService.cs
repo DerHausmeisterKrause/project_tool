@@ -1,4 +1,5 @@
 using Microsoft.Data.Sqlite;
+using System.Globalization;
 using TaskStatus = TaskTool.Models.TaskStatus;
 using TaskTool.Models;
 
@@ -199,7 +200,7 @@ VALUES ($id,$title,$desc,$url,$start,$end,$status,$priority,$tags,$entry,$ticket
         using var reader = cmd.ExecuteReader();
         while (reader.Read())
         {
-            var start = DateTime.Parse(reader["start_utc"].ToString()!).ToUniversalTime();
+            var start = ParseRequiredDateTime(reader["start_utc"].ToString()).ToUniversalTime();
             var end = DateTime.TryParse(reader["end_utc"]?.ToString(), out var parsedEnd)
                 ? parsedEnd.ToUniversalTime()
                 : DateTime.UtcNow;
@@ -295,8 +296,8 @@ ORDER BY ticket_minutes_booked DESC, title ASC LIMIT $max";
             {
                 Id = Convert.ToInt64(r["id"]),
                 TaskId = taskId,
-                StartLocal = DateTime.Parse(r["start_local"].ToString()!),
-                EndLocal = DateTime.Parse(r["end_local"].ToString()!),
+                StartLocal = ParseRequiredDateTime(r["start_local"].ToString()),
+                EndLocal = ParseRequiredDateTime(r["end_local"].ToString()),
                 PlannedMinutes = Convert.ToInt32(r["planned_minutes"]),
                 Note = r["note"]?.ToString() ?? string.Empty,
                 OutlookEntryId = r["outlook_entry_id"]?.ToString() ?? string.Empty
@@ -336,8 +337,8 @@ ORDER BY ticket_minutes_booked DESC, title ASC LIMIT $max";
             {
                 Id = Convert.ToInt64(r["id"]),
                 TaskId = Guid.Parse(r["task_id"].ToString()!),
-                StartLocal = DateTime.Parse(r["start_local"].ToString()!),
-                EndLocal = DateTime.Parse(r["end_local"].ToString()!),
+                StartLocal = ParseRequiredDateTime(r["start_local"].ToString()),
+                EndLocal = ParseRequiredDateTime(r["end_local"].ToString()),
                 PlannedMinutes = Convert.ToInt32(r["planned_minutes"]),
                 Note = r["note"]?.ToString() ?? string.Empty,
                 OutlookEntryId = r["outlook_entry_id"]?.ToString() ?? string.Empty
@@ -497,9 +498,20 @@ ORDER BY ticket_minutes_booked DESC, title ASC LIMIT $max";
             OutlookEntryId = reader["outlook_entry_id"]?.ToString() ?? string.Empty,
             TicketMinutesBooked = Convert.ToInt32(reader["ticket_minutes_booked"]),
             TicketSecondsBooked = reader["ticket_seconds_booked"] == DBNull.Value ? Convert.ToInt64(reader["ticket_minutes_booked"]) * 60L : Convert.ToInt64(reader["ticket_seconds_booked"]),
-            CreatedUtc = DateTime.Parse(reader["created_utc"].ToString()!),
-            UpdatedUtc = DateTime.Parse(reader["updated_utc"].ToString()!)
+            CreatedUtc = ParseRequiredDateTime(reader["created_utc"].ToString()),
+            UpdatedUtc = ParseRequiredDateTime(reader["updated_utc"].ToString())
         };
+    }
+
+    private static DateTime ParseRequiredDateTime(string? value)
+    {
+        if (DateTime.TryParse(value, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var parsed))
+            return parsed;
+
+        if (DateTime.TryParse(value, CultureInfo.CurrentCulture, DateTimeStyles.AssumeLocal, out parsed))
+            return parsed;
+
+        throw new FormatException($"Ungültiger Datumswert in der Datenbank: '{value ?? "<null>"}'");
     }
 
     private static void BindTask(SqliteCommand cmd, TaskItem task)
