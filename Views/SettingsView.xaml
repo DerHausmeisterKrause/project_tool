@@ -15,14 +15,15 @@
                         <CheckBox Content="Ganztagstermine als Tagesmarker interpretieren" IsChecked="{Binding OutlookInterpretAllDayAsMarkers}" Margin="0,0,0,8"/>
                         <CheckBox Content="Wochenende anzeigen" IsChecked="{Binding ShowWeekendInWeekView}" Margin="0,0,0,8"/>
                         <TextBlock Text="Outlook Kalender Sync-Modus" Foreground="{StaticResource MutedTextBrush}"/>
-                        <ComboBox Width="180" ItemsSource="{Binding OutlookSyncModes}" SelectedItem="{Binding OutlookCalendarSyncMode}" Margin="0,0,0,8"/>
+                        <ComboBox Width="220" Style="{StaticResource DarkComboBoxStyle}" ItemsSource="{Binding OutlookSyncModes}" SelectedItem="{Binding OutlookCalendarSyncMode}" Margin="0,0,0,8"/>
                         <TextBlock Text="Sync Intervall (Minuten)" Foreground="{StaticResource MutedTextBrush}"/>
                         <TextBox Text="{Binding OutlookCalendarSyncIntervalMinutes}" Width="120" Margin="0,0,0,8"/>
                         <TextBlock Text="Zeitfenster Rückblick (Tage)" Foreground="{StaticResource MutedTextBrush}"/>
                         <TextBox Text="{Binding OutlookCalendarRangePastDays}" Width="120" Margin="0,0,0,8"/>
                         <TextBlock Text="Zeitfenster Vorschau (Tage)" Foreground="{StaticResource MutedTextBrush}"/>
                         <TextBox Text="{Binding OutlookCalendarRangeFutureDays}" Width="120" Margin="0,0,0,8"/>
-                        <Button Content="Outlook Kalender jetzt synchronisieren" Width="260" Style="{StaticResource SecondaryButtonStyle}" Margin="0,0,0,12" Command="{Binding RefreshOutlookCalendarCommand}"/>
+                        <Button Content="Outlook Kalender jetzt synchronisieren" Width="260" Style="{StaticResource SecondaryButtonStyle}" Margin="0,0,0,8" Command="{Binding RefreshOutlookCalendarCommand}"/>
+                        <Button Content="Outlook Verbindung testen" Width="220" Style="{StaticResource SecondaryButtonStyle}" Margin="0,0,0,12" Command="{Binding TestOutlookConnectionCommand}"/>
                         <CheckBox Content="Dynamic Island aktiv" IsChecked="{Binding DynamicIslandEnabled}" Margin="0,0,0,12"/>
                         <TextBlock Text="Outlook Kategorie" Foreground="{StaticResource MutedTextBrush}"/>
                         <TextBox Text="{Binding OutlookCategoryName}" Width="260"/>
@@ -31,6 +32,26 @@
                         <Button Content="Reminder testen" Width="220" Margin="0,8,0,0" Command="{Binding TestReminderCommand}"/>
                         <TextBlock Text="Datum/Zeit Format" Foreground="{StaticResource MutedTextBrush}"/>
                         <TextBox Text="{Binding DateTimeFormat}" Width="220"/>
+                    </StackPanel>
+                </Border>
+
+                <Border Style="{StaticResource CardStyle}">
+                    <StackPanel>
+                        <TextBlock Text="Ticketsystem API" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,10"/>
+                        <TextBlock Text="Webseite URL" Foreground="{StaticResource MutedTextBrush}"/>
+                        <TextBox Text="{Binding TicketSystemWebUrl, UpdateSourceTrigger=PropertyChanged}" Width="520"/>
+                        <TextBlock Text="API URL für offene eigene Tickets" Foreground="{StaticResource MutedTextBrush}"/>
+                        <TextBox Text="{Binding TicketSystemApiUrl, UpdateSourceTrigger=PropertyChanged}" Width="520"/>
+                        <TextBlock Text="Benutzername" Foreground="{StaticResource MutedTextBrush}"/>
+                        <TextBox Text="{Binding TicketSystemUsername, UpdateSourceTrigger=PropertyChanged}" Width="320"/>
+                        <TextBlock Text="Passwort" Foreground="{StaticResource MutedTextBrush}"/>
+                        <TextBox Text="{Binding TicketSystemPassword, UpdateSourceTrigger=PropertyChanged}" Width="320"/>
+                        <TextBlock Text="API Token (optional, bevorzugt vor Benutzername/Passwort)" Foreground="{StaticResource MutedTextBrush}"/>
+                        <TextBox Text="{Binding TicketSystemApiToken, UpdateSourceTrigger=PropertyChanged}" Width="520"/>
+                        <TextBlock Text="Die API sollte ein JSON-Array liefern oder ein Objekt mit tickets/issues/data/items/results. Unterstützte Felder: title/summary/subject, url/html_url/web_url, description/body."
+                                   Foreground="{StaticResource MutedTextBrush}" TextWrapping="Wrap" Margin="0,0,0,8"/>
+                        <Button Content="Offene eigene Tickets als Tasks importieren" Width="300" Style="{StaticResource SecondaryButtonStyle}" Command="{Binding ImportTicketSystemTasksCommand}"/>
+                        <TextBlock Text="{Binding TicketSystemStatus}" Foreground="#FBBF24" TextWrapping="Wrap" Margin="0,4,0,0"/>
                     </StackPanel>
                 </Border>
 
