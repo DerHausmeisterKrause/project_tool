@@ -51,9 +51,8 @@ public class TicketSystemService : IDisposable
             var userId = GetConfiguredAgentId()!.Value;
             var sessionId = await CreateSessionAsync();
             var sessionHash = HashSessionId(sessionId);
-            var ownerIds = await SearchTicketsAsync("Owner", userId, _settings.Current.TicketSystemTicketSearchRoute, _settings.Current.TicketSystemTicketSearchMethod, sessionId, sessionHash);
-            var responsibleIds = await SearchTicketsAsync("Responsible", userId, _settings.Current.TicketSystemTicketSearchRoute, _settings.Current.TicketSystemTicketSearchMethod, sessionId, sessionHash);
-            var uniqueIds = ownerIds.Concat(responsibleIds).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+            var (ownerIds, responsibleIds, uniqueIds) = await SearchAssignedTicketIdsAsync(userId, sessionId, sessionHash, includeOwner: true, includeResponsible: true);
+            var duplicateCount = ownerIds.Count + responsibleIds.Count - uniqueIds.Count;
 
             var ticketGetStatus = "Nicht ausgeführt, keine Tickets gefunden.";
             if (uniqueIds.Count > 0)
@@ -62,7 +61,7 @@ public class TicketSystemService : IDisposable
                 ticketGetStatus = ticket == null ? "Fehlgeschlagen, keine Ticketdaten in der Antwort." : "Erfolgreich";
             }
 
-            return (true, $"Login/Authentifizierung: Erfolgreich\nTicketSearch-Route: {_settings.Current.TicketSystemTicketSearchMethod} {_settings.Current.TicketSystemTicketSearchRoute}\nAgenten-ID: {userId}\nOwner-Tickets: {ownerIds.Count}\nResponsible-Tickets: {responsibleIds.Count}\nEindeutige Tickets: {uniqueIds.Count}\nTicketGet: {ticketGetStatus}\nMapping auf internen Task: Validiert");
+            return (true, $"Login/Authentifizierung: Erfolgreich\nTicketSearch-Route: {_settings.Current.TicketSystemTicketSearchMethod} {_settings.Current.TicketSystemTicketSearchRoute}\nAgenten-ID: {userId}\nOwner-Tickets: {ownerIds.Count}\nResponsible-Tickets: {responsibleIds.Count}\nEindeutige Tickets: {uniqueIds.Count}\nDoppelte Owner/Responsible-Treffer: {duplicateCount}\nTicketGet: {ticketGetStatus}\nMapping auf internen Task: Validiert");
         }
         catch (ZnunyApiException ex)
         {
@@ -149,11 +148,15 @@ public class TicketSystemService : IDisposable
             _logger.Info($"[Znuny] Sync start reason={reason} baseUrl='{SanitizeUrl(_settings.Current.TicketSystemApiUrl)}' auth={_settings.Current.TicketSystemTicketSearchAuthMode} onlyOpen={_settings.Current.TicketSystemOnlyOpenTickets} showClosed={_settings.Current.TicketSystemShowClosedTickets} includeOwner={_settings.Current.TicketSystemIncludeOwner} includeResponsible={_settings.Current.TicketSystemIncludeResponsible}");
             _logger.Info($"[ZnunyUser] source=ConfiguredSettings userId={userId}");
 
-            var ticketIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            if (_settings.Current.TicketSystemIncludeOwner)
-                foreach (var id in await SearchTicketsAsync("Owner", userId, _settings.Current.TicketSystemTicketSearchRoute, _settings.Current.TicketSystemTicketSearchMethod, sessionId, sessionHash)) ticketIds.Add(id);
-            if (_settings.Current.TicketSystemIncludeResponsible)
-                foreach (var id in await SearchTicketsAsync("Responsible", userId, _settings.Current.TicketSystemTicketSearchRoute, _settings.Current.TicketSystemTicketSearchMethod, sessionId, sessionHash)) ticketIds.Add(id);
+            var (ownerIds, responsibleIds, uniqueTicketIds) = await SearchAssignedTicketIdsAsync(
+                userId,
+                sessionId,
+                sessionHash,
+                _settings.Current.TicketSystemIncludeOwner,
+                _settings.Current.TicketSystemIncludeResponsible);
+            var ticketIds = uniqueTicketIds;
+            var duplicateCount = ownerIds.Count + responsibleIds.Count - ticketIds.Count;
+            _logger.Info($"[ZnunySearchMerge] ownerTickets={ownerIds.Count} responsibleTickets={responsibleIds.Count} uniqueTickets={ticketIds.Count} duplicateOwnerResponsibleTickets={duplicateCount}");
 
             var existing = _tasks.GetAllTasks()
                 .Where(t => !string.IsNullOrWhiteSpace(ExtractZnunyTicketIdFromTask(t)))
@@ -303,14 +306,53 @@ public class TicketSystemService : IDisposable
     private int? GetConfiguredAgentId()
         => _settings.Current.TicketSystemAgentId > 0 ? _settings.Current.TicketSystemAgentId : null;
 
-    private async Task<List<string>> SearchTicketsAsync(string role, int userId, string route, string method, string sessionId, string sessionHash)
+    private async Task<(List<string> ownerIds, List<string> responsibleIds, List<string> uniqueIds)> SearchAssignedTicketIdsAsync(
+        int userId,
+        string sessionId,
+        string sessionHash,
+        bool includeOwner,
+        bool includeResponsible)
+    {
+        var ownerIds = includeOwner
+            ? await SearchRoleTicketIdsWithOpenCompatibilityAsync("Owner", userId, sessionId, sessionHash)
+            : new List<string>();
+        var responsibleIds = includeResponsible
+            ? await SearchRoleTicketIdsWithOpenCompatibilityAsync("Responsible", userId, sessionId, sessionHash)
+            : new List<string>();
+        var uniqueIds = ownerIds
+            .Concat(responsibleIds)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        return (ownerIds, responsibleIds, uniqueIds);
+    }
+
+    private async Task<List<string>> SearchRoleTicketIdsWithOpenCompatibilityAsync(string role, int userId, string sessionId, string sessionHash)
+    {
+        var onlyOpen = _settings.Current.TicketSystemOnlyOpenTickets && !_settings.Current.TicketSystemShowClosedTickets;
+        var filteredIds = await SearchTicketsAsync(role, userId, _settings.Current.TicketSystemTicketSearchRoute, _settings.Current.TicketSystemTicketSearchMethod, sessionId, sessionHash, onlyOpen);
+
+        if (!onlyOpen)
+            return filteredIds;
+
+        var unfilteredIds = await SearchTicketsAsync(role, userId, _settings.Current.TicketSystemTicketSearchRoute, _settings.Current.TicketSystemTicketSearchMethod, sessionId, sessionHash, onlyOpenOverride: false);
+        var mergedIds = filteredIds
+            .Concat(unfilteredIds)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        _logger.Info($"[ZnunySearchCompatibility] role={role} stateTypeOpenTickets={filteredIds.Count} unfilteredTickets={unfilteredIds.Count} mergedTickets={mergedIds.Count}");
+        return mergedIds;
+    }
+
+    private async Task<List<string>> SearchTicketsAsync(string role, int userId, string route, string method, string sessionId, string sessionHash, bool? onlyOpenOverride = null)
     {
         route = NormalizeRouteValue(route, "/Ticket");
         method = string.Equals(method, "GET", StringComparison.OrdinalIgnoreCase) ? "GET" : "POST";
         var isOwner = role == "Owner";
         var stage = isOwner ? "TicketSearchOwner" : "TicketSearchResponsible";
         var logTag = isOwner ? "[ZnunySearchOwner]" : "[ZnunySearchResponsible]";
-        var onlyOpen = _settings.Current.TicketSystemOnlyOpenTickets && !_settings.Current.TicketSystemShowClosedTickets;
+        var onlyOpen = onlyOpenOverride ?? (_settings.Current.TicketSystemOnlyOpenTickets && !_settings.Current.TicketSystemShowClosedTickets);
         if (method == "GET" && string.Equals(_settings.Current.TicketSystemTicketSearchAuthMode, "Direct", StringComparison.OrdinalIgnoreCase))
             throw new ZnunyApiException(stage, HttpStatusCode.BadRequest, "Configuration", "Direkte Authentifizierung für TicketSearch darf nicht mit GET verwendet werden, weil Credentials in URLs/Logs landen würden.", string.Empty);
 
