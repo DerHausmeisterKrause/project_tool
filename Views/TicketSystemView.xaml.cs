@@ -9,7 +9,7 @@ public partial class TicketSystemView : UserControl
     public TicketSystemView()
     {
         InitializeComponent();
-        DataContextChanged += (_, _) => NavigateToConfiguredUrl();
+        DataContextChanged += (_, _) => _ = NavigateToConfiguredUrlAsync();
     }
 
     protected override void OnInitialized(EventArgs e)
@@ -17,23 +17,35 @@ public partial class TicketSystemView : UserControl
         base.OnInitialized(e);
         if (DataContext is INotifyPropertyChanged notify)
             notify.PropertyChanged += OnViewModelPropertyChanged;
-        NavigateToConfiguredUrl();
+        _ = NavigateToConfiguredUrlAsync();
     }
 
     private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
         if (e.PropertyName == nameof(TicketSystemViewModel.TicketSystemWebUrl))
-            NavigateToConfiguredUrl();
+            _ = NavigateToConfiguredUrlAsync();
     }
 
-    private void NavigateToConfiguredUrl()
+    private async Task NavigateToConfiguredUrlAsync()
     {
         if (DataContext is not TicketSystemViewModel vm)
             return;
 
         if (!Uri.TryCreate(vm.TicketSystemWebUrl, UriKind.Absolute, out var uri))
+        {
+            BrowserStatus.Text = "Bitte in den Einstellungen eine gültige Ticketsystem-Webseite URL hinterlegen.";
             return;
+        }
 
-        TicketBrowser.Navigate(uri);
+        try
+        {
+            BrowserStatus.Text = string.Empty;
+            await TicketBrowser.EnsureCoreWebView2Async();
+            TicketBrowser.CoreWebView2.Navigate(uri.ToString());
+        }
+        catch (Exception ex)
+        {
+            BrowserStatus.Text = $"WebView2 konnte nicht gestartet werden: {ex.Message}. Bitte Microsoft Edge WebView2 Runtime installieren/aktualisieren.";
+        }
     }
 }
