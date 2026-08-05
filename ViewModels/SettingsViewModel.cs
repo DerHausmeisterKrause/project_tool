@@ -1,4 +1,6 @@
+using System;
 using System.Collections.Generic;
+using System.Windows;
 using TaskTool.Infrastructure;
 using TaskTool.Services;
 
@@ -9,6 +11,8 @@ public class SettingsViewModel : ObservableObject
     private readonly SettingsService _settings;
     private readonly NotificationService _notifications;
     private readonly OutlookCalendarService _outlookCalendar;
+    private readonly TaskService _tasks;
+    private readonly TicketSystemService _ticketSystem;
     public string Title => "Einstellungen";
 
     public bool OutlookSyncEnabled { get => _settings.Current.OutlookSyncEnabled; set { _settings.Current.OutlookSyncEnabled = value; Save(); } }
@@ -23,6 +27,26 @@ public class SettingsViewModel : ObservableObject
     public int OutlookCalendarRangePastDays { get => _settings.Current.OutlookCalendarRangePastDays; set { _settings.Current.OutlookCalendarRangePastDays = value; Save(); } }
     public int OutlookCalendarRangeFutureDays { get => _settings.Current.OutlookCalendarRangeFutureDays; set { _settings.Current.OutlookCalendarRangeFutureDays = value; Save(); } }
 
+    public string TicketSystemWebUrl { get => _settings.Current.TicketSystemWebUrl; set { _settings.Current.TicketSystemWebUrl = value; Save(); } }
+    public string TicketSystemApiUrl { get => _settings.Current.TicketSystemApiUrl; set { _settings.Current.TicketSystemApiUrl = value; Save(); } }
+    public string TicketSystemUsername { get => _settings.Current.TicketSystemUsername; set { _settings.Current.TicketSystemUsername = value; Save(); } }
+    public string TicketSystemPassword { get => _settings.GetTicketSystemPassword(); set { _settings.SetTicketSystemPassword(value); Save(); } }
+    public int TicketSystemAgentId { get => _settings.Current.TicketSystemAgentId; set { _settings.Current.TicketSystemAgentId = value; Save(); } }
+    public string TicketSystemTicketSearchRoute { get => _settings.Current.TicketSystemTicketSearchRoute; set { _settings.Current.TicketSystemTicketSearchRoute = value; Save(); } }
+    public string TicketSystemTicketSearchMethod { get => _settings.Current.TicketSystemTicketSearchMethod; set { _settings.Current.TicketSystemTicketSearchMethod = value; Save(); } }
+    public string TicketSystemTicketSearchAuthMode { get => _settings.Current.TicketSystemTicketSearchAuthMode; set { _settings.Current.TicketSystemTicketSearchAuthMode = value; Save(); } }
+    public string TicketSystemTicketGetRouteTemplate { get => _settings.Current.TicketSystemTicketGetRouteTemplate; set { _settings.Current.TicketSystemTicketGetRouteTemplate = value; Save(); } }
+    public string TicketSystemTicketGetMethod { get => _settings.Current.TicketSystemTicketGetMethod; set { _settings.Current.TicketSystemTicketGetMethod = value; Save(); } }
+    public string TicketSystemTicketGetAuthMode { get => _settings.Current.TicketSystemTicketGetAuthMode; set { _settings.Current.TicketSystemTicketGetAuthMode = value; Save(); } }
+    public int TicketSystemSyncIntervalMinutes { get => _settings.Current.TicketSystemSyncIntervalMinutes; set { _settings.Current.TicketSystemSyncIntervalMinutes = value; Save(); } }
+    public bool TicketSystemOnlyOpenTickets { get => _settings.Current.TicketSystemOnlyOpenTickets; set { _settings.Current.TicketSystemOnlyOpenTickets = value; Save(); } }
+    public bool TicketSystemShowClosedTickets { get => _settings.Current.TicketSystemShowClosedTickets; set { _settings.Current.TicketSystemShowClosedTickets = value; Save(); } }
+    public bool TicketSystemIncludeOwner { get => _settings.Current.TicketSystemIncludeOwner; set { _settings.Current.TicketSystemIncludeOwner = value; Save(); } }
+    public bool TicketSystemIncludeResponsible { get => _settings.Current.TicketSystemIncludeResponsible; set { _settings.Current.TicketSystemIncludeResponsible = value; Save(); } }
+
+    private string _ticketSystemStatus = string.Empty;
+    public string TicketSystemStatus { get => _ticketSystemStatus; set => Set(ref _ticketSystemStatus, value); }
+
     public int ReminderLeadMinutes { get => _settings.Current.ReminderLeadMinutes; set { _settings.Current.ReminderLeadMinutes = value; Save(); } }
     public string DateTimeFormat { get => _settings.Current.DateTimeFormat; set { _settings.Current.DateTimeFormat = value; Save(); } }
     public int MondayTargetMinutes { get => _settings.Current.MondayTargetMinutes; set { _settings.Current.MondayTargetMinutes = value; Save(); } }
@@ -35,17 +59,79 @@ public class SettingsViewModel : ObservableObject
     public bool DynamicIslandEnabled { get => _settings.Current.DynamicIslandEnabled; set { _settings.Current.DynamicIslandEnabled = value; Save(); } }
 
     public List<string> OutlookSyncModes { get; } = new() { "Manual", "Periodic" };
+    public List<string> TicketSystemSearchMethods { get; } = new() { "POST", "GET" };
+    public List<string> TicketSystemAuthModes { get; } = new() { "Session", "Direct" };
+    public List<string> TicketSystemTicketGetAuthModes { get; } = new() { "Session", "Direct" };
 
     public RelayCommand TestReminderCommand { get; }
     public RelayCommand RefreshOutlookCalendarCommand { get; }
+    public RelayCommand TestOutlookConnectionCommand { get; }
+    public RelayCommand ImportTicketSystemTasksCommand { get; }
+    public RelayCommand TestTicketSystemConnectionCommand { get; }
+    public RelayCommand TestTicketSystemRoutesCommand { get; }
 
-    public SettingsViewModel(SettingsService settings, NotificationService notifications, OutlookCalendarService outlookCalendar)
+    public SettingsViewModel(SettingsService settings, NotificationService notifications, OutlookCalendarService outlookCalendar, TaskService tasks, TicketSystemService ticketSystem)
     {
         _settings = settings;
         _notifications = notifications;
         _outlookCalendar = outlookCalendar;
+        _tasks = tasks;
+        _ticketSystem = ticketSystem;
         TestReminderCommand = new RelayCommand(() => _notifications.ShowTestNotification());
         RefreshOutlookCalendarCommand = new RelayCommand(async () => await _outlookCalendar.TriggerSyncAsync("manual-button"));
+        TestOutlookConnectionCommand = new RelayCommand(TestOutlookConnection);
+        ImportTicketSystemTasksCommand = new RelayCommand(async () => await ImportTicketSystemTasksAsync());
+        TestTicketSystemConnectionCommand = new RelayCommand(async () => await TestTicketSystemConnectionAsync());
+        TestTicketSystemRoutesCommand = new RelayCommand(async () => await TestTicketSystemRoutesAsync());
+    }
+
+    private async Task TestTicketSystemRoutesAsync()
+    {
+        TicketSystemStatus = "Znuny API-Routen werden getestet ...";
+        var result = await _ticketSystem.TestRoutesAsync();
+        TicketSystemStatus = result.message;
+        MessageBox.Show(result.message, "Znuny API-Routentest", MessageBoxButton.OK, result.success ? MessageBoxImage.Information : MessageBoxImage.Warning);
+    }
+
+    private async Task TestTicketSystemConnectionAsync()
+    {
+        TicketSystemStatus = "Znuny-Verbindung wird getestet ...";
+        var result = await _ticketSystem.TestConnectionAsync();
+        TicketSystemStatus = result.message;
+        MessageBox.Show(result.message, "Znuny Verbindungstest", MessageBoxButton.OK, result.success ? MessageBoxImage.Information : MessageBoxImage.Warning);
+    }
+
+    private async Task ImportTicketSystemTasksAsync()
+    {
+        TicketSystemStatus = "Tickets werden abgerufen ...";
+        var result = await _ticketSystem.ImportAssignedOpenTicketsAsync();
+        TicketSystemStatus = string.IsNullOrWhiteSpace(_ticketSystem.LastError)
+            ? $"Znuny Sync fertig: {result.created} neu, {result.updated} aktualisiert, {result.skipped} übersprungen."
+            : _ticketSystem.LastError;
+    }
+
+    private void TestOutlookConnection()
+    {
+        var ok = _tasks.TestOutlookConnection();
+        if (ok)
+        {
+            MessageBox.Show("Outlook Verbindungstest erfolgreich.", "Outlook Test", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        var hex = ExtractHResultHex(_tasks.LastError);
+        MessageBox.Show($"Outlook Test fehlgeschlagen. Details in logs.txt: {hex}", "Outlook Test", MessageBoxButton.OK, MessageBoxImage.Error);
+    }
+
+    private static string ExtractHResultHex(string error)
+    {
+        if (string.IsNullOrWhiteSpace(error)) return "0x00000000";
+        var marker = "0x";
+        var idx = error.IndexOf(marker, StringComparison.OrdinalIgnoreCase);
+        if (idx < 0) return "0x00000000";
+        var end = idx + 2;
+        while (end < error.Length && Uri.IsHexDigit(error[end])) end++;
+        return error[idx..end];
     }
 
     private void Save()
@@ -53,6 +139,7 @@ public class SettingsViewModel : ObservableObject
         _settings.Save();
         _notifications.HandleSettingsChanged();
         _outlookCalendar.HandleSettingsChanged();
+        _ticketSystem.HandleSettingsChanged();
         Raise(string.Empty);
     }
 
