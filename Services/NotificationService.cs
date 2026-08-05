@@ -22,7 +22,6 @@ public class NotificationService : IDisposable
     private readonly DispatcherTimer _timer;
     private readonly HashSet<string> _firedKeys = new();
 
-    private DateTime _lastCheck;
     private DynamicIslandWindow? _islandWindow;
     private static int _windowCreateCount;
     private bool _isShuttingDown;
@@ -32,7 +31,6 @@ public class NotificationService : IDisposable
         _logger = logger;
         _settings = settings;
         _tasks = tasks;
-        _lastCheck = DateTime.Now;
         _timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(20) };
         _timer.Tick += (_, _) => CheckReminders();
         _timer.Start();
@@ -111,9 +109,9 @@ public class NotificationService : IDisposable
 
     public void RefreshSchedule()
     {
-        _lastCheck = DateTime.Now;
         TrimFiredKeys();
         _logger.Info("Notification scheduler refreshed.");
+        CheckReminders();
     }
 
     public void ShowTestNotification()
@@ -145,7 +143,7 @@ public class NotificationService : IDisposable
             var now = DateTime.Now;
             var lead = _settings.Current.ReminderLeadMinutes;
 
-            var from = _lastCheck.AddHours(-1);
+            var from = now.AddHours(-1);
             var to = now.AddDays(2);
             var segments = _tasks.GetSegmentsForRange(from, to)
                 .Where(x => x.Segment.StartLocal > now.AddHours(-1))
@@ -158,7 +156,7 @@ public class NotificationService : IDisposable
                 if (lead > 0)
                 {
                     var leadTime = start.AddMinutes(-lead);
-                    if (ShouldFire(leadTime, now))
+                    if (leadTime <= now && start > now)
                     {
                         var minutesLeft = Math.Max(1, (int)Math.Ceiling((start - now).TotalMinutes));
                         var text = $"{task.Title} in {minutesLeft} Minuten";
@@ -166,24 +164,16 @@ public class NotificationService : IDisposable
                     }
                 }
 
-                if (ShouldFire(start, now))
+                if (start <= now && start > now.AddHours(-1))
                     Fire(task.Id, segment.Id, start, ReminderKind.Start, $"{task.Title} jetzt");
             }
 
-            _lastCheck = now;
             TrimFiredKeys();
         }
         catch (Exception ex)
         {
             _logger.Error($"Reminder check failed: {ex}");
         }
-    }
-
-    private bool ShouldFire(DateTime triggerTime, DateTime now)
-    {
-        if (triggerTime < DateTime.Now.AddHours(-12)) return false;
-        if (triggerTime > now) return false;
-        return triggerTime > _lastCheck;
     }
 
     private void Fire(Guid taskId, long segmentId, DateTime start, ReminderKind kind, string text)

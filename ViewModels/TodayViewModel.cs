@@ -179,10 +179,8 @@ public class TodayViewModel : ObservableObject
     public RelayCommand SetDayTypeAmCommand { get; }
     public RelayCommand SetDayTypeUlCommand { get; }
     public RelayCommand AddSegmentCommand { get; }
-    public RelayCommand SyncAllSegmentsCommand { get; }
     public RelayCommand ShowCurrentTasksCommand { get; }
     public RelayCommand ShowCompletedTasksCommand { get; }
-    public RelayCommand TestOutlookConnectionCommand { get; }
 
     public RelayCommand<TaskItem> SelectTaskCommand { get; }
     public RelayCommand<TaskItem> StartTaskCommand { get; }
@@ -191,7 +189,6 @@ public class TodayViewModel : ObservableObject
     public RelayCommand<string> OpenTicketUrlCommand { get; }
     public RelayCommand<TaskSegment> SaveSegmentCommand { get; }
     public RelayCommand<TaskSegment> DeleteSegmentCommand { get; }
-    public RelayCommand<TaskSegment> SyncSegmentOutlookCommand { get; }
     public RelayCommand<TaskSegment> DeleteSegmentOutlookCommand { get; }
 
     private string _dayType = "Normal";
@@ -233,10 +230,8 @@ public class TodayViewModel : ObservableObject
         SetDayTypeAmCommand = new RelayCommand(() => SetDayType("AM"));
         SetDayTypeUlCommand = new RelayCommand(() => SetDayType("UL"));
         AddSegmentCommand = new RelayCommand(AddSegment, () => CanSaveNewSegment);
-        SyncAllSegmentsCommand = new RelayCommand(SyncAllSegments, () => SelectedTask != null);
         ShowCurrentTasksCommand = new RelayCommand(() => ShowCompletedTasks = false);
         ShowCompletedTasksCommand = new RelayCommand(() => ShowCompletedTasks = true);
-        TestOutlookConnectionCommand = new RelayCommand(TestOutlookConnection);
 
         SelectTaskCommand = new RelayCommand<TaskItem>(task => SelectedTask = task, task => task != null);
         StartTaskCommand = new RelayCommand<TaskItem>(StartTaskFromCard);
@@ -245,7 +240,6 @@ public class TodayViewModel : ObservableObject
         OpenTicketUrlCommand = new RelayCommand<string>(OpenTicketUrl, url => !string.IsNullOrWhiteSpace(url));
         SaveSegmentCommand = new RelayCommand<TaskSegment>(SaveSegment, seg => seg != null && seg.IsValid);
         DeleteSegmentCommand = new RelayCommand<TaskSegment>(DeleteSegment, seg => seg != null);
-        SyncSegmentOutlookCommand = new RelayCommand<TaskSegment>(SyncSegmentOutlook, seg => seg != null && seg.Id > 0);
         DeleteSegmentOutlookCommand = new RelayCommand<TaskSegment>(DeleteSegmentOutlook, seg => seg != null && !string.IsNullOrWhiteSpace(seg.OutlookEntryId));
 
         _clock = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
@@ -278,11 +272,14 @@ public class TodayViewModel : ObservableObject
         Subtract30Command.RaiseCanExecuteChanged();
         Subtract60Command.RaiseCanExecuteChanged();
         AddSegmentCommand.RaiseCanExecuteChanged();
-        SyncAllSegmentsCommand.RaiseCanExecuteChanged();
         SaveSegmentCommand.RaiseCanExecuteChanged();
         DeleteSegmentCommand.RaiseCanExecuteChanged();
-        SyncSegmentOutlookCommand.RaiseCanExecuteChanged();
         DeleteSegmentOutlookCommand.RaiseCanExecuteChanged();
+    }
+
+    public void Refresh()
+    {
+        Load();
     }
 
     private void Load()
@@ -514,8 +511,9 @@ public class TodayViewModel : ObservableObject
             return;
 
         _tasks.AddSegment(segment);
+        var outlookStatus = SyncSegmentOutlookAutomatically(segment);
         ServiceLocator.Notifications.RefreshSchedule();
-        StatusMessage = "Segment hinzugefügt.";
+        StatusMessage = $"Segment hinzugefügt.{outlookStatus}";
         LoadSegments();
         RaiseCommandStates();
     }
@@ -534,9 +532,10 @@ public class TodayViewModel : ObservableObject
             return;
 
         _tasks.UpdateSegment(segment);
+        var outlookStatus = SyncSegmentOutlookAutomatically(segment);
         ServiceLocator.Notifications.RefreshSchedule();
         segment.OutlookStatus = string.IsNullOrWhiteSpace(segment.OutlookEntryId) ? "fehlt" : "vorhanden";
-        StatusMessage = "Segment gespeichert.";
+        StatusMessage = $"Segment gespeichert.{outlookStatus}";
         RaiseCommandStates();
     }
 
@@ -555,20 +554,25 @@ public class TodayViewModel : ObservableObject
         LoadSegments();
     }
 
-    private void SyncSegmentOutlook(TaskSegment? segment)
+    private string SyncSegmentOutlookAutomatically(TaskSegment segment)
     {
-        if (segment == null || SelectedTask == null) return;
+        if (SelectedTask == null)
+            return string.Empty;
+
+        if (!_settings.Current.OutlookSyncEnabled)
+        {
+            segment.OutlookStatus = string.IsNullOrWhiteSpace(segment.OutlookEntryId) ? "fehlt" : "vorhanden";
+            return " Outlook Sync ist deaktiviert.";
+        }
 
         if (!_tasks.SyncSegmentOutlook(segment, SelectedTask.Title, SelectedTask.Description, SelectedTask.TicketUrl))
         {
             segment.OutlookStatus = "fehler";
-            StatusMessage = _tasks.LastError;
-            return;
+            return $" Outlook Sync Fehler: {_tasks.LastError}";
         }
 
         segment.OutlookStatus = "vorhanden";
-        StatusMessage = "Outlook Blocker für Segment synchronisiert.";
-        RaiseCommandStates();
+        return " Outlook wurde synchronisiert.";
     }
 
     private void DeleteSegmentOutlook(TaskSegment? segment)
@@ -586,29 +590,6 @@ public class TodayViewModel : ObservableObject
         StatusMessage = "Outlook Blocker für Segment gelöscht.";
         RaiseCommandStates();
     }
-
-    private void SyncAllSegments()
-    {
-        if (SelectedTask == null) return;
-
-        var errors = 0;
-        foreach (var seg in Segments)
-        {
-            if (!_tasks.SyncSegmentOutlook(seg, SelectedTask.Title, SelectedTask.Description, SelectedTask.TicketUrl))
-            {
-                errors++;
-                seg.OutlookStatus = "fehler";
-                continue;
-            }
-
-            seg.OutlookStatus = "vorhanden";
-        }
-
-        StatusMessage = errors == 0 ? "Alle Segmente wurden mit Outlook synchronisiert." : $"{errors} Segment(e) mit Fehler synchronisiert.";
-        RaiseCommandStates();
-    }
-
-
 
     private void StartTaskFromCard(TaskItem? task)
     {
@@ -646,39 +627,12 @@ public class TodayViewModel : ObservableObject
     private void ReopenSelectedTask() { if (SelectedTask == null) return; _tasks.MarkPlanned(SelectedTask); Load(); }
     private void MarkSelectedTaskDone() { if (SelectedTask == null) return; _tasks.MarkDone(SelectedTask); Load(); }
 
-    private void TestOutlookConnection()
-    {
-        var ok = _tasks.TestOutlookConnection();
-        if (ok)
-        {
-            StatusMessage = "Outlook Verbindungstest erfolgreich.";
-            MessageBox.Show(StatusMessage, "Outlook Test", MessageBoxButton.OK, MessageBoxImage.Information);
-            return;
-        }
-
-        var hex = ExtractHResultHex(_tasks.LastError);
-        StatusMessage = $"Outlook Test fehlgeschlagen. Details in logs.txt: {hex}";
-        MessageBox.Show(StatusMessage, "Outlook Test", MessageBoxButton.OK, MessageBoxImage.Error);
-    }
-
-
     private void OpenTicketUrl(string? url)
     {
         if (!UrlLauncher.TryOpen(url, out var error))
         {
             StatusMessage = error;
         }
-    }
-
-    private static string ExtractHResultHex(string error)
-    {
-        if (string.IsNullOrWhiteSpace(error)) return "0x00000000";
-        var marker = "0x";
-        var idx = error.IndexOf(marker, StringComparison.OrdinalIgnoreCase);
-        if (idx < 0) return "0x00000000";
-        var end = idx + 2;
-        while (end < error.Length && Uri.IsHexDigit(error[end])) end++;
-        return error[idx..end];
     }
 
     private void SaveManualDay()
