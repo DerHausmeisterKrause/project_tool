@@ -1,6 +1,8 @@
 using System;
 using System.IO;
 using System.Linq;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using TaskTool.Models;
 
@@ -63,6 +65,39 @@ public class SettingsService
         settings.OutlookCalendarSyncIntervalMinutes = Math.Clamp(settings.OutlookCalendarSyncIntervalMinutes, 1, 60);
         settings.OutlookCalendarRangePastDays = settings.OutlookCalendarRangePastDays <= 0 ? 14 : Math.Clamp(settings.OutlookCalendarRangePastDays, 1, 30);
         settings.OutlookCalendarRangeFutureDays = settings.OutlookCalendarRangeFutureDays <= 0 ? 14 : Math.Clamp(settings.OutlookCalendarRangeFutureDays, 1, 90);
+
+        settings.TicketSystemWebUrl = settings.TicketSystemWebUrl?.Trim() ?? string.Empty;
+        settings.TicketSystemApiUrl = settings.TicketSystemApiUrl?.Trim() ?? string.Empty;
+        settings.TicketSystemUsername = settings.TicketSystemUsername?.Trim() ?? string.Empty;
+        settings.TicketSystemPasswordEncrypted ??= string.Empty;
+        settings.TicketSystemPassword ??= string.Empty;
+        settings.TicketSystemAgentId = Math.Max(0, settings.TicketSystemAgentId);
+        settings.TicketSystemSyncIntervalMinutes = settings.TicketSystemSyncIntervalMinutes <= 0 ? 15 : Math.Clamp(settings.TicketSystemSyncIntervalMinutes, 1, 1440);
+        if (!settings.TicketSystemIncludeOwner && !settings.TicketSystemIncludeResponsible)
+            settings.TicketSystemIncludeOwner = true;
+        if (settings.TicketSystemOnlyOpenTickets)
+            settings.TicketSystemShowClosedTickets = false;
+    }
+
+    public string GetTicketSystemPassword()
+    {
+        if (!string.IsNullOrWhiteSpace(Current.TicketSystemPasswordEncrypted))
+            return Unprotect(Current.TicketSystemPasswordEncrypted);
+
+        if (string.IsNullOrEmpty(Current.TicketSystemPassword))
+            return string.Empty;
+
+        var migratedPassword = Current.TicketSystemPassword;
+        Current.TicketSystemPasswordEncrypted = Protect(migratedPassword);
+        Current.TicketSystemPassword = string.Empty;
+        Save();
+        return migratedPassword;
+    }
+
+    public void SetTicketSystemPassword(string password)
+    {
+        Current.TicketSystemPasswordEncrypted = string.IsNullOrEmpty(password) ? string.Empty : Protect(password);
+        Current.TicketSystemPassword = string.Empty;
     }
 
     public void Save()
@@ -75,6 +110,36 @@ public class SettingsService
         catch (Exception ex)
         {
             _logger.Error($"Settings save failed: {ex.Message}");
+        }
+    }
+
+    private string Protect(string value)
+    {
+        try
+        {
+            var bytes = Encoding.UTF8.GetBytes(value);
+            var protectedBytes = ProtectedData.Protect(bytes, null, DataProtectionScope.CurrentUser);
+            return Convert.ToBase64String(protectedBytes);
+        }
+        catch (Exception ex)
+        {
+            _logger.Error($"Settings password encryption failed: {ex.Message}");
+            return string.Empty;
+        }
+    }
+
+    private string Unprotect(string encryptedValue)
+    {
+        try
+        {
+            var protectedBytes = Convert.FromBase64String(encryptedValue);
+            var bytes = ProtectedData.Unprotect(protectedBytes, null, DataProtectionScope.CurrentUser);
+            return Encoding.UTF8.GetString(bytes);
+        }
+        catch (Exception ex)
+        {
+            _logger.Error($"Settings password decryption failed: {ex.Message}");
+            return string.Empty;
         }
     }
 }
