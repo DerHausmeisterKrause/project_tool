@@ -20,8 +20,8 @@ public class AppSettings
     public int ReminderLeadMinutes { get; set; } = 2;
     public string DateTimeFormat { get; set; } = "yyyy-MM-dd HH:mm";
 
-    public string TicketSystemWebUrl { get; set; } = string.Empty;
-    public string TicketSystemApiUrl { get; set; } = string.Empty;
+    public string TicketSystemWebUrl { get; set; } = "https://SERVER/otrs/index.pl";
+    public string TicketSystemApiUrl { get; set; } = "https://SERVER/nph-genericinterface.pl/Webservice/GenericTicketConnectorREST";
     public string TicketSystemUsername { get; set; } = string.Empty;
     public string TicketSystemPasswordEncrypted { get; set; } = string.Empty;
     public string TicketSystemPassword { get; set; } = string.Empty;

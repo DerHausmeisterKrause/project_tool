@@ -54,6 +54,8 @@ public class TicketSystemService : IDisposable
         {
             if (string.IsNullOrWhiteSpace(_settings.Current.TicketSystemApiUrl))
                 return Fail3("Znuny Server URL fehlt.");
+            if (IsPlaceholderUrl(_settings.Current.TicketSystemApiUrl))
+                return Fail3("Bitte die Znuny API-URL in den Einstellungen anpassen und SERVER durch den echten Hostnamen ersetzen.");
             if (string.IsNullOrWhiteSpace(_settings.Current.TicketSystemUsername))
                 return Fail3("Znuny Benutzername fehlt.");
             if (string.IsNullOrWhiteSpace(_settings.GetTicketSystemPassword()))
@@ -414,6 +416,9 @@ public class TicketSystemService : IDisposable
         }
         return string.Empty;
     }
+
+    private static bool IsPlaceholderUrl(string value)
+        => value.Contains("SERVER", StringComparison.OrdinalIgnoreCase);
 
     private static string Combine(string baseUrl, string relative) => $"{baseUrl.TrimEnd('/')}/{relative.TrimStart('/')}";
     private static string SanitizeUrl(string value)

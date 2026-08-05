@@ -38,10 +38,10 @@
                 <Border Style="{StaticResource CardStyle}">
                     <StackPanel>
                         <TextBlock Text="Znuny / OTRS Ticketsystem" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,10"/>
-                        <TextBlock Text="Webseite URL" Foreground="{StaticResource MutedTextBrush}"/>
-                        <TextBox Text="{Binding TicketSystemWebUrl, UpdateSourceTrigger=PropertyChanged}" Width="560"/>
-                        <TextBlock Text="Server URL (GenericTicketConnectorREST)" Foreground="{StaticResource MutedTextBrush}"/>
-                        <TextBox Text="{Binding TicketSystemApiUrl, UpdateSourceTrigger=PropertyChanged}" Width="560"/>
+                        <TextBlock Text="Server URL / Webseite" Foreground="{StaticResource MutedTextBrush}"/>
+                        <TextBox Text="{Binding TicketSystemWebUrl, UpdateSourceTrigger=PropertyChanged}" Width="560" ToolTip="Beispiel: https://SERVER/otrs/index.pl"/>
+                        <TextBlock Text="API URL (GenericTicketConnectorREST)" Foreground="{StaticResource MutedTextBrush}"/>
+                        <TextBox Text="{Binding TicketSystemApiUrl, UpdateSourceTrigger=PropertyChanged}" Width="560" ToolTip="https://SERVER/nph-genericinterface.pl/Webservice/GenericTicketConnectorREST"/>
                         <TextBlock Text="Beispiel: https://SERVER/nph-genericinterface.pl/Webservice/GenericTicketConnectorREST" Foreground="{StaticResource MutedTextBrush}" TextWrapping="Wrap" Margin="0,0,0,8"/>
                         <TextBlock Text="Benutzername" Foreground="{StaticResource MutedTextBrush}"/>
                         <TextBox Text="{Binding TicketSystemUsername, UpdateSourceTrigger=PropertyChanged}" Width="320"/>
