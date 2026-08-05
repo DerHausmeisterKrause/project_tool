@@ -393,11 +393,9 @@ public class OutlookInteropService
         dynamic item = rawItem;
 
         var runtimeType = rawItem.GetType().FullName ?? rawItem.GetType().Name;
-        string messageClass;
-        try { messageClass = Convert.ToString(item.MessageClass) ?? string.Empty; } catch { messageClass = string.Empty; }
-
-        var entryId = SafeRead(() => Convert.ToString(item.EntryID)) ?? string.Empty;
-        var subject = SafeRead(() => Convert.ToString(item.Subject)) ?? string.Empty;
+        var messageClass = ReadComString(rawItem, "MessageClass");
+        var entryId = ReadComString(rawItem, "EntryID");
+        var subject = ReadComString(rawItem, "Subject");
 
         DateTime start;
         DateTime end;
@@ -425,15 +423,15 @@ public class OutlookInteropService
             return false;
         }
 
-        var body = SafeRead(() => Convert.ToString(item.Body)) ?? string.Empty;
-        var location = SafeRead(() => Convert.ToString(item.Location)) ?? string.Empty;
+        var body = ReadComString(rawItem, "Body");
+        var location = ReadComString(rawItem, "Location");
         var joinUrl = ExtractTeamsUrl(body, location);
-        var busyStatus = SafeRead(() => Convert.ToString(item.BusyStatus)) ?? string.Empty;
-        var sensitivity = SafeRead(() => Convert.ToString(item.Sensitivity)) ?? string.Empty;
-        var categories = SafeRead(() => Convert.ToString(item.Categories)) ?? string.Empty;
-        var organizer = SafeRead(() => Convert.ToString(item.Organizer)) ?? string.Empty;
-        var iCalUid = SafeRead(() => Convert.ToString(item.GlobalAppointmentID)) ?? string.Empty;
-        var meetingStatus = SafeRead(() => Convert.ToString(item.MeetingStatus)) ?? string.Empty;
+        var busyStatus = ReadComString(rawItem, "BusyStatus");
+        var sensitivity = ReadComString(rawItem, "Sensitivity");
+        var categories = ReadComString(rawItem, "Categories");
+        var organizer = ReadComString(rawItem, "Organizer");
+        var iCalUid = ReadComString(rawItem, "GlobalAppointmentID");
+        var meetingStatus = ReadComString(rawItem, "MeetingStatus");
 
         var allDay = ReadComBool(rawItem, "AllDayEvent") ?? false;
         var isPrivate = ReadComBool(rawItem, "IsPrivate") ?? false;
@@ -463,7 +461,7 @@ public class OutlookInteropService
             IsAllDay = allDay,
             Location = location,
             Organizer = organizer,
-            BodyPreview = body.Length > 240 ? body[..240] : body,
+            BodyPreview = body.Length > 240 ? body.Substring(0, 240) : body,
             OnlineMeetingJoinUrl = joinUrl,
             Categories = categories
         };
@@ -555,6 +553,12 @@ public class OutlookInteropService
         {
             "MessageClass" => SafeRead(() => (object?)item.MessageClass),
             "Subject" => SafeRead(() => (object?)item.Subject),
+            "Body" => SafeRead(() => (object?)item.Body),
+            "Location" => SafeRead(() => (object?)item.Location),
+            "Sensitivity" => SafeRead(() => (object?)item.Sensitivity),
+            "Categories" => SafeRead(() => (object?)item.Categories),
+            "Organizer" => SafeRead(() => (object?)item.Organizer),
+            "GlobalAppointmentID" => SafeRead(() => (object?)item.GlobalAppointmentID),
             "Start" => SafeRead(() => (object?)item.Start),
             "End" => SafeRead(() => (object?)item.End),
             "AllDayEvent" => SafeRead(() => (object?)item.AllDayEvent),
