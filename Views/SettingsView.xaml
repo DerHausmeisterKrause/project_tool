@@ -22,7 +22,8 @@
                         <TextBox Text="{Binding OutlookCalendarRangePastDays}" Width="120" Margin="0,0,0,8"/>
                         <TextBlock Text="Zeitfenster Vorschau (Tage)" Foreground="{StaticResource MutedTextBrush}"/>
                         <TextBox Text="{Binding OutlookCalendarRangeFutureDays}" Width="120" Margin="0,0,0,8"/>
-                        <Button Content="Outlook Kalender jetzt synchronisieren" Width="260" Style="{StaticResource SecondaryButtonStyle}" Margin="0,0,0,12" Command="{Binding RefreshOutlookCalendarCommand}"/>
+                        <Button Content="Outlook Kalender jetzt synchronisieren" Width="260" Style="{StaticResource SecondaryButtonStyle}" Margin="0,0,0,8" Command="{Binding RefreshOutlookCalendarCommand}"/>
+                        <Button Content="Outlook Verbindung testen" Width="220" Style="{StaticResource SecondaryButtonStyle}" Margin="0,0,0,12" Command="{Binding TestOutlookConnectionCommand}"/>
                         <CheckBox Content="Dynamic Island aktiv" IsChecked="{Binding DynamicIslandEnabled}" Margin="0,0,0,12"/>
                         <TextBlock Text="Outlook Kategorie" Foreground="{StaticResource MutedTextBrush}"/>
                         <TextBox Text="{Binding OutlookCategoryName}" Width="260"/>
