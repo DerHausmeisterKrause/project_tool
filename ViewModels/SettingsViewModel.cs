@@ -58,6 +58,7 @@ public class SettingsViewModel : ObservableObject
     public RelayCommand RefreshOutlookCalendarCommand { get; }
     public RelayCommand TestOutlookConnectionCommand { get; }
     public RelayCommand ImportTicketSystemTasksCommand { get; }
+    public RelayCommand TestTicketSystemConnectionCommand { get; }
 
     public SettingsViewModel(SettingsService settings, NotificationService notifications, OutlookCalendarService outlookCalendar, TaskService tasks, TicketSystemService ticketSystem)
     {
@@ -70,6 +71,15 @@ public class SettingsViewModel : ObservableObject
         RefreshOutlookCalendarCommand = new RelayCommand(async () => await _outlookCalendar.TriggerSyncAsync("manual-button"));
         TestOutlookConnectionCommand = new RelayCommand(TestOutlookConnection);
         ImportTicketSystemTasksCommand = new RelayCommand(async () => await ImportTicketSystemTasksAsync());
+        TestTicketSystemConnectionCommand = new RelayCommand(async () => await TestTicketSystemConnectionAsync());
+    }
+
+    private async Task TestTicketSystemConnectionAsync()
+    {
+        TicketSystemStatus = "Znuny-Verbindung wird getestet ...";
+        var result = await _ticketSystem.TestConnectionAsync();
+        TicketSystemStatus = result.message;
+        MessageBox.Show(result.message, "Znuny Verbindungstest", MessageBoxButton.OK, result.success ? MessageBoxImage.Information : MessageBoxImage.Warning);
     }
 
     private async Task ImportTicketSystemTasksAsync()

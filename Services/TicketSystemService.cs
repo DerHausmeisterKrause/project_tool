@@ -37,6 +37,58 @@ public class TicketSystemService : IDisposable
     public Task<(int created, int updated, int skipped)> ImportAssignedOpenTicketsAsync()
         => SyncAssignedTicketsAsync("manual");
 
+    public async Task<(bool success, string message)> TestConnectionAsync()
+    {
+        LastError = string.Empty;
+
+        try
+        {
+            if (string.IsNullOrWhiteSpace(_settings.Current.TicketSystemApiUrl) || IsPlaceholderUrl(_settings.Current.TicketSystemApiUrl))
+                return (false, "Bitte zuerst die echte Znuny API-URL in den Einstellungen eintragen.");
+            if (string.IsNullOrWhiteSpace(_settings.Current.TicketSystemUsername))
+                return (false, "Znuny Benutzername fehlt.");
+            if (string.IsNullOrWhiteSpace(_settings.GetTicketSystemPassword()))
+                return (false, "Znuny Passwort fehlt.");
+
+            var sessionId = await CreateSessionAsync();
+            var sessionHash = HashSessionId(sessionId);
+            var agentId = GetConfiguredAgentId();
+            var sessionGetInfo = "SessionGet übersprungen, Agenten-ID ist konfiguriert.";
+
+            if (agentId.HasValue)
+            {
+                _logger.Info($"[ZnunyUser] source=ConfiguredSettings userId={agentId.Value}");
+                var optionalUserId = await TryResolveUserIdFromSessionAsync(sessionId, sessionHash);
+                if (optionalUserId.HasValue)
+                    sessionGetInfo = $"SessionGet optional erfolgreich, UserID={optionalUserId.Value}.";
+            }
+            else
+            {
+                agentId = await TryResolveUserIdFromSessionAsync(sessionId, sessionHash);
+                if (!agentId.HasValue)
+                    return (false, "Login erfolgreich, aber die Znuny-Agenten-ID konnte nicht automatisch ermittelt werden. Bitte trage sie in den Einstellungen ein.");
+
+                sessionGetInfo = $"SessionGet erfolgreich, UserID={agentId.Value}.";
+                _logger.Info($"[ZnunyUser] source=SessionGet userId={agentId.Value}");
+            }
+
+            var ownerCount = (await SearchTicketsAsync("Owner", sessionId, sessionHash, agentId.Value)).Count();
+            var responsibleCount = (await SearchTicketsAsync("Responsible", sessionId, sessionHash, agentId.Value)).Count();
+
+            return (true, $"Login erfolgreich. Agenten-ID: {agentId.Value}. Owner-Tickets: {ownerCount}. Responsible-Tickets: {responsibleCount}. {sessionGetInfo}");
+        }
+        catch (ZnunyApiException ex)
+        {
+            _logger.Error($"[ZnunyError] stage={ex.Stage} errorCode={ex.ErrorCode} message={ex.ErrorMessage}");
+            return (false, $"Znuny-Test fehlgeschlagen ({ex.Stage}): {ex.ErrorMessage}");
+        }
+        catch (Exception ex)
+        {
+            _logger.Error($"[ZnunyError] stage=Login errorCode={ex.HResult:X8} message={ex.Message}");
+            return (false, $"Znuny-Test fehlgeschlagen: {ex.Message}");
+        }
+    }
+
     public async Task<(int created, int updated, int skipped)> SyncAssignedTicketsAsync(string reason)
     {
         if (!await _syncGate.WaitAsync(0))
@@ -66,15 +118,19 @@ public class TicketSystemService : IDisposable
             _logger.Info($"[Znuny] Sync start reason={reason} baseUrl='{SanitizeUrl(_settings.Current.TicketSystemApiUrl)}' onlyOpen={_settings.Current.TicketSystemOnlyOpenTickets} showClosed={_settings.Current.TicketSystemShowClosedTickets} includeOwner={_settings.Current.TicketSystemIncludeOwner} includeResponsible={_settings.Current.TicketSystemIncludeResponsible}");
             var sessionId = await CreateSessionAsync();
             var sessionHash = HashSessionId(sessionId);
-            using var sessionData = await GetSessionAsync(sessionId, sessionHash);
-            var userId = ResolveUserId(sessionData);
-            if (!userId.HasValue && _settings.Current.TicketSystemAgentId > 0)
+            var userId = GetConfiguredAgentId();
+            if (userId.HasValue)
             {
-                userId = _settings.Current.TicketSystemAgentId;
-                _logger.Info($"[ZnunySession] UserID missing in SessionGet response; using configured agentId={userId.Value}");
+                _logger.Info($"[ZnunyUser] source=ConfiguredSettings userId={userId.Value}");
             }
-            if (!userId.HasValue)
-                return Fail3("Znuny UserID konnte nicht automatisch aus SessionGet ermittelt werden. Bitte die Znuny Agenten-ID in den Einstellungen hinterlegen.");
+            else
+            {
+                userId = await TryResolveUserIdFromSessionAsync(sessionId, sessionHash);
+                if (!userId.HasValue)
+                    return Fail3("Die Znuny-Agenten-ID konnte nicht automatisch ermittelt werden. Bitte trage sie in den Einstellungen ein.");
+
+                _logger.Info($"[ZnunyUser] source=SessionGet userId={userId.Value}");
+            }
 
             var ticketIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             if (_settings.Current.TicketSystemIncludeOwner)
@@ -136,10 +192,16 @@ public class TicketSystemService : IDisposable
             _logger.Info($"[ZnunySyncFinished] created={created} updated={updated} skipped={skipped} totalTickets={ticketIds.Count}");
             return (created, updated, skipped);
         }
+        catch (ZnunyApiException ex)
+        {
+            LastError = $"Znuny Sync fehlgeschlagen: {ex.Message}";
+            _logger.Error($"[ZnunyError] stage={ex.Stage} errorCode={ex.ErrorCode} message={ex.ErrorMessage}");
+            return (created, updated, skipped);
+        }
         catch (Exception ex)
         {
             LastError = $"Znuny Sync fehlgeschlagen: {ex.Message}";
-            _logger.Error($"[ZnunyError] {ex}");
+            _logger.Error($"[ZnunyError] stage=TaskSync errorCode={ex.HResult:X8} message={ex.Message}");
             return (created, updated, skipped);
         }
         finally
@@ -164,11 +226,12 @@ public class TicketSystemService : IDisposable
         response.EnsureSuccessStatusCode();
 
         using var doc = JsonDocument.Parse(json);
+        ThrowIfApiError(doc.RootElement, "Login");
         var sessionId = FirstString(doc.RootElement, "SessionID");
         if (string.IsNullOrWhiteSpace(sessionId))
             throw new InvalidOperationException("Znuny SessionCreate lieferte keine SessionID.");
 
-        _logger.Info($"[ZnunySession] createdSessionIdHash={HashSessionId(sessionId)} reusedFor=SessionGet");
+        _logger.Info($"[ZnunySession] sessionCreated=True sessionHash={HashSessionId(sessionId)}");
         return sessionId;
     }
 
@@ -185,7 +248,7 @@ public class TicketSystemService : IDisposable
         if (ContainsError(doc.RootElement, out var errorCode, out var errorMessage))
         {
             doc.Dispose();
-            throw new InvalidOperationException($"Znuny SessionGet fehlgeschlagen: {errorCode} {errorMessage}".Trim());
+            throw new ZnunyApiException("SessionGet", errorCode, errorMessage);
         }
 
         LogSessionKeys(doc.RootElement);
@@ -195,20 +258,46 @@ public class TicketSystemService : IDisposable
     private static int? ResolveUserId(JsonDocument sessionData)
         => FindSessionValue(sessionData.RootElement, "UserID", "UserId") ?? FindInteger(sessionData.RootElement, "UserID", "UserId");
 
+    private async Task<int?> TryResolveUserIdFromSessionAsync(string sessionId, string sessionHash)
+    {
+        try
+        {
+            using var sessionData = await GetSessionAsync(sessionId, sessionHash);
+            return ResolveUserId(sessionData);
+        }
+        catch (ZnunyApiException ex)
+        {
+            _logger.Error($"[ZnunyError] stage={ex.Stage} errorCode={ex.ErrorCode} message={ex.ErrorMessage}");
+            return null;
+        }
+        catch (Exception ex)
+        {
+            _logger.Error($"[ZnunyError] stage=SessionGet errorCode={ex.HResult:X8} message={ex.Message}");
+            return null;
+        }
+    }
+
+    private int? GetConfiguredAgentId()
+        => _settings.Current.TicketSystemAgentId > 0 ? _settings.Current.TicketSystemAgentId : null;
+
     private async Task<IEnumerable<string>> SearchTicketsAsync(string role, string sessionId, string sessionHash, int userId)
     {
         var url = Combine(_settings.Current.TicketSystemApiUrl, "Ticket/Search");
         var payload = new Dictionary<string, object?> { ["SessionID"] = sessionId };
         payload[role == "Owner" ? "OwnerIDs" : "ResponsibleIDs"] = new[] { userId };
         if (_settings.Current.TicketSystemOnlyOpenTickets && !_settings.Current.TicketSystemShowClosedTickets)
-            payload["StateType"] = new[] { "Open" };
+            payload["StateType"] = "Open";
 
         var logTag = role == "Owner" ? "[ZnunySearchOwner]" : "[ZnunySearchResponsible]";
-        _logger.Info($"{logTag} POST {SanitizeUrl(url)} createdSessionIdHash={sessionHash} payload={{SessionID:'***',{(role == "Owner" ? "OwnerIDs" : "ResponsibleIDs")}:[{userId}],StateType:'{FormatStateTypeForLog(payload)}'}}");
+        var stage = role == "Owner" ? "OwnerSearch" : "ResponsibleSearch";
+        _logger.Info($"{logTag} method=POST route=/Ticket/Search userId={userId} onlyOpen={_settings.Current.TicketSystemOnlyOpenTickets && !_settings.Current.TicketSystemShowClosedTickets} sessionHash={sessionHash}");
         var json = await PostJsonAsync(url, payload, logTag);
-        _logger.Info($"{logTag} response={Truncate(RedactSecrets(json))}");
+        _logger.Info($"[ZnunySearchResponse] stage={stage} response={Truncate(RedactSecrets(json))}");
         using var doc = JsonDocument.Parse(json);
-        return ExtractTicketIds(doc.RootElement);
+        ThrowIfApiError(doc.RootElement, stage);
+        var ticketIds = ExtractTicketIds(doc.RootElement).ToList();
+        _logger.Info($"{logTag} method=POST route=/Ticket/Search userId={userId} onlyOpen={_settings.Current.TicketSystemOnlyOpenTickets && !_settings.Current.TicketSystemShowClosedTickets} status=OK ticketCount={ticketIds.Count}");
+        return ticketIds;
     }
 
     private async Task<ZnunyTicket?> GetTicketAsync(string ticketId, string sessionId, string sessionHash)
@@ -218,6 +307,7 @@ public class TicketSystemService : IDisposable
         var json = await GetStringAsync(url, "[ZnunyTicket]");
         _logger.Info($"[ZnunyTicket] ticketId={ticketId} response={Truncate(RedactSecrets(json))}");
         using var doc = JsonDocument.Parse(json);
+        ThrowIfApiError(doc.RootElement, "TicketGet");
         var ticketElement = FindFirstTicketElement(doc.RootElement);
         return ticketElement.HasValue ? ZnunyTicket.FromJson(ticketElement.Value, _settings.Current.TicketSystemWebUrl) : null;
     }
@@ -330,13 +420,16 @@ public class TicketSystemService : IDisposable
         return true;
     }
 
-    private static string FormatStateTypeForLog(Dictionary<string, object?> payload)
-        => payload.TryGetValue("StateType", out var stateType) && stateType is string[] values ? string.Join(",", values) : string.Empty;
-
     private static string HashSessionId(string sessionId)
     {
         var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(sessionId));
         return Convert.ToHexString(bytes)[..12];
+    }
+
+    private static void ThrowIfApiError(JsonElement root, string stage)
+    {
+        if (ContainsError(root, out var errorCode, out var errorMessage))
+            throw new ZnunyApiException(stage, errorCode, errorMessage);
     }
 
     private static IEnumerable<string> ExtractTicketIds(JsonElement root)
@@ -442,6 +535,21 @@ public class TicketSystemService : IDisposable
         _timer.Dispose();
         _syncGate.Dispose();
         _client.Dispose();
+    }
+
+    private sealed class ZnunyApiException : Exception
+    {
+        public string Stage { get; }
+        public string ErrorCode { get; }
+        public string ErrorMessage { get; }
+
+        public ZnunyApiException(string stage, string errorCode, string errorMessage)
+            : base(string.IsNullOrWhiteSpace(errorCode) ? errorMessage : $"{errorCode}: {errorMessage}")
+        {
+            Stage = stage;
+            ErrorCode = errorCode;
+            ErrorMessage = errorMessage;
+        }
     }
 
     private sealed class ZnunyTicket
