@@ -21,7 +21,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <Compile Include="**\*.cs" Exclude="bin\**\*;obj\**\*" />
+    <!-- Use the SDK's single, canonical compile-item discovery instead of a second repository-wide wildcard. -->
     <Compile Remove="ViewModels\WeekViewModel.cs" />
     <PackageReference Include="Microsoft.Data.Sqlite" Version="8.0.8" />
     <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.4129.50" />
