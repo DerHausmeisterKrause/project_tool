@@ -17,6 +17,7 @@ public class WeekViewModel : ObservableObject
     private readonly WorkDayService _workDays;
     private readonly SettingsService _settings;
     private readonly OutlookCalendarService _outlookCalendar;
+    private readonly GermanTimeService _germanTime;
 
     private const int CalendarStartHour = 6;
     private const int CalendarEndHour = 18;
@@ -38,6 +39,8 @@ public class WeekViewModel : ObservableObject
     public ObservableCollection<TimeGridLine> TimeGridLines { get; } = new();
 
     private readonly DispatcherTimer _nowIndicatorTimer = new();
+    private DateTime _lastNowLineLogMinute;
+    private double _timelineHeight;
 
     private bool _showNowIndicator;
     public bool ShowNowIndicator { get => _showNowIndicator; set => Set(ref _showNowIndicator, value); }
@@ -135,6 +138,9 @@ public class WeekViewModel : ObservableObject
         _workDays = workDays;
         _settings = settings;
         _outlookCalendar = outlookCalendar;
+        _germanTime = ServiceLocator.GermanTime;
+        _timelineHeight = CalendarBodyHeight;
+        _settings.SettingsChanged += UpdateNowIndicator;
 
         BuildTimeScale();
 #if DEBUG
@@ -213,7 +219,8 @@ public class WeekViewModel : ObservableObject
 
     private void OpenTicketUrlFromWeek(string? url)
     {
-        UrlLauncher.TryOpen(url, out _);
+        if (!string.IsNullOrWhiteSpace(url))
+            ServiceLocator.MainViewModel.NavigateToTicketSystem(url);
     }
 
     private void OpenTeamsUrlFromWeek(string? url)
@@ -416,7 +423,16 @@ public class WeekViewModel : ObservableObject
 
     private void UpdateNowIndicator()
     {
-        var now = DateTime.Now;
+        if (!Application.Current.Dispatcher.CheckAccess())
+        {
+            Application.Current.Dispatcher.BeginInvoke(new Action(UpdateNowIndicator));
+            return;
+        }
+
+        var utcNow = DateTimeOffset.UtcNow;
+        var configuredTimeZone = _settings.Current.CalendarTimeZoneId;
+        var resolvedTimeZone = _germanTime.ResolveTimeZone(configuredTimeZone);
+        var now = _germanTime.GetLocalNow(configuredTimeZone, utcNow);
         var today = now.Date;
         var weekEnd = WeekStart.Date.AddDays((ShowWeekend ? 7 : 5) - 1);
         if (today < WeekStart.Date || today > weekEnd)
@@ -425,8 +441,9 @@ public class WeekViewModel : ObservableObject
             return;
         }
 
-        var start = today.AddHours(CalendarStartHour);
-        var minutesFromStart = (now - start).TotalMinutes;
+        var calendarStart = TimeSpan.FromHours(CalendarStartHour);
+        var calendarEnd = TimeSpan.FromHours(CalendarEndHour);
+        var minutesFromStart = (now.TimeOfDay - calendarStart).TotalMinutes;
         var rangeMinutes = (CalendarEndHour - CalendarStartHour) * 60;
 
         if (minutesFromStart < 0 || minutesFromStart > rangeMinutes)
@@ -436,10 +453,26 @@ public class WeekViewModel : ObservableObject
         }
 
         var dayIndex = (int)(today - WeekStart.Date).TotalDays;
-        NowLineTop = MapToCalendarY(now, today);
+        const double timelineTop = 0;
+        var timelineHeight = _timelineHeight > 0 ? _timelineHeight : CalendarBodyHeight;
+        var ratio = minutesFromStart / rangeMinutes;
+        NowLineTop = timelineTop + ratio * timelineHeight;
         NowMarkerLeft = dayIndex * DayColumnWidth - 4;
         NowMarkerTop = NowLineTop - 4;
         ShowNowIndicator = true;
+        var currentMinute = new DateTime(now.Year, now.Month, now.Day, now.Hour, now.Minute, 0);
+        if (currentMinute != _lastNowLineLogMinute)
+        {
+            _lastNowLineLogMinute = currentMinute;
+            ServiceLocator.Logger.Info($"[CalendarNowLine] utcNow={utcNow:O} configuredTimezone='{configuredTimeZone}' resolvedTimezone='{resolvedTimeZone.Id}' localNow={now:O} calendarStart={calendarStart:hh\\:mm} calendarEnd={calendarEnd:hh\\:mm} minutesSinceStart={minutesFromStart:F2} timelineTop={timelineTop:F2} timelineHeight={timelineHeight:F2} calculatedY={NowLineTop:F2}");
+        }
+    }
+
+    public void UpdateTimelineMetrics(double timelineHeight)
+    {
+        if (timelineHeight > 0)
+            _timelineHeight = timelineHeight;
+        UpdateNowIndicator();
     }
 
     private double MapToCalendarY(DateTime value, DateTime dayDate)
