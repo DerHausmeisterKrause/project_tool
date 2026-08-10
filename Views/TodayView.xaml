@@ -28,7 +28,16 @@
                 </Grid.ColumnDefinitions>
                 <StackPanel Grid.Column="0" Margin="0,0,24,0">
                     <TextBlock Text="Arbeitstag heute" FontSize="18" FontWeight="SemiBold"/>
-                    <TextBlock Text="{Binding TodayTotals}" Foreground="{StaticResource MutedTextBrush}" Margin="0,4,0,0"/>
+                    <StackPanel Margin="0,4,0,0">
+                        <TextBlock Foreground="{StaticResource MutedTextBrush}">
+                            <Run Text="Ticket-/Aufgabenzeit heute: "/>
+                            <Run Text="{Binding TicketMinutesToday, StringFormat={}{0:N0} Min.}" FontWeight="SemiBold"/>
+                        </TextBlock>
+                        <TextBlock Foreground="{StaticResource MutedTextBrush}" Margin="0,2,0,0">
+                            <Run Text="Ticket-/Aufgabenzeit Monat: "/>
+                            <Run Text="{Binding TicketMinutesCurrentMonth, StringFormat={}{0:N0} Min.}" FontWeight="SemiBold"/>
+                        </TextBlock>
+                    </StackPanel>
                 </StackPanel>
                 <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
                     <Border Background="Transparent" BorderBrush="{StaticResource BorderBrushColor}" BorderThickness="1" CornerRadius="16" Padding="0" Margin="0,0,0,8" HorizontalAlignment="Left">

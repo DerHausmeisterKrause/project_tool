@@ -84,8 +84,11 @@ public class TodayViewModel : ObservableObject
     private string _workDaySummary = string.Empty;
     public string WorkDaySummary { get => _workDaySummary; set => Set(ref _workDaySummary, value); }
 
-    private string _todayTotals = string.Empty;
-    public string TodayTotals { get => _todayTotals; set => Set(ref _todayTotals, value); }
+    private int _ticketMinutesToday;
+    public int TicketMinutesToday { get => _ticketMinutesToday; set => Set(ref _ticketMinutesToday, value); }
+
+    private int _ticketMinutesCurrentMonth;
+    public int TicketMinutesCurrentMonth { get => _ticketMinutesCurrentMonth; set => Set(ref _ticketMinutesCurrentMonth, value); }
 
     private string _comeTimeText = string.Empty;
     public string ComeTimeText { get => _comeTimeText; set => Set(ref _comeTimeText, value); }
@@ -307,15 +310,9 @@ public class TodayViewModel : ObservableObject
         ComeTimeText = wd.ComeLocal?.ToString("HH:mm") ?? string.Empty;
         GoTimeText = wd.GoLocal?.ToString("HH:mm") ?? string.Empty;
 
-        var presence = (wd.ComeLocal.HasValue && wd.GoLocal.HasValue) ? wd.GoLocal.Value - wd.ComeLocal.Value : TimeSpan.Zero;
-        var pause = breaks.Where(b => b.EndLocal.HasValue).Aggregate(TimeSpan.Zero, (acc, b) => acc + (b.EndLocal!.Value - b.StartLocal));
-        var net = presence - pause;
-        var target = (wd.DayType == "UL" || wd.DayType == "AM") ? 0 : _settings.Current.GetTargetMinutes(DateTime.Today.DayOfWeek);
-        var overtime = (int)net.TotalMinutes - target;
-        var monthOvertime = CalculateMonthOvertime();
-
         WorkDaySummary = $"Kommen: {Fmt(wd.ComeLocal)}   Gehen: {Fmt(wd.GoLocal)}   Typ: {wd.DayType}";
-        TodayTotals = $"Soll: {FmtMin(target)} | Ist: {FmtMin((int)net.TotalMinutes)} | Ü heute: {FmtMin(overtime)} | Ü Monat: {FmtMin(monthOvertime)}";
+        TicketMinutesToday = _tasks.GetTicketMinutesForDay(DateTime.Today);
+        TicketMinutesCurrentMonth = _tasks.GetMonthTicketMinutes(DateTime.Today);
         StatusMessage = _tasks.LastError;
         RaiseSegmentEditorState();
         RaiseCommandStates();
@@ -349,29 +346,6 @@ public class TodayViewModel : ObservableObject
 
         CompletedTasks.Clear();
         foreach (var t in done) CompletedTasks.Add(t);
-    }
-
-    private int CalculateMonthOvertime()
-    {
-        var first = new DateTime(DateTime.Today.Year, DateTime.Today.Month, 1);
-        var last = first.AddMonths(1).AddDays(-1);
-        var days = _workDays.GetWorkDaysInRange(first, last).ToDictionary(d => d.Day, d => d);
-        var total = 0;
-        for (var d = first; d <= last; d = d.AddDays(1))
-        {
-            var key = d.ToString("yyyy-MM-dd");
-            var wd = days.ContainsKey(key) ? days[key] : new WorkDayRecord { Day = key, DayType = "Normal" };
-            var target = (wd.DayType == "UL" || wd.DayType == "AM") ? 0 : _settings.Current.GetTargetMinutes(d.DayOfWeek);
-            var netMin = 0;
-            if (wd.ComeLocal.HasValue && wd.GoLocal.HasValue)
-            {
-                var breaks = _workDays.GetBreaks(key);
-                var pause = breaks.Where(b => b.EndLocal.HasValue).Sum(b => (int)(b.EndLocal!.Value - b.StartLocal).TotalMinutes);
-                netMin = (int)(wd.GoLocal.Value - wd.ComeLocal.Value).TotalMinutes - pause;
-            }
-            total += netMin - target;
-        }
-        return total;
     }
 
     private void SetDayType(string type)
@@ -662,7 +636,6 @@ public class TodayViewModel : ObservableObject
     }
 
     private static string Fmt(DateTime? dt) => dt?.ToString("HH:mm") ?? "--:--";
-    private static string FmtMin(int mins) => $"{mins / 60}h {Math.Abs(mins % 60):00}m";
 
     private void OnCardTaskAction(TaskItem? task, Action<TaskItem> action) { if (task == null) return; SelectedTask = task; action(task); Load(); }
     private void WithTask(Action<TaskItem> action) { if (SelectedTask == null) { MessageBox.Show("Bitte zuerst eine Aufgabe auswählen."); return; } action(SelectedTask); Load(); }
