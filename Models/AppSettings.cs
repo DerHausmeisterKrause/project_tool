@@ -17,6 +17,7 @@ public class AppSettings
     public int OutlookCalendarRangeFutureDays { get; set; } = 14;
     public bool OutlookInterpretAllDayAsMarkers { get; set; } = true;
     public bool ShowWeekendInWeekView { get; set; } = false;
+    public string CalendarTimeZoneId { get; set; } = "Europe/Berlin";
     public int ReminderLeadMinutes { get; set; } = 2;
     public string DateTimeFormat { get; set; } = "yyyy-MM-dd HH:mm";
 

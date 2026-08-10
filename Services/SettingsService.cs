@@ -65,6 +65,9 @@ public class SettingsService
         settings.OutlookCalendarSyncIntervalMinutes = Math.Clamp(settings.OutlookCalendarSyncIntervalMinutes, 1, 60);
         settings.OutlookCalendarRangePastDays = settings.OutlookCalendarRangePastDays <= 0 ? 14 : Math.Clamp(settings.OutlookCalendarRangePastDays, 1, 30);
         settings.OutlookCalendarRangeFutureDays = settings.OutlookCalendarRangeFutureDays <= 0 ? 14 : Math.Clamp(settings.OutlookCalendarRangeFutureDays, 1, 90);
+        var supportedCalendarTimeZones = new[] { "Europe/Berlin", "Europe/London", "UTC", "Europe/Vienna", "Europe/Zurich" };
+        if (!supportedCalendarTimeZones.Contains(settings.CalendarTimeZoneId, StringComparer.Ordinal))
+            settings.CalendarTimeZoneId = "Europe/Berlin";
 
         settings.TicketSystemWebUrl = settings.TicketSystemWebUrl?.Trim() ?? "https://SERVER/index.pl";
         if (string.IsNullOrWhiteSpace(settings.TicketSystemWebUrl))
@@ -125,12 +128,15 @@ public class SettingsService
         {
             var json = JsonSerializer.Serialize(Current, new JsonSerializerOptions { WriteIndented = true });
             File.WriteAllText(_path, json);
+            SettingsChanged?.Invoke();
         }
         catch (Exception ex)
         {
             _logger.Error($"Settings save failed: {ex.Message}");
         }
     }
+
+    public event Action? SettingsChanged;
 
     private string Protect(string value)
     {

@@ -40,6 +40,7 @@ public class WeekViewModel : ObservableObject
 
     private readonly DispatcherTimer _nowIndicatorTimer = new();
     private DateTime _lastNowLineLogMinute;
+    private double _timelineHeight;
 
     private bool _showNowIndicator;
     public bool ShowNowIndicator { get => _showNowIndicator; set => Set(ref _showNowIndicator, value); }
@@ -138,6 +139,8 @@ public class WeekViewModel : ObservableObject
         _settings = settings;
         _outlookCalendar = outlookCalendar;
         _germanTime = ServiceLocator.GermanTime;
+        _timelineHeight = CalendarBodyHeight;
+        _settings.SettingsChanged += UpdateNowIndicator;
 
         BuildTimeScale();
 #if DEBUG
@@ -420,8 +423,16 @@ public class WeekViewModel : ObservableObject
 
     private void UpdateNowIndicator()
     {
-        var utcNow = DateTime.UtcNow;
-        var now = _germanTime.GetGermanLocalNow(utcNow);
+        if (!Application.Current.Dispatcher.CheckAccess())
+        {
+            Application.Current.Dispatcher.BeginInvoke(new Action(UpdateNowIndicator));
+            return;
+        }
+
+        var utcNow = DateTimeOffset.UtcNow;
+        var configuredTimeZone = _settings.Current.CalendarTimeZoneId;
+        var resolvedTimeZone = _germanTime.ResolveTimeZone(configuredTimeZone);
+        var now = _germanTime.GetLocalNow(configuredTimeZone, utcNow);
         var today = now.Date;
         var weekEnd = WeekStart.Date.AddDays((ShowWeekend ? 7 : 5) - 1);
         if (today < WeekStart.Date || today > weekEnd)
@@ -430,8 +441,9 @@ public class WeekViewModel : ObservableObject
             return;
         }
 
-        var start = today.AddHours(CalendarStartHour);
-        var minutesFromStart = (now - start).TotalMinutes;
+        var calendarStart = TimeSpan.FromHours(CalendarStartHour);
+        var calendarEnd = TimeSpan.FromHours(CalendarEndHour);
+        var minutesFromStart = (now.TimeOfDay - calendarStart).TotalMinutes;
         var rangeMinutes = (CalendarEndHour - CalendarStartHour) * 60;
 
         if (minutesFromStart < 0 || minutesFromStart > rangeMinutes)
@@ -441,7 +453,10 @@ public class WeekViewModel : ObservableObject
         }
 
         var dayIndex = (int)(today - WeekStart.Date).TotalDays;
-        NowLineTop = MapToCalendarY(now, today);
+        const double timelineTop = 0;
+        var timelineHeight = _timelineHeight > 0 ? _timelineHeight : CalendarBodyHeight;
+        var ratio = minutesFromStart / rangeMinutes;
+        NowLineTop = timelineTop + ratio * timelineHeight;
         NowMarkerLeft = dayIndex * DayColumnWidth - 4;
         NowMarkerTop = NowLineTop - 4;
         ShowNowIndicator = true;
@@ -449,8 +464,17 @@ public class WeekViewModel : ObservableObject
         if (currentMinute != _lastNowLineLogMinute)
         {
             _lastNowLineLogMinute = currentMinute;
-            ServiceLocator.Logger.Info($"[CalendarNowLine] utcNow={utcNow:O} localNow={now:O} timezone='{_germanTime.TimeZone.Id}' calendarStart={start:O} minutesSinceStart={minutesFromStart:F2} calculatedY={NowLineTop:F2}");
+            ServiceLocator.Logger.Info($"[CalendarNowLine] utcNow={utcNow:O} configuredTimezone='{configuredTimeZone}' resolvedTimezone='{resolvedTimeZone.Id}' localNow={now:O} calendarStart={calendarStart:hh\\:mm} calendarEnd={calendarEnd:hh\\:mm} minutesSinceStart={minutesFromStart:F2} timelineTop={timelineTop:F2} timelineHeight={timelineHeight:F2} calculatedY={NowLineTop:F2}");
         }
+    }
+
+    public void RefreshNowIndicator() => UpdateNowIndicator();
+
+    public void UpdateTimelineMetrics(double timelineHeight)
+    {
+        if (timelineHeight > 0)
+            _timelineHeight = timelineHeight;
+        UpdateNowIndicator();
     }
 
     public void RefreshNowIndicator() => UpdateNowIndicator();

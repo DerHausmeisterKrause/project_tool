@@ -2,22 +2,25 @@ namespace TaskTool.Services;
 
 public sealed class GermanTimeService
 {
-    private static readonly string[] TimeZoneIds = ["W. Europe Standard Time", "Europe/Berlin"];
-
-    public TimeZoneInfo TimeZone { get; } = ResolveTimeZone();
-
-    public DateTime GetGermanLocalNow(DateTime? utcNow = null)
+    private static readonly IReadOnlyDictionary<string, string[]> TimeZoneMappings = new Dictionary<string, string[]>(StringComparer.Ordinal)
     {
-        var utc = utcNow ?? DateTime.UtcNow;
-        if (utc.Kind != DateTimeKind.Utc)
-            utc = utc.ToUniversalTime();
+        ["Europe/Berlin"] = ["Europe/Berlin", "W. Europe Standard Time"],
+        ["Europe/Vienna"] = ["Europe/Vienna", "W. Europe Standard Time"],
+        ["Europe/Zurich"] = ["Europe/Zurich", "W. Europe Standard Time"],
+        ["Europe/London"] = ["Europe/London", "GMT Standard Time"],
+        ["UTC"] = ["UTC"]
+    };
 
-        return TimeZoneInfo.ConvertTimeFromUtc(utc, TimeZone);
+    public DateTimeOffset GetLocalNow(string configuredTimeZoneId, DateTimeOffset? utcNow = null)
+    {
+        var utc = (utcNow ?? DateTimeOffset.UtcNow).ToUniversalTime();
+        return TimeZoneInfo.ConvertTime(utc, ResolveTimeZone(configuredTimeZoneId));
     }
 
-    private static TimeZoneInfo ResolveTimeZone()
+    public TimeZoneInfo ResolveTimeZone(string configuredTimeZoneId)
     {
-        foreach (var id in TimeZoneIds)
+        var stableId = TimeZoneMappings.ContainsKey(configuredTimeZoneId) ? configuredTimeZoneId : "Europe/Berlin";
+        foreach (var id in TimeZoneMappings[stableId])
         {
             try
             {
@@ -31,6 +34,6 @@ public sealed class GermanTimeService
             }
         }
 
-        throw new TimeZoneNotFoundException("Weder 'W. Europe Standard Time' noch 'Europe/Berlin' ist auf diesem System verfügbar.");
+        throw new TimeZoneNotFoundException($"Die Kalender-Zeitzone '{stableId}' ist auf diesem System nicht verfügbar.");
     }
 }

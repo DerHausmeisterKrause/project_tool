@@ -19,7 +19,7 @@ public partial class WeekView : UserControl
     private void RefreshNowIndicator()
     {
         if (DataContext is WeekViewModel vm)
-            vm.RefreshNowIndicator();
+            vm.UpdateTimelineMetrics(DaySegmentColumns.ActualHeight);
     }
 
     private void DayColumn_PreviewMouseDown(object sender, MouseButtonEventArgs e)
