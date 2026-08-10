@@ -1,6 +1,6 @@
-using System.Diagnostics;
 using System.Windows.Controls;
 using System.Windows.Navigation;
+using TaskTool.Services;
 
 namespace TaskTool.Views;
 
@@ -13,13 +13,7 @@ public partial class TaskDetailPanel : UserControl
 
     private void Hyperlink_RequestNavigate(object sender, RequestNavigateEventArgs e)
     {
-        try
-        {
-            Process.Start(new ProcessStartInfo(e.Uri.AbsoluteUri) { UseShellExecute = true });
-        }
-        catch
-        {
-            // no-op to keep UI stable when invalid URL is entered
-        }
+        ServiceLocator.MainViewModel.NavigateToTicketSystem(e.Uri.AbsoluteUri);
+        e.Handled = true;
     }
 }

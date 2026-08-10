@@ -8,10 +8,10 @@
             <Border Style="{StaticResource CardStyle}">
                 <StackPanel>
                     <TextBlock Text="Task Details" FontSize="13" Foreground="{StaticResource MutedTextBrush}"/>
-                    <TextBlock Text="{Binding SelectedTask.Title}" FontSize="28" FontWeight="Bold" Margin="0,4,0,10" TextWrapping="Wrap"/>
+                    <TextBlock Text="{Binding SelectedTask.Title}" FontSize="24" FontWeight="Bold" Margin="0,4,0,10" TextWrapping="Wrap"/>
 
                     <TextBlock Text="Beschreibung" FontWeight="SemiBold" Foreground="{StaticResource TextBrush}" Margin="0,0,0,4"/>
-                    <TextBox Text="{Binding SelectedTask.Description, UpdateSourceTrigger=PropertyChanged}" Height="100" AcceptsReturn="True" VerticalScrollBarVisibility="Auto"/>
+                    <TextBox Text="{Binding SelectedTask.Description, UpdateSourceTrigger=PropertyChanged}" MinHeight="220" MaxHeight="380" AcceptsReturn="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto"/>
 
                     <TextBlock Text="Ticket URL" FontWeight="SemiBold" Foreground="{StaticResource TextBrush}" Margin="0,8,0,4"/>
                     <Grid>
@@ -20,7 +20,7 @@
                             <ColumnDefinition Width="Auto"/>
                         </Grid.ColumnDefinitions>
                         <TextBox Grid.Column="0" Text="{Binding SelectedTask.TicketUrl, UpdateSourceTrigger=PropertyChanged}"/>
-                        <Button Grid.Column="1" Content="Öffnen" Width="84" Style="{StaticResource SecondaryButtonStyle}" Margin="8,0,0,0"
+                        <Button Grid.Column="1" Content="Ticket öffnen" Width="110" Style="{StaticResource SecondaryButtonStyle}" Margin="8,0,0,0"
                                 Command="{Binding OpenTicketUrlCommand}" CommandParameter="{Binding SelectedTask.TicketUrl}"/>
                     </Grid>
 
@@ -80,8 +80,6 @@
                                        Visibility="{Binding HasNewSegmentConflict, Converter={StaticResource BooleanToVisibilityConverter}}"/>
                             <WrapPanel Margin="0,6,0,0">
                                 <Button Content="Segment speichern" Width="140" Command="{Binding AddSegmentCommand}" IsEnabled="{Binding CanSaveNewSegment}"/>
-                                <Button Content="Alle Segmente zu Outlook" Width="190" Style="{StaticResource SecondaryButtonStyle}" Command="{Binding SyncAllSegmentsCommand}"/>
-                                <Button Content="Outlook Verbindung testen" Width="190" Style="{StaticResource SecondaryButtonStyle}" Command="{Binding TestOutlookConnectionCommand}"/>
                             </WrapPanel>
                         </StackPanel>
                     </Border>
@@ -115,7 +113,6 @@
                                         <WrapPanel Margin="0,6,0,0">
                                             <Button Content="Speichern" Width="90" Command="{Binding DataContext.SaveSegmentCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}" CommandParameter="{Binding}"/>
                                             <Button Content="Löschen" Width="90" Style="{StaticResource DangerButtonStyle}" Command="{Binding DataContext.DeleteSegmentCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}" CommandParameter="{Binding}"/>
-                                            <Button Content="Outlook Blocker erstellen/aktualisieren" Width="220" Style="{StaticResource SecondaryButtonStyle}" Command="{Binding DataContext.SyncSegmentOutlookCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}" CommandParameter="{Binding}"/>
                                             <Button Content="Outlook Blocker löschen" Width="170" Style="{StaticResource DangerButtonStyle}" Command="{Binding DataContext.DeleteSegmentOutlookCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}" CommandParameter="{Binding}"/>
                                         </WrapPanel>
                                     </StackPanel>
