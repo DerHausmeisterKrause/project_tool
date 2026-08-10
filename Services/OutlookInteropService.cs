@@ -643,7 +643,12 @@ public class OutlookInteropService
 
     private static string FormatOutlookRestrictDate(DateTime value)
     {
-        var local = value.Kind == DateTimeKind.Local ? value : value.ToLocalTime();
+        var local = value.Kind switch
+        {
+            DateTimeKind.Utc => value.ToLocalTime(),
+            DateTimeKind.Local => value,
+            _ => DateTime.SpecifyKind(value, DateTimeKind.Local)
+        };
         return local.ToString("MM/dd/yyyy hh:mm tt", CultureInfo.GetCultureInfo("en-US"));
     }
 

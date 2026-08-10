@@ -477,6 +477,8 @@ public class WeekViewModel : ObservableObject
         UpdateNowIndicator();
     }
 
+    public void RefreshNowIndicator() => UpdateNowIndicator();
+
     private double MapToCalendarY(DateTime value, DateTime dayDate)
     {
         var dayStart = dayDate.Date.AddHours(CalendarStartHour);
