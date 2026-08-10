@@ -14,11 +14,16 @@ public class TodayViewModel : ObservableObject
     private readonly TaskService _tasks;
     private readonly WorkDayService _workDays;
     private readonly SettingsService _settings;
+    private readonly GermanTimeService _germanTime;
     private readonly DispatcherTimer _clock;
     private readonly OutlookCalendarService _outlookCalendar;
 
     public string Title => "Heute";
+    // Existing timer and Dynamic Island consumers use this as the complete active-task collection.
     public ObservableCollection<TaskItem> CurrentTasks { get; } = new();
+    public ObservableCollection<TaskItem> TodayTasks { get; } = new();
+    private readonly ObservableCollection<TaskItem> _currentTasksWithoutToday = new();
+    public ObservableCollection<TaskItem> DisplayedTasks { get; } = new();
     public ObservableCollection<TaskItem> CompletedTasks { get; } = new();
     public ObservableCollection<BreakEditRow> BreakRows { get; } = new();
     public ObservableCollection<TaskSegment> Segments { get; } = new();
@@ -61,22 +66,25 @@ public class TodayViewModel : ObservableObject
         set { if (Set(ref _completedTaskSearchText, value)) ApplyTaskFilters(); }
     }
 
-    private bool _showCompletedTasks;
-    public bool ShowCompletedTasks
+    private TodayTaskScope _selectedTaskScope = TodayTaskScope.Today;
+    public TodayTaskScope SelectedTaskScope
     {
-        get => _showCompletedTasks;
+        get => _selectedTaskScope;
         set
         {
-            if (Set(ref _showCompletedTasks, value))
+            if (Set(ref _selectedTaskScope, value))
             {
-                Raise(nameof(ShowCurrentTasks));
+                RefreshDisplayedTasks();
+                Raise(nameof(ShowActiveTaskList));
                 Raise(nameof(ShowCompletedTaskList));
+                Raise(nameof(ActiveTaskListHeading));
             }
         }
     }
 
-    public bool ShowCurrentTasks => !ShowCompletedTasks;
-    public bool ShowCompletedTaskList => ShowCompletedTasks;
+    public bool ShowActiveTaskList => SelectedTaskScope != TodayTaskScope.Completed;
+    public bool ShowCompletedTaskList => SelectedTaskScope == TodayTaskScope.Completed;
+    public string ActiveTaskListHeading => SelectedTaskScope == TodayTaskScope.Today ? "Heute:" : "Aktuelle Aufgaben:";
 
     private string _statusMessage = string.Empty;
     public string StatusMessage { get => _statusMessage; set => Set(ref _statusMessage, value); }
@@ -182,6 +190,7 @@ public class TodayViewModel : ObservableObject
     public RelayCommand SetDayTypeAmCommand { get; }
     public RelayCommand SetDayTypeUlCommand { get; }
     public RelayCommand AddSegmentCommand { get; }
+    public RelayCommand ShowTodayTasksCommand { get; }
     public RelayCommand ShowCurrentTasksCommand { get; }
     public RelayCommand ShowCompletedTasksCommand { get; }
 
@@ -208,6 +217,7 @@ public class TodayViewModel : ObservableObject
         _tasks = tasks;
         _workDays = workDays;
         _settings = settings;
+        _germanTime = ServiceLocator.GermanTime;
         _outlookCalendar = outlookCalendar;
 
         QuickAddCommand = new RelayCommand(QuickAdd);
@@ -233,8 +243,9 @@ public class TodayViewModel : ObservableObject
         SetDayTypeAmCommand = new RelayCommand(() => SetDayType("AM"));
         SetDayTypeUlCommand = new RelayCommand(() => SetDayType("UL"));
         AddSegmentCommand = new RelayCommand(AddSegment, () => CanSaveNewSegment);
-        ShowCurrentTasksCommand = new RelayCommand(() => ShowCompletedTasks = false);
-        ShowCompletedTasksCommand = new RelayCommand(() => ShowCompletedTasks = true);
+        ShowTodayTasksCommand = new RelayCommand(() => SelectedTaskScope = TodayTaskScope.Today);
+        ShowCurrentTasksCommand = new RelayCommand(() => SelectedTaskScope = TodayTaskScope.Current);
+        ShowCompletedTasksCommand = new RelayCommand(() => SelectedTaskScope = TodayTaskScope.Completed);
 
         SelectTaskCommand = new RelayCommand<TaskItem>(task => SelectedTask = task, task => task != null);
         StartTaskCommand = new RelayCommand<TaskItem>(StartTaskFromCard);
@@ -249,7 +260,7 @@ public class TodayViewModel : ObservableObject
         _clock.Tick += (_, _) => UpdateTimerDisplay();
         _clock.Start();
 
-        ShowCompletedTasks = false;
+        SelectedTaskScope = TodayTaskScope.Today;
         Load();
     }
 
@@ -291,8 +302,8 @@ public class TodayViewModel : ObservableObject
         ApplyTaskFilters();
 
         SelectedTask = selectedId.HasValue
-            ? CurrentTasks.Concat(CompletedTasks).FirstOrDefault(t => t.Id == selectedId.Value)
-            : CurrentTasks.FirstOrDefault();
+            ? TodayTasks.Concat(CurrentTasks).Concat(CompletedTasks).FirstOrDefault(t => t.Id == selectedId.Value)
+            : DisplayedTasks.FirstOrDefault() ?? CurrentTasks.FirstOrDefault();
 
         var day = DateTime.Today.ToString("yyyy-MM-dd");
         var wd = _workDays.GetOrCreateDay(day);
@@ -322,6 +333,10 @@ public class TodayViewModel : ObservableObject
     private void ApplyTaskFilters()
     {
         var all = _tasks.GetAllTasks();
+        var localToday = _germanTime.GetLocalNow(_settings.Current.CalendarTimeZoneId).Date;
+        var todayTaskIds = _tasks.GetSegmentsForRange(localToday, localToday.AddDays(1))
+            .Select(pair => pair.Task.Id)
+            .ToHashSet();
 
         var active = all.Where(t => t.Status != TaskStatus.Done).ToList();
         if (!string.IsNullOrWhiteSpace(TaskSearchText))
@@ -341,11 +356,30 @@ public class TodayViewModel : ObservableObject
                                  || (t.TicketUrl?.Contains(q, StringComparison.OrdinalIgnoreCase) ?? false)).ToList();
         }
 
+        TodayTasks.Clear();
+        foreach (var task in active.Where(task => todayTaskIds.Contains(task.Id)))
+            TodayTasks.Add(task);
+
         CurrentTasks.Clear();
-        foreach (var t in active) CurrentTasks.Add(t);
+        foreach (var task in active)
+            CurrentTasks.Add(task);
+
+        _currentTasksWithoutToday.Clear();
+        foreach (var task in active.Where(task => !todayTaskIds.Contains(task.Id)))
+            _currentTasksWithoutToday.Add(task);
 
         CompletedTasks.Clear();
         foreach (var t in done) CompletedTasks.Add(t);
+
+        RefreshDisplayedTasks();
+    }
+
+    private void RefreshDisplayedTasks()
+    {
+        DisplayedTasks.Clear();
+        var source = SelectedTaskScope == TodayTaskScope.Today ? TodayTasks : _currentTasksWithoutToday;
+        foreach (var task in source)
+            DisplayedTasks.Add(task);
     }
 
     private void SetDayType(string type)
@@ -446,6 +480,7 @@ public class TodayViewModel : ObservableObject
         var task = _tasks.ParseQuickAdd(QuickAddText);
         _tasks.CreateTask(task);
         QuickAddText = string.Empty;
+        SelectedTaskScope = TodayTaskScope.Current;
         Load();
         SelectedTask = CurrentTasks.FirstOrDefault(t => t.Id == task.Id)
                     ?? CompletedTasks.FirstOrDefault(t => t.Id == task.Id)
@@ -654,10 +689,19 @@ public class TodayViewModel : ObservableObject
     {
         Load();
 
+        var inToday = TodayTasks.FirstOrDefault(t => t.Id == taskId);
+        if (inToday != null)
+        {
+            SelectedTaskScope = TodayTaskScope.Today;
+            SelectedTask = inToday;
+            TaskBringIntoViewRequested?.Invoke(taskId);
+            return true;
+        }
+
         var inCurrent = CurrentTasks.FirstOrDefault(t => t.Id == taskId);
         if (inCurrent != null)
         {
-            ShowCompletedTasks = false;
+            SelectedTaskScope = TodayTaskScope.Current;
             SelectedTask = inCurrent;
             TaskBringIntoViewRequested?.Invoke(taskId);
             return true;
@@ -666,7 +710,7 @@ public class TodayViewModel : ObservableObject
         var inCompleted = CompletedTasks.FirstOrDefault(t => t.Id == taskId);
         if (inCompleted != null)
         {
-            ShowCompletedTasks = true;
+            SelectedTaskScope = TodayTaskScope.Completed;
             SelectedTask = inCompleted;
             TaskBringIntoViewRequested?.Invoke(taskId);
             return true;
@@ -676,9 +720,10 @@ public class TodayViewModel : ObservableObject
         if (task == null)
             return false;
 
-        ShowCompletedTasks = task.Status == TaskStatus.Done;
+        SelectedTaskScope = task.Status == TaskStatus.Done ? TodayTaskScope.Completed : TodayTaskScope.Current;
         Load();
-        SelectedTask = CurrentTasks.FirstOrDefault(t => t.Id == taskId)
+        SelectedTask = TodayTasks.FirstOrDefault(t => t.Id == taskId)
+                    ?? CurrentTasks.FirstOrDefault(t => t.Id == taskId)
                     ?? CompletedTasks.FirstOrDefault(t => t.Id == taskId)
                     ?? task;
         TaskBringIntoViewRequested?.Invoke(taskId);
@@ -686,6 +731,13 @@ public class TodayViewModel : ObservableObject
     }
 
     public override string ToString() => Title;
+}
+
+public enum TodayTaskScope
+{
+    Today,
+    Current,
+    Completed
 }
 
 public class BreakEditRow : ObservableObject
