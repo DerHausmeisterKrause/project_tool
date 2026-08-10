@@ -13,12 +13,14 @@ public static class ServiceLocator
     public static TaskService Tasks { get; private set; } = null!;
     public static WorkDayService WorkDays { get; private set; } = null!;
     public static TicketSystemService TicketSystem { get; private set; } = null!;
+    public static GermanTimeService GermanTime { get; private set; } = null!;
     public static MainViewModel MainViewModel { get; private set; } = null!;
 
     public static void Initialize()
     {
         Logger = new LoggerService();
         Settings = new SettingsService(Logger);
+        GermanTime = new GermanTimeService();
         Database = new DatabaseService(Logger);
         Database.Initialize();
         Outlook = new OutlookInteropService(Logger, Settings);

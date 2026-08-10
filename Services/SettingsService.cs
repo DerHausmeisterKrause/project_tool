@@ -87,6 +87,8 @@ public class SettingsService
             settings.TicketSystemIncludeOwner = true;
         if (settings.TicketSystemOnlyOpenTickets)
             settings.TicketSystemShowClosedTickets = false;
+        if (!settings.TicketSystemAutofillCredentials)
+            settings.TicketSystemAutoLogin = false;
     }
 
     private static string NormalizeRoute(string? route, string defaultRoute)

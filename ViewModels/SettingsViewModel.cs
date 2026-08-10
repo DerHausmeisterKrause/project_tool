@@ -55,6 +55,28 @@ public class SettingsViewModel : ObservableObject
     public bool TicketSystemShowClosedTickets { get => _settings.Current.TicketSystemShowClosedTickets; set { _settings.Current.TicketSystemShowClosedTickets = value; Save(); } }
     public bool TicketSystemIncludeOwner { get => _settings.Current.TicketSystemIncludeOwner; set { _settings.Current.TicketSystemIncludeOwner = value; Save(); } }
     public bool TicketSystemIncludeResponsible { get => _settings.Current.TicketSystemIncludeResponsible; set { _settings.Current.TicketSystemIncludeResponsible = value; Save(); } }
+    public bool TicketSystemAutofillCredentials
+    {
+        get => _settings.Current.TicketSystemAutofillCredentials;
+        set
+        {
+            _settings.Current.TicketSystemAutofillCredentials = value;
+            if (!value) _settings.Current.TicketSystemAutoLogin = false;
+            Save();
+            Raise(nameof(TicketSystemAutoLogin));
+        }
+    }
+    public bool TicketSystemAutoLogin
+    {
+        get => _settings.Current.TicketSystemAutoLogin;
+        set
+        {
+            _settings.Current.TicketSystemAutoLogin = value;
+            if (value) _settings.Current.TicketSystemAutofillCredentials = true;
+            Save();
+            Raise(nameof(TicketSystemAutofillCredentials));
+        }
+    }
 
     private string _ticketSystemStatus = string.Empty;
     public string TicketSystemStatus { get => _ticketSystemStatus; set => Set(ref _ticketSystemStatus, value); }

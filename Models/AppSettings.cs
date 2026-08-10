@@ -37,6 +37,8 @@ public class AppSettings
     public bool TicketSystemShowClosedTickets { get; set; } = false;
     public bool TicketSystemIncludeOwner { get; set; } = true;
     public bool TicketSystemIncludeResponsible { get; set; } = true;
+    public bool TicketSystemAutofillCredentials { get; set; } = false;
+    public bool TicketSystemAutoLogin { get; set; } = false;
 
     public int MondayTargetMinutes { get; set; } = 480;
     public int TuesdayTargetMinutes { get; set; } = 480;

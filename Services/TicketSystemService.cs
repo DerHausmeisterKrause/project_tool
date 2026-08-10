@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http;
+using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -373,13 +374,13 @@ public class TicketSystemService : IDisposable
         var query = new Dictionary<string, string>();
         if (string.Equals(_settings.Current.TicketSystemTicketGetAuthMode, "Direct", StringComparison.OrdinalIgnoreCase))
         {
-            query["UserLogin"] = _settings.Current.TicketSystemUsername;
-            query["Password"] = _settings.GetTicketSystemPassword();
+            throw new ZnunyApiException("TicketGet", HttpStatusCode.BadRequest, "Configuration", "Direkte Authentifizierung für TicketGet per GET ist deaktiviert, damit das Passwort nicht in URL-, Proxy- oder Server-Logs gelangt. Bitte Session verwenden.", string.Empty);
         }
         else
         {
             query["SessionID"] = sessionId;
         }
+        query["AllArticles"] = "1";
         var url = Combine(_settings.Current.TicketSystemApiUrl, route) + ToQueryString(query);
         using var request = new HttpRequestMessage(HttpMethod.Get, url);
 
@@ -391,7 +392,9 @@ public class TicketSystemService : IDisposable
         if (!ticketElement.HasValue)
             throw new ZnunyApiException("TicketGet", result.StatusCode, "Protocol", "TicketGet response contains no Ticket object.", result.Body);
 
-        return ZnunyTicket.FromJson(ticketElement.Value, _settings.Current.TicketSystemWebUrl);
+        var ticket = ZnunyTicket.FromJson(ticketElement.Value, _settings.Current.TicketSystemWebUrl, doc.RootElement);
+        _logger.Info($"[ZnunyFirstArticle] ticketId={ticket.TicketID} articleCount={ticket.ArticleCount} selectedArticleId='{ticket.FirstArticleId}' senderType='{ticket.FirstArticleSenderType}' created='{ticket.FirstArticleCreated}' bodyLength={ticket.FirstArticleBody.Length}");
+        return ticket;
     }
 
     private async Task<ZnunyHttpResult> SendZnunyAsync(HttpRequestMessage request, string stage, string responseLogTag)
@@ -773,8 +776,15 @@ public class TicketSystemService : IDisposable
         return Regex.Replace(sanitized, "SessionID=[^&/\\s]+", "SessionID=***", RegexOptions.IgnoreCase);
     }
     private static string Truncate(string value) => value.Length <= 3000 ? value : value[..3000] + "...";
-    private static string RedactSecrets(string value)
-        => Regex.Replace(value, "\"SessionID\"\\s*:\\s*\"[^\"]+\"", "\"SessionID\":\"***\"", RegexOptions.IgnoreCase);
+    private string RedactSecrets(string value)
+    {
+        var redacted = Regex.Replace(value, "\"SessionID\"\\s*:\\s*\"[^\"]+\"", "\"SessionID\":\"***\"", RegexOptions.IgnoreCase);
+        redacted = Regex.Replace(redacted, "\"(?:Password|UserPassword)\"\\s*:\\s*\"[^\"]*\"", "\"Password\":\"***\"", RegexOptions.IgnoreCase);
+        var configuredPassword = _settings.GetTicketSystemPassword();
+        return string.IsNullOrEmpty(configuredPassword)
+            ? redacted
+            : redacted.Replace(configuredPassword, "***", StringComparison.Ordinal);
+    }
 
     private (int created, int updated, int skipped) Fail3(string error)
     {
@@ -831,12 +841,25 @@ public class TicketSystemService : IDisposable
         public string SLA { get; init; } = string.Empty;
         public string WebUrl { get; init; } = string.Empty;
         public string DynamicFields { get; init; } = string.Empty;
+        public string FirstArticleBody { get; init; } = string.Empty;
+        public string FirstArticleId { get; init; } = string.Empty;
+        public string FirstArticleSenderType { get; init; } = string.Empty;
+        public string FirstArticleCreated { get; init; } = string.Empty;
+        public int ArticleCount { get; init; }
         public bool IsClosed => State.Contains("closed", StringComparison.OrdinalIgnoreCase) || State.Contains("removed", StringComparison.OrdinalIgnoreCase) || State.Contains("merged", StringComparison.OrdinalIgnoreCase);
 
-        public static ZnunyTicket FromJson(JsonElement item, string webBaseUrl)
+        public static ZnunyTicket FromJson(JsonElement item, string webBaseUrl, JsonElement? responseRoot = null)
         {
             var id = FirstString(item, "TicketID");
             var number = FirstString(item, "TicketNumber");
+            var articles = ExtractArticles(item);
+            if (articles.Count == 0 && responseRoot.HasValue)
+                articles = ExtractArticles(responseRoot.Value);
+            var selectedArticle = articles
+                .Where(article => !string.IsNullOrWhiteSpace(article.Body) && !article.IsSystemArticle)
+                .OrderBy(article => article.CreatedSort)
+                .ThenBy(article => article.ArticleId, StringComparer.OrdinalIgnoreCase)
+                .FirstOrDefault();
             return new ZnunyTicket
             {
                 TicketID = id,
@@ -858,13 +881,27 @@ public class TicketSystemService : IDisposable
                 Service = FirstString(item, "Service"),
                 SLA = FirstString(item, "SLA"),
                 WebUrl = BuildTicketWebUrl(webBaseUrl, id),
-                DynamicFields = ExtractDynamicFields(item)
+                DynamicFields = ExtractDynamicFields(item),
+                ArticleCount = articles.Count,
+                FirstArticleBody = selectedArticle?.Body ?? string.Empty,
+                FirstArticleId = selectedArticle?.ArticleId ?? string.Empty,
+                FirstArticleSenderType = selectedArticle?.SenderType ?? string.Empty,
+                FirstArticleCreated = selectedArticle?.Created ?? string.Empty
             };
         }
 
         public string ToDescription()
         {
             var sb = new StringBuilder();
+            if (!string.IsNullOrWhiteSpace(FirstArticleBody))
+            {
+                sb.AppendLine("--- Erste Ticket-Nachricht ---");
+                sb.AppendLine();
+                sb.AppendLine(FirstArticleBody);
+                sb.AppendLine();
+            }
+            sb.AppendLine("--- Ticketinformationen ---");
+            sb.AppendLine();
             sb.AppendLine($"Znuny TicketID: {TicketID}");
             sb.AppendLine($"TicketNumber: {TicketNumber}");
             sb.AppendLine($"Title: {Title}");
@@ -885,6 +922,68 @@ public class TicketSystemService : IDisposable
             sb.AppendLine($"SLA: {SLA}");
             if (!string.IsNullOrWhiteSpace(DynamicFields)) sb.AppendLine($"DynamicFields: {DynamicFields}");
             return sb.ToString();
+        }
+
+        private static List<ZnunyArticle> ExtractArticles(JsonElement ticket)
+        {
+            JsonElement value = default;
+            var found = ticket.ValueKind == JsonValueKind.Object
+                && ticket.EnumerateObject().Any(property =>
+                {
+                    if (!string.Equals(property.Name, "Article", StringComparison.OrdinalIgnoreCase)
+                        && !string.Equals(property.Name, "Articles", StringComparison.OrdinalIgnoreCase)) return false;
+                    value = property.Value;
+                    return true;
+                });
+            if (!found) return new List<ZnunyArticle>();
+
+            var elements = value.ValueKind == JsonValueKind.Array
+                ? value.EnumerateArray().ToList()
+                : new List<JsonElement> { value };
+            return elements
+                .Where(element => element.ValueKind == JsonValueKind.Object)
+                .Select(element =>
+                {
+                    var contentType = FirstString(element, "ContentType", "MimeType");
+                    var rawBody = FirstString(element, "Body", "BodyPlain", "Content");
+                    return new ZnunyArticle(
+                        FirstString(element, "ArticleID"),
+                        FirstString(element, "SenderType", "SenderTypeID"),
+                        FirstString(element, "CreateTime", "Created"),
+                        NormalizeArticleBody(rawBody, contentType),
+                        FirstString(element, "CommunicationChannel", "ArticleType", "ArticleTypeID"));
+                })
+                .ToList();
+        }
+
+        private static string NormalizeArticleBody(string body, string contentType)
+        {
+            if (string.IsNullOrWhiteSpace(body)) return string.Empty;
+            var text = body;
+            if (contentType.Contains("html", StringComparison.OrdinalIgnoreCase) || Regex.IsMatch(text, "<[^>]+>"))
+            {
+                text = Regex.Replace(text, "<(br|/p|/div|/li|/tr|/h[1-6])[^>]*>", "\n", RegexOptions.IgnoreCase);
+                text = Regex.Replace(text, "<li[^>]*>", "- ", RegexOptions.IgnoreCase);
+                text = Regex.Replace(text, "<[^>]+>", string.Empty);
+                text = WebUtility.HtmlDecode(text);
+            }
+
+            text = text.Replace("\r\n", "\n", StringComparison.Ordinal).Replace('\r', '\n');
+            text = Regex.Replace(text, "[ \t]+\n", "\n");
+            text = Regex.Replace(text, "\n{3,}", "\n\n").Trim();
+            return text.Length <= 5000 ? text : text[..5000].TrimEnd() + "\n[…]";
+        }
+
+        private sealed record ZnunyArticle(string ArticleId, string SenderType, string Created, string Body, string Channel)
+        {
+            public DateTime CreatedSort => DateTime.TryParse(Created, CultureInfo.InvariantCulture, DateTimeStyles.AssumeLocal, out var parsed)
+                ? parsed
+                : DateTime.MaxValue;
+
+            public bool IsSystemArticle
+                => SenderType.Contains("system", StringComparison.OrdinalIgnoreCase)
+                   || Channel.Contains("system", StringComparison.OrdinalIgnoreCase)
+                   || Channel.Contains("internal", StringComparison.OrdinalIgnoreCase) && string.IsNullOrWhiteSpace(Body);
         }
 
         private static string BuildTicketWebUrl(string webBaseUrl, string ticketId)

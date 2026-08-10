@@ -10,6 +10,16 @@ public partial class WeekView : UserControl
     public WeekView()
     {
         InitializeComponent();
+        Loaded += (_, _) => RefreshNowIndicator();
+        SizeChanged += (_, _) => RefreshNowIndicator();
+    }
+
+    private void CalendarScrollViewer_ScrollChanged(object sender, ScrollChangedEventArgs e) => RefreshNowIndicator();
+
+    private void RefreshNowIndicator()
+    {
+        if (DataContext is WeekViewModel vm)
+            vm.RefreshNowIndicator();
     }
 
     private void DayColumn_PreviewMouseDown(object sender, MouseButtonEventArgs e)

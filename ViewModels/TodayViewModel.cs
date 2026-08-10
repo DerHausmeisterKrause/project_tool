@@ -629,10 +629,8 @@ public class TodayViewModel : ObservableObject
 
     private void OpenTicketUrl(string? url)
     {
-        if (!UrlLauncher.TryOpen(url, out var error))
-        {
-            StatusMessage = error;
-        }
+        if (string.IsNullOrWhiteSpace(url)) return;
+        ServiceLocator.MainViewModel.NavigateToTicketSystem(url);
     }
 
     private void SaveManualDay()
