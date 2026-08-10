@@ -3,9 +3,7 @@
     <OutputType>WinExe</OutputType>
     <TargetFramework>net8.0-windows</TargetFramework>
     <UseWPF>true</UseWPF>
-    <!-- WPF markup compilation creates a temporary project. Keep default discovery disabled so
-         source files copied into that project are not discovered a second time. -->
-    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <EnableDefaultCompileItems>true</EnableDefaultCompileItems>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
@@ -21,7 +19,6 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <!-- Use the SDK's single, canonical compile-item discovery instead of a second repository-wide wildcard. -->
     <Compile Remove="ViewModels\WeekViewModel.cs" />
     <PackageReference Include="Microsoft.Data.Sqlite" Version="8.0.8" />
     <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.4129.50" />
