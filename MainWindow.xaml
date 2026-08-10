@@ -4,22 +4,52 @@
         xmlns:views="clr-namespace:TaskTool.Views"
         Title="TaskTool" Height="820" Width="1480" MinHeight="760" MinWidth="1280"
         Background="{StaticResource BgBrush}">
+    <Window.Resources>
+        <Style x:Key="SidebarNavigationItemStyle" TargetType="ListBoxItem">
+            <Setter Property="Foreground" Value="{StaticResource TextBrush}"/>
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderBrush" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="3,0,0,0"/>
+            <Setter Property="Padding" Value="12,10"/>
+            <Setter Property="Margin" Value="0,0,0,6"/>
+            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+            <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ListBoxItem">
+                        <Border x:Name="NavigationBorder" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="9" Padding="{TemplateBinding Padding}">
+                            <ContentPresenter VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="NavigationBorder" Property="Background" Value="#172033"/></Trigger>
+                            <Trigger Property="IsSelected" Value="True"><Setter TargetName="NavigationBorder" Property="Background" Value="#172554"/><Setter TargetName="NavigationBorder" Property="BorderBrush" Value="{StaticResource AccentBrush}"/></Trigger>
+                            <Trigger Property="IsKeyboardFocusWithin" Value="True"><Setter TargetName="NavigationBorder" Property="BorderBrush" Value="#60A5FA"/></Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </Window.Resources>
     <Grid Background="{StaticResource BgBrush}">
         <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="210" />
-            <ColumnDefinition Width="*" />
-            <ColumnDefinition Width="Auto" />
+            <ColumnDefinition Width="170" />
+            <ColumnDefinition>
+                <ColumnDefinition.Style><Style TargetType="ColumnDefinition"><Setter Property="Width" Value="*"/><Style.Triggers><DataTrigger Binding="{Binding IsTodaySelected}" Value="True"><Setter Property="Width" Value="3*"/></DataTrigger></Style.Triggers></Style></ColumnDefinition.Style>
+            </ColumnDefinition>
+            <ColumnDefinition>
+                <ColumnDefinition.Style><Style TargetType="ColumnDefinition"><Setter Property="Width" Value="0"/><Style.Triggers><DataTrigger Binding="{Binding IsTodaySelected}" Value="True"><Setter Property="Width" Value="2*"/></DataTrigger></Style.Triggers></Style></ColumnDefinition.Style>
+            </ColumnDefinition>
         </Grid.ColumnDefinitions>
 
         <Border Grid.Column="0" Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource BorderBrushColor}" BorderThickness="0,0,1,0">
-            <StackPanel Margin="14">
-                <TextBlock Text="TaskTool" FontSize="24" FontWeight="SemiBold" Margin="6,4,6,16" />
-                <ListBox ItemsSource="{Binding NavigationItems}" SelectedItem="{Binding SelectedView}" Background="Transparent" BorderThickness="0">
+            <StackPanel Margin="10">
+                <TextBlock Text="TaskTool" FontSize="22" FontWeight="SemiBold" Margin="8,6,8,16" />
+                <ListBox ItemsSource="{Binding NavigationItems}" SelectedItem="{Binding SelectedView}" Background="Transparent" BorderThickness="0"
+                         ItemContainerStyle="{StaticResource SidebarNavigationItemStyle}" KeyboardNavigation.TabNavigation="Continue">
                     <ListBox.ItemTemplate>
                         <DataTemplate>
-                            <Border CornerRadius="10" Padding="12" Margin="0,0,0,8" Background="#0B1220">
-                                <TextBlock Text="{Binding Title}" FontSize="15" />
-                            </Border>
+                            <TextBlock Text="{Binding Title}" FontSize="14" FontWeight="SemiBold" />
                         </DataTemplate>
                     </ListBox.ItemTemplate>
                 </ListBox>
@@ -34,7 +64,7 @@
                             VerticalContentAlignment="Stretch" />
         </Border>
 
-        <Border Grid.Column="2" Width="430" Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource BorderBrushColor}" BorderThickness="1,0,0,0" Padding="14"
+        <Border Grid.Column="2" Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource BorderBrushColor}" BorderThickness="1,0,0,0" Padding="14"
                 Visibility="{Binding IsTodaySelected, Converter={StaticResource BooleanToVisibilityConverter}}">
             <views:TaskDetailPanel DataContext="{Binding TodayViewModel}" />
         </Border>
