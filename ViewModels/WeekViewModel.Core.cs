@@ -472,6 +472,14 @@ public class WeekViewModel : ObservableObject
     {
         if (timelineHeight > 0)
             _timelineHeight = timelineHeight;
+
+        UpdateNowIndicator();
+    }
+
+    public void UpdateTimelineMetrics(double timelineHeight)
+    {
+        if (timelineHeight > 0)
+            _timelineHeight = timelineHeight;
         UpdateNowIndicator();
     }
 
