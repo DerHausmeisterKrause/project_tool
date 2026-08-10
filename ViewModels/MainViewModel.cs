@@ -11,6 +11,8 @@ public class MainViewModel : ObservableObject
     public ObservableCollection<object> NavigationItems { get; }
     public TodayViewModel TodayViewModel { get; }
     private readonly WeekViewModel _weekViewModel;
+    private readonly TicketSystemViewModel _ticketSystemViewModel;
+    private readonly LoggerService _logger;
 
     private object _selectedView;
     public object SelectedView
@@ -23,6 +25,10 @@ public class MainViewModel : ObservableObject
                 if (_selectedView is WeekViewModel)
                 {
                     _weekViewModel.Refresh();
+                }
+                else if (_selectedView is TicketSystemViewModel)
+                {
+                    _ticketSystemViewModel.Refresh();
                 }
                 Raise(nameof(IsTodaySelected));
             }
@@ -49,14 +55,27 @@ public class MainViewModel : ObservableObject
         FocusQuickAddRequested?.Invoke();
     }
 
-    public MainViewModel(TaskService taskService, WorkDayService workDayService, SettingsService settingsService, NotificationService notifications, OutlookCalendarService outlookCalendar, LoggerService logger)
+    public void NavigateToTicketSystem(string url)
     {
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri))
+            return;
+
+        _ticketSystemViewModel.NavigateTo(uri.ToString());
+        SelectedView = _ticketSystemViewModel;
+        var ticketId = System.Text.RegularExpressions.Regex.Match(uri.Query, @"(?:[?;&])TicketID=([^;&]+)", System.Text.RegularExpressions.RegexOptions.IgnoreCase).Groups[1].Value;
+        _logger.Info($"[TicketOpenInApp] ticketId='{Uri.UnescapeDataString(ticketId)}' ticketNumber='' targetUrl='{uri.Scheme}://{uri.Host}{uri.AbsolutePath}' targetTab=Ticketsystem");
+    }
+
+    public MainViewModel(TaskService taskService, WorkDayService workDayService, SettingsService settingsService, NotificationService notifications, OutlookCalendarService outlookCalendar, TicketSystemService ticketSystem, LoggerService logger)
+    {
+        _logger = logger;
         TodayViewModel = new TodayViewModel(taskService, workDayService, settingsService, outlookCalendar);
         _weekViewModel = new WeekViewModel(taskService, workDayService, settingsService, outlookCalendar);
+        _ticketSystemViewModel = new TicketSystemViewModel(settingsService);
         var reports = new ReportsViewModel(taskService, workDayService, settingsService);
-        var settings = new SettingsViewModel(settingsService, notifications, outlookCalendar);
+        var settings = new SettingsViewModel(settingsService, notifications, outlookCalendar, taskService, ticketSystem, TodayViewModel.Refresh);
 
-        NavigationItems = new ObservableCollection<object> { TodayViewModel, _weekViewModel, reports, settings };
+        NavigationItems = new ObservableCollection<object> { TodayViewModel, _weekViewModel, _ticketSystemViewModel, reports, settings };
         _selectedView = TodayViewModel;
     }
 }

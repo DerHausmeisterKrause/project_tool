@@ -80,8 +80,6 @@
                                        Visibility="{Binding HasNewSegmentConflict, Converter={StaticResource BooleanToVisibilityConverter}}"/>
                             <WrapPanel Margin="0,6,0,0">
                                 <Button Content="Segment speichern" Width="140" Command="{Binding AddSegmentCommand}" IsEnabled="{Binding CanSaveNewSegment}"/>
-                                <Button Content="Alle Segmente zu Outlook" Width="190" Style="{StaticResource SecondaryButtonStyle}" Command="{Binding SyncAllSegmentsCommand}"/>
-                                <Button Content="Outlook Verbindung testen" Width="190" Style="{StaticResource SecondaryButtonStyle}" Command="{Binding TestOutlookConnectionCommand}"/>
                             </WrapPanel>
                         </StackPanel>
                     </Border>
@@ -115,7 +113,6 @@
                                         <WrapPanel Margin="0,6,0,0">
                                             <Button Content="Speichern" Width="90" Command="{Binding DataContext.SaveSegmentCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}" CommandParameter="{Binding}"/>
                                             <Button Content="Löschen" Width="90" Style="{StaticResource DangerButtonStyle}" Command="{Binding DataContext.DeleteSegmentCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}" CommandParameter="{Binding}"/>
-                                            <Button Content="Outlook Blocker erstellen/aktualisieren" Width="220" Style="{StaticResource SecondaryButtonStyle}" Command="{Binding DataContext.SyncSegmentOutlookCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}" CommandParameter="{Binding}"/>
                                             <Button Content="Outlook Blocker löschen" Width="170" Style="{StaticResource DangerButtonStyle}" Command="{Binding DataContext.DeleteSegmentOutlookCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}" CommandParameter="{Binding}"/>
                                         </WrapPanel>
                                     </StackPanel>

@@ -15,14 +15,15 @@
                         <CheckBox Content="Ganztagstermine als Tagesmarker interpretieren" IsChecked="{Binding OutlookInterpretAllDayAsMarkers}" Margin="0,0,0,8"/>
                         <CheckBox Content="Wochenende anzeigen" IsChecked="{Binding ShowWeekendInWeekView}" Margin="0,0,0,8"/>
                         <TextBlock Text="Outlook Kalender Sync-Modus" Foreground="{StaticResource MutedTextBrush}"/>
-                        <ComboBox Width="180" ItemsSource="{Binding OutlookSyncModes}" SelectedItem="{Binding OutlookCalendarSyncMode}" Margin="0,0,0,8"/>
+                        <ComboBox Width="220" Style="{StaticResource DarkComboBoxStyle}" ItemsSource="{Binding OutlookSyncModes}" SelectedItem="{Binding OutlookCalendarSyncMode}" Margin="0,0,0,8"/>
                         <TextBlock Text="Sync Intervall (Minuten)" Foreground="{StaticResource MutedTextBrush}"/>
                         <TextBox Text="{Binding OutlookCalendarSyncIntervalMinutes}" Width="120" Margin="0,0,0,8"/>
                         <TextBlock Text="Zeitfenster Rückblick (Tage)" Foreground="{StaticResource MutedTextBrush}"/>
                         <TextBox Text="{Binding OutlookCalendarRangePastDays}" Width="120" Margin="0,0,0,8"/>
                         <TextBlock Text="Zeitfenster Vorschau (Tage)" Foreground="{StaticResource MutedTextBrush}"/>
                         <TextBox Text="{Binding OutlookCalendarRangeFutureDays}" Width="120" Margin="0,0,0,8"/>
-                        <Button Content="Outlook Kalender jetzt synchronisieren" Width="260" Style="{StaticResource SecondaryButtonStyle}" Margin="0,0,0,12" Command="{Binding RefreshOutlookCalendarCommand}"/>
+                        <Button Content="Outlook Kalender jetzt synchronisieren" Width="260" Style="{StaticResource SecondaryButtonStyle}" Margin="0,0,0,8" Command="{Binding RefreshOutlookCalendarCommand}"/>
+                        <Button Content="Outlook Verbindung testen" Width="220" Style="{StaticResource SecondaryButtonStyle}" Margin="0,0,0,12" Command="{Binding TestOutlookConnectionCommand}"/>
                         <CheckBox Content="Dynamic Island aktiv" IsChecked="{Binding DynamicIslandEnabled}" Margin="0,0,0,12"/>
                         <TextBlock Text="Outlook Kategorie" Foreground="{StaticResource MutedTextBrush}"/>
                         <TextBox Text="{Binding OutlookCategoryName}" Width="260"/>
@@ -31,6 +32,61 @@
                         <Button Content="Reminder testen" Width="220" Margin="0,8,0,0" Command="{Binding TestReminderCommand}"/>
                         <TextBlock Text="Datum/Zeit Format" Foreground="{StaticResource MutedTextBrush}"/>
                         <TextBox Text="{Binding DateTimeFormat}" Width="220"/>
+                    </StackPanel>
+                </Border>
+
+                <Border Style="{StaticResource CardStyle}">
+                    <StackPanel>
+                        <TextBlock Text="Znuny / OTRS Ticketsystem" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,10"/>
+                        <TextBlock Text="Server URL / Webseite" Foreground="{StaticResource MutedTextBrush}"/>
+                        <TextBox Text="{Binding TicketSystemWebUrl, UpdateSourceTrigger=PropertyChanged}" Width="560" ToolTip="Beispiel: https://SERVER/index.pl"/>
+                        <TextBlock Text="API URL (GenericTicketConnectorREST)" Foreground="{StaticResource MutedTextBrush}"/>
+                        <TextBox Text="{Binding TicketSystemApiUrl, UpdateSourceTrigger=PropertyChanged}" Width="560" ToolTip="https://SERVER/nph-genericinterface.pl/Webservice/GenericTicketConnectorREST"/>
+                        <TextBlock Text="Beispiel: https://SERVER/nph-genericinterface.pl/Webservice/GenericTicketConnectorREST" Foreground="{StaticResource MutedTextBrush}" TextWrapping="Wrap" Margin="0,0,0,8"/>
+                        <TextBlock Text="Benutzername" Foreground="{StaticResource MutedTextBrush}"/>
+                        <TextBox Text="{Binding TicketSystemUsername, UpdateSourceTrigger=PropertyChanged}" Width="320"/>
+                        <TextBlock Text="Passwort (verschlüsselt gespeichert)" Foreground="{StaticResource MutedTextBrush}"/>
+                        <TextBox x:Name="TicketSystemPasswordTextBox"
+                                 Text="{Binding TicketSystemPassword, UpdateSourceTrigger=LostFocus}"
+                                 Width="320"
+                                 GotKeyboardFocus="TicketSystemPasswordTextBox_GotKeyboardFocus"
+                                 PreviewMouseLeftButtonDown="TicketSystemPasswordTextBox_PreviewMouseLeftButtonDown"
+                                 LostKeyboardFocus="TicketSystemPasswordTextBox_LostKeyboardFocus"
+                                 ToolTip="Beim Bearbeiten sichtbar; nach dem Speichern wird das Passwort maskiert angezeigt."/>
+                        <TextBlock Text="Znuny Agenten-ID" Foreground="{StaticResource MutedTextBrush}"/>
+                        <TextBox Text="{Binding TicketSystemAgentId, UpdateSourceTrigger=PropertyChanged}" Width="120"/>
+                        <TextBlock Text="Interne numerische Agenten-ID für Owner- und Responsible-Suche. Sie kann in Znuny unter Admin → Agenten bzw. in der URL des geöffneten Agenten gefunden werden." Foreground="{StaticResource MutedTextBrush}" TextWrapping="Wrap" Margin="0,0,0,8"/>
+                        <TextBlock Text="TicketSearch Route" Foreground="{StaticResource MutedTextBrush}"/>
+                        <TextBox Text="{Binding TicketSystemTicketSearchRoute, UpdateSourceTrigger=PropertyChanged}" Width="220"/>
+                        <TextBlock Text="TicketSearch HTTP-Methode" Foreground="{StaticResource MutedTextBrush}"/>
+                        <ComboBox Width="120" Style="{StaticResource DarkComboBoxStyle}" ItemsSource="{Binding TicketSystemSearchMethods}" SelectedItem="{Binding TicketSystemTicketSearchMethod}"/>
+                        <TextBlock Text="TicketSearch Authentifizierung" Foreground="{StaticResource MutedTextBrush}"/>
+                        <ComboBox Width="120" Style="{StaticResource DarkComboBoxStyle}" ItemsSource="{Binding TicketSystemAuthModes}" SelectedItem="{Binding TicketSystemTicketSearchAuthMode}"/>
+                        <TextBlock Text="TicketGet Route Template" Foreground="{StaticResource MutedTextBrush}"/>
+                        <TextBox Text="{Binding TicketSystemTicketGetRouteTemplate, UpdateSourceTrigger=PropertyChanged}" Width="220"/>
+                        <TextBlock Text="TicketGet HTTP-Methode" Foreground="{StaticResource MutedTextBrush}"/>
+                        <TextBox Text="{Binding TicketSystemTicketGetMethod}" Width="120" IsReadOnly="True"/>
+                        <TextBlock Text="TicketGet Authentifizierung" Foreground="{StaticResource MutedTextBrush}"/>
+                        <ComboBox Width="120" Style="{StaticResource DarkComboBoxStyle}" ItemsSource="{Binding TicketSystemTicketGetAuthModes}" SelectedItem="{Binding TicketSystemTicketGetAuthMode}"/>
+                        <TextBlock Text="Bei älteren OTRS/Znuny-6.x-GenericTicketConnectorREST-Konfigurationen verwendet TicketSearch GET /Ticket." Foreground="{StaticResource MutedTextBrush}" TextWrapping="Wrap" Margin="0,0,0,8"/>
+                        <TextBlock Text="Synchronisationsintervall (Minuten)" Foreground="{StaticResource MutedTextBrush}"/>
+                        <TextBox Text="{Binding TicketSystemSyncIntervalMinutes, UpdateSourceTrigger=PropertyChanged}" Width="120"/>
+                        <CheckBox Content="Nur offene Tickets synchronisieren" IsChecked="{Binding TicketSystemOnlyOpenTickets}" Margin="0,8,0,4"/>
+                        <CheckBox Content="Geschlossene Tickets anzeigen / übernehmen" IsChecked="{Binding TicketSystemShowClosedTickets}" Margin="0,0,0,4"/>
+                        <CheckBox Content="Tickets berücksichtigen, bei denen ich Owner bin" IsChecked="{Binding TicketSystemIncludeOwner}" Margin="0,0,0,4"/>
+                        <CheckBox Content="Tickets berücksichtigen, bei denen ich Responsible bin" IsChecked="{Binding TicketSystemIncludeResponsible}" Margin="0,0,0,8"/>
+                        <CheckBox Content="Anmeldedaten im Ticketsystem automatisch ausfüllen" IsChecked="{Binding TicketSystemAutofillCredentials}" Margin="0,0,0,4"/>
+                        <CheckBox Content="Automatisch anmelden" IsChecked="{Binding TicketSystemAutoLogin}" Margin="0,0,0,8"/>
+                        <TextBlock Text="Autofill wird ausschließlich auf der exakt konfigurierten HTTPS-Domain ausgeführt. Das Passwort bleibt verschlüsselt gespeichert und wird nicht protokolliert."
+                                   Foreground="{StaticResource MutedTextBrush}" TextWrapping="Wrap" Margin="0,0,0,8"/>
+                        <TextBlock Text="Der Sync nutzt SessionCreate, TicketSearch mit OwnerIDs/ResponsibleIDs und TicketGet. API-Tokens werden für diesen Connector nicht verwendet. SessionGet wird im normalen Sync nicht benötigt."
+                                   Foreground="{StaticResource MutedTextBrush}" TextWrapping="Wrap" Margin="0,0,0,8"/>
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,0">
+                            <Button Content="Znuny-Verbindung testen" Width="220" Style="{StaticResource SecondaryButtonStyle}" Command="{Binding TestTicketSystemConnectionCommand}" Margin="0,0,8,0"/>
+                            <Button Content="API-Routen testen" Width="180" Style="{StaticResource SecondaryButtonStyle}" Command="{Binding TestTicketSystemRoutesCommand}" Margin="0,0,8,0"/>
+                            <Button Content="Znuny Tickets jetzt synchronisieren" Width="300" Style="{StaticResource SecondaryButtonStyle}" Command="{Binding ImportTicketSystemTasksCommand}"/>
+                        </StackPanel>
+                        <TextBlock Text="{Binding TicketSystemStatus}" Foreground="#FBBF24" TextWrapping="Wrap" Margin="0,4,0,0"/>
                     </StackPanel>
                 </Border>
 
