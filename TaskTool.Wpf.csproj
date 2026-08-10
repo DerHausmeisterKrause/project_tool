@@ -3,7 +3,9 @@
     <OutputType>WinExe</OutputType>
     <TargetFramework>net8.0-windows</TargetFramework>
     <UseWPF>true</UseWPF>
-    <EnableDefaultCompileItems>true</EnableDefaultCompileItems>
+    <!-- WPF markup compilation creates a temporary project. Keep default discovery disabled so
+         source files copied into that project are not discovered a second time. -->
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
