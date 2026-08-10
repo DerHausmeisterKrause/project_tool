@@ -324,6 +324,29 @@ ORDER BY ticket_minutes_booked DESC, title ASC LIMIT $max";
         return result;
     }
 
+    public HashSet<Guid> GetTaskIdsWithSegmentsForRange(DateTime fromInclusive, DateTime toExclusive)
+    {
+        var taskIds = new HashSet<Guid>();
+        using var conn = new SqliteConnection(_db.ConnectionString);
+        conn.Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = @"SELECT DISTINCT task_id
+FROM task_segments
+WHERE datetime(start_local) >= datetime($from)
+  AND datetime(start_local) < datetime($to)";
+        cmd.Parameters.AddWithValue("$from", fromInclusive.ToString("s"));
+        cmd.Parameters.AddWithValue("$to", toExclusive.ToString("s"));
+
+        using var reader = cmd.ExecuteReader();
+        while (reader.Read())
+        {
+            if (Guid.TryParse(reader["task_id"]?.ToString(), out var taskId))
+                taskIds.Add(taskId);
+        }
+
+        return taskIds;
+    }
+
     public bool TestOutlookConnection()
     {
         LastError = string.Empty;

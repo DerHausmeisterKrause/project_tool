@@ -334,9 +334,7 @@ public class TodayViewModel : ObservableObject
     {
         var all = _tasks.GetAllTasks();
         var localToday = _germanTime.GetLocalNow(_settings.Current.CalendarTimeZoneId).Date;
-        var todayTaskIds = _tasks.GetSegmentsForRange(localToday, localToday.AddDays(1))
-            .Select(pair => pair.Task.Id)
-            .ToHashSet();
+        var todayTaskIds = _tasks.GetTaskIdsWithSegmentsForRange(localToday, localToday.AddDays(1));
 
         var active = all.Where(t => t.Status != TaskStatus.Done).ToList();
         if (!string.IsNullOrWhiteSpace(TaskSearchText))
