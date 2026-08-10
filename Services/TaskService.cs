@@ -225,13 +225,28 @@ VALUES ($id,$title,$desc,$url,$start,$end,$status,$priority,$tags,$entry,$ticket
         return elapsed > TimeSpan.Zero ? elapsed : TimeSpan.Zero;
     }
 
+    public int GetTicketMinutesForDay(DateTime day)
+    {
+        return GetTicketMinutesForRange(day.Date, day.Date.AddDays(1));
+    }
+
     public int GetMonthTicketMinutes(DateTime month)
+    {
+        var monthStart = new DateTime(month.Year, month.Month, 1);
+        return GetTicketMinutesForRange(monthStart, monthStart.AddMonths(1));
+    }
+
+    private int GetTicketMinutesForRange(DateTime fromInclusive, DateTime toExclusive)
     {
         using var conn = new SqliteConnection(_db.ConnectionString);
         conn.Open();
         using var cmd = conn.CreateCommand();
-        cmd.CommandText = "SELECT COALESCE(SUM(ticket_minutes_booked),0) FROM tasks WHERE strftime('%Y-%m', COALESCE(start_local, created_utc)) = $m";
-        cmd.Parameters.AddWithValue("$m", month.ToString("yyyy-MM"));
+        cmd.CommandText = @"SELECT COALESCE(SUM(ticket_minutes_booked), 0)
+FROM tasks
+WHERE datetime(COALESCE(start_local, created_utc)) >= datetime($from)
+  AND datetime(COALESCE(start_local, created_utc)) < datetime($to)";
+        cmd.Parameters.AddWithValue("$from", fromInclusive.ToString("s"));
+        cmd.Parameters.AddWithValue("$to", toExclusive.ToString("s"));
         return Convert.ToInt32(cmd.ExecuteScalar());
     }
 
