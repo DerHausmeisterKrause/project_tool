@@ -683,7 +683,7 @@ public class TicketSystemService : IDisposable
     private void LogZnunyError(ZnunyApiException ex)
         => _logger.Error($"[ZnunyError] stage={ex.Stage} httpStatus={(int)ex.StatusCode} errorCode={ex.ErrorCode} message={ex.ErrorMessage} response={Truncate(RedactSecrets(ex.ResponseBody))}");
 
-    private static string FormatApiError(string title, ZnunyApiException ex)
+    private string FormatApiError(string title, ZnunyApiException ex)
         => $"{title}\nStufe: {ex.Stage}\nHTTP-Status: {(int)ex.StatusCode}\nZnuny ErrorCode: {ex.ErrorCode}\nZnuny ErrorMessage: {ex.ErrorMessage}\nResponse: {Truncate(RedactSecrets(ex.ResponseBody))}";
 
     private sealed record ZnunyHttpResult(HttpStatusCode StatusCode, string ContentType, string Body);
