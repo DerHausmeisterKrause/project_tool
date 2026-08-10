@@ -17,6 +17,7 @@ public class WeekViewModel : ObservableObject
     private readonly WorkDayService _workDays;
     private readonly SettingsService _settings;
     private readonly OutlookCalendarService _outlookCalendar;
+    private readonly GermanTimeService _germanTime;
 
     private const int CalendarStartHour = 6;
     private const int CalendarEndHour = 18;
@@ -38,6 +39,7 @@ public class WeekViewModel : ObservableObject
     public ObservableCollection<TimeGridLine> TimeGridLines { get; } = new();
 
     private readonly DispatcherTimer _nowIndicatorTimer = new();
+    private DateTime _lastNowLineLogMinute;
 
     private bool _showNowIndicator;
     public bool ShowNowIndicator { get => _showNowIndicator; set => Set(ref _showNowIndicator, value); }
@@ -135,6 +137,7 @@ public class WeekViewModel : ObservableObject
         _workDays = workDays;
         _settings = settings;
         _outlookCalendar = outlookCalendar;
+        _germanTime = ServiceLocator.GermanTime;
 
         BuildTimeScale();
 #if DEBUG
@@ -213,7 +216,8 @@ public class WeekViewModel : ObservableObject
 
     private void OpenTicketUrlFromWeek(string? url)
     {
-        UrlLauncher.TryOpen(url, out _);
+        if (!string.IsNullOrWhiteSpace(url))
+            ServiceLocator.MainViewModel.NavigateToTicketSystem(url);
     }
 
     private void OpenTeamsUrlFromWeek(string? url)
@@ -416,7 +420,8 @@ public class WeekViewModel : ObservableObject
 
     private void UpdateNowIndicator()
     {
-        var now = DateTime.Now;
+        var utcNow = DateTime.UtcNow;
+        var now = _germanTime.GetGermanLocalNow(utcNow);
         var today = now.Date;
         var weekEnd = WeekStart.Date.AddDays((ShowWeekend ? 7 : 5) - 1);
         if (today < WeekStart.Date || today > weekEnd)
@@ -440,7 +445,15 @@ public class WeekViewModel : ObservableObject
         NowMarkerLeft = dayIndex * DayColumnWidth - 4;
         NowMarkerTop = NowLineTop - 4;
         ShowNowIndicator = true;
+        var currentMinute = new DateTime(now.Year, now.Month, now.Day, now.Hour, now.Minute, 0);
+        if (currentMinute != _lastNowLineLogMinute)
+        {
+            _lastNowLineLogMinute = currentMinute;
+            ServiceLocator.Logger.Info($"[CalendarNowLine] utcNow={utcNow:O} localNow={now:O} timezone='{_germanTime.TimeZone.Id}' calendarStart={start:O} minutesSinceStart={minutesFromStart:F2} calculatedY={NowLineTop:F2}");
+        }
     }
+
+    public void RefreshNowIndicator() => UpdateNowIndicator();
 
     private double MapToCalendarY(DateTime value, DateTime dayDate)
     {
