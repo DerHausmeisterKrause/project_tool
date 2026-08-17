@@ -13,6 +13,8 @@ public class OutlookInteropService
 {
     private const int OlAppointmentItem = 1;
     private const int OlFolderCalendar = 9;
+    private const int MaxCalendarFetchIterations = 10000;
+    private const int MaxRepeatedCalendarItemCount = 25;
     private const int OlBusy = 2;
     private const int SW_RESTORE = 9;
 
@@ -280,33 +282,47 @@ public class OutlookInteropService
 
                     items = folderDyn.Items;
                     dynamic itemsDyn = items!;
-                    itemsDyn.Sort("[Start]");
+                    var rawItemsCount = ReadComCollectionCount(items);
+                    itemsDyn.Sort("[Start]", false);
                     itemsDyn.IncludeRecurrences = true;
 
                     var normalizedFrom = fromLocal.Date;
                     var normalizedTo = toLocal.Date;
-                    var fromFilter = FormatOutlookRestrictDate(normalizedFrom);
-                    var toFilter = FormatOutlookRestrictDate(normalizedTo);
+                    var outlookCulture = CultureInfo.CurrentCulture;
+                    var fromFilter = FormatOutlookRestrictDate(normalizedFrom, outlookCulture);
+                    var toFilter = FormatOutlookRestrictDate(normalizedTo, outlookCulture);
                     var filter = $"[Start] < '{toFilter}' AND [End] > '{fromFilter}'";
-                    _logger.Info($"[OutlookFetchRestrict] fromInclusive={normalizedFrom:O} toExclusive={normalizedTo:O} filter='{filter}'");
+                    _logger.Info($"[OutlookFetchRestrict] culture='{outlookCulture.Name}' fromInclusive={normalizedFrom:O} toExclusive={normalizedTo:O} filter='{filter}' rawItemsCount={rawItemsCount} restrictedCount=<pending> includeRecurrences=True");
 
+                    Exception? restrictException = null;
                     try
                     {
                         restricted = itemsDyn.Restrict(filter);
                     }
                     catch (Exception ex)
                     {
+                        restrictException = ex;
                         _logger.Error($"[OutlookFetchRestrict] RestrictFailed error='{ex.Message}' filter='{filter}'");
-                        return (false, new List<OutlookCalendarEvent>(), $"Outlook Kalenderfilter fehlgeschlagen: {ex.Message}");
                     }
 
-                    var events = CollectCalendarEvents((System.Collections.IEnumerable)restricted!, calendarName, normalizedFrom, normalizedTo, "Restrict");
-                    if (events.Count == 0)
+                    if (restricted != null)
                     {
-                        _logger.Info("[OutlookFetchRestrict] NoEventsFromRestrict fallbackSkipped=AvoidUnboundedRecurringEnumeration");
+                        var restrictedCount = ReadComCollectionCount(restricted);
+                        var restrictedResult = CollectCalendarEventsBounded(restricted, calendarName, normalizedFrom, normalizedTo, "Restrict");
+                        _logger.Info($"[OutlookFetchRestrict] culture='{outlookCulture.Name}' filter='{filter}' rawItemsCount={rawItemsCount} restrictedCount={restrictedCount} includeRecurrences=True scanned={restrictedResult.Scanned} matched={restrictedResult.Events.Count} abortReason='{restrictedResult.AbortReason}'");
+                        if (restrictedResult.Events.Count > 0 && restrictedResult.Completed)
+                            return (true, restrictedResult.Events, string.Empty);
                     }
 
-                    return (true, events, string.Empty);
+                    var fallbackResult = CollectCalendarEventsBounded(items, calendarName, normalizedFrom, normalizedTo, "Fallback");
+                    _logger.Info($"[OutlookFetchFallback] scanned={fallbackResult.Scanned} matched={fallbackResult.Events.Count} abortReason='{fallbackResult.AbortReason}'");
+                    if (fallbackResult.Completed)
+                        return (true, fallbackResult.Events, string.Empty);
+
+                    var fallbackError = restrictException == null
+                        ? $"Outlook Kalender-Fallback wurde unvollständig beendet ({fallbackResult.AbortReason})."
+                        : $"Outlook Kalenderfilter fehlgeschlagen ({restrictException.Message}); Fallback wurde unvollständig beendet ({fallbackResult.AbortReason}).";
+                    return (false, new List<OutlookCalendarEvent>(), fallbackError);
                 }
                 finally
                 {
@@ -326,33 +342,90 @@ public class OutlookInteropService
     }
 
 
-    private List<OutlookCalendarEvent> CollectCalendarEvents(System.Collections.IEnumerable source, string calendarName, DateTime fromInclusive, DateTime toExclusive, string sourceName)
+    private CalendarCollectionResult CollectCalendarEventsBounded(object source, string calendarName, DateTime fromInclusive, DateTime toExclusive, string sourceName)
     {
         var events = new List<OutlookCalendarEvent>();
-        foreach (var raw in source)
+        var scanned = 0;
+        var repeatedItemCount = 0;
+        var previousFingerprint = string.Empty;
+        var abortReason = "EndOfCollection";
+        var completed = true;
+        dynamic collection = source;
+        object? itemObj;
+        try
         {
-            object? itemObj = raw;
+            itemObj = collection.GetFirst();
+        }
+        catch (Exception ex)
+        {
+            return new CalendarCollectionResult(events, scanned, false, $"GetFirstFailed:{ex.Message}");
+        }
+
+        while (itemObj != null)
+        {
             try
             {
+                scanned++;
+                if (scanned > MaxCalendarFetchIterations)
+                {
+                    abortReason = "MaxIterations";
+                    completed = false;
+                    break;
+                }
+
+                var itemStart = ReadComDate(itemObj, "Start");
+                if (itemStart.HasValue && itemStart.Value >= toExclusive)
+                {
+                    abortReason = "StartOutsideTargetRange";
+                    break;
+                }
+
+                var fingerprint = $"{ReadComString(itemObj, "EntryID")}|{FormatNullableDate(itemStart)}|{FormatNullableDate(ReadComDate(itemObj, "End"))}";
+                if (string.Equals(previousFingerprint, fingerprint, StringComparison.Ordinal))
+                    repeatedItemCount++;
+                else
+                    repeatedItemCount = 0;
+                previousFingerprint = fingerprint;
+                if (repeatedItemCount >= MaxRepeatedCalendarItemCount)
+                {
+                    abortReason = "RepeatedItemGuard";
+                    completed = false;
+                    break;
+                }
+
                 LogRawItem(itemObj, sourceName);
 
                 if (!TryReadCalendarEvent(itemObj, calendarName, fromInclusive, toExclusive, out OutlookCalendarEvent? evt, out var rejectReason))
                 {
                     LogRejectedItem(itemObj, rejectReason);
-                    continue;
                 }
-
-                _logger.Info($"[OutlookItemAccepted] subject='{evt!.Subject}' start={evt.StartLocal:O} end={evt.EndLocal:O} whyAccepted=CalendarItemWithValidRangeAndOverlap entryId='{evt.EntryId}' source='{sourceName}'");
-                events.Add(evt);
+                else
+                {
+                    _logger.Info($"[OutlookItemAccepted] subject='{evt!.Subject}' start={evt.StartLocal:O} end={evt.EndLocal:O} whyAccepted=CalendarItemWithValidRangeAndOverlap entryId='{evt.EntryId}' source='{sourceName}'");
+                    events.Add(evt);
+                }
             }
             finally
             {
                 SafeReleaseComObject(itemObj);
             }
+
+            try
+            {
+                itemObj = collection.GetNext();
+            }
+            catch (Exception ex)
+            {
+                abortReason = $"GetNextFailed:{ex.Message}";
+                completed = false;
+                itemObj = null;
+            }
         }
 
-        return events;
+        return new CalendarCollectionResult(events, scanned, completed, abortReason);
     }
+
+    private sealed record CalendarCollectionResult(List<OutlookCalendarEvent> Events, int Scanned, bool Completed, string AbortReason);
 
     private void LogRawItem(object? rawItem, string sourceName)
     {
@@ -579,6 +652,22 @@ public class OutlookInteropService
     private static string FormatNullableBool(bool? value)
         => value.HasValue ? value.Value.ToString() : "<null>";
 
+    private static int ReadComCollectionCount(object? collection)
+    {
+        if (collection == null)
+            return -1;
+
+        try
+        {
+            dynamic value = collection;
+            return Convert.ToInt32(value.Count);
+        }
+        catch
+        {
+            return -1;
+        }
+    }
+
     private static T SafeRead<T>(Func<T> getter, T fallback = default!)
     {
         try
@@ -641,7 +730,7 @@ public class OutlookInteropService
         return value;
     }
 
-    private static string FormatOutlookRestrictDate(DateTime value)
+    private static string FormatOutlookRestrictDate(DateTime value, CultureInfo culture)
     {
         var local = value.Kind switch
         {
@@ -649,7 +738,7 @@ public class OutlookInteropService
             DateTimeKind.Local => value,
             _ => DateTime.SpecifyKind(value, DateTimeKind.Local)
         };
-        return local.ToString("MM/dd/yyyy hh:mm tt", CultureInfo.GetCultureInfo("en-US"));
+        return local.ToString("g", culture);
     }
 
     private static object? CreateOrAttachOutlook(Type outlookType)
