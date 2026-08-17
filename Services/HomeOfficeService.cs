@@ -1,6 +1,3 @@
-using TaskTool.Models;
-using TaskTool.ViewModels;
-
 namespace TaskTool.Services;
 
 public sealed record HomeOfficeOperationResult(bool Success, bool IsHomeOffice, string Message);
@@ -44,11 +41,11 @@ public sealed class HomeOfficeService
             var createdNew = false;
             if (string.IsNullOrWhiteSpace(entryId))
             {
-                var search = FindHomeOfficeCandidates(day);
+                var search = _outlook.FindPlenaroHomeOfficeAppointmentsForDay(day);
                 if (!search.ok)
                     return new HomeOfficeOperationResult(false, false, $"Outlook-Kalender konnte nicht auf vorhandene Homeoffice-Termine geprüft werden: {search.error}");
                 if (search.events.Count > 1)
-                    return new HomeOfficeOperationResult(false, false, "Mehrere Homeoffice-Termine wurden gefunden. Es wurde kein weiterer Termin erstellt.");
+                    return new HomeOfficeOperationResult(false, false, "Mehrere von Plenaro erstellte Homeoffice-Termine wurden gefunden. Es wurde kein weiterer Termin erstellt.");
                 entryId = search.events.SingleOrDefault()?.EntryId ?? string.Empty;
                 createdNew = string.IsNullOrWhiteSpace(entryId);
             }
@@ -96,11 +93,11 @@ public sealed class HomeOfficeService
             var entryId = workDay.HomeOfficeOutlookEntryId;
             if (string.IsNullOrWhiteSpace(entryId))
             {
-                var search = FindHomeOfficeCandidates(day);
+                var search = _outlook.FindPlenaroHomeOfficeAppointmentsForDay(day);
                 if (!search.ok)
                     return new HomeOfficeOperationResult(false, true, $"Outlook-Kalender konnte nicht auf den Homeoffice-Termin geprüft werden: {search.error}");
                 if (search.events.Count > 1)
-                    return new HomeOfficeOperationResult(false, true, "Mehrere Homeoffice-Termine wurden gefunden. Aus Sicherheitsgründen wurde keiner gelöscht.");
+                    return new HomeOfficeOperationResult(false, true, "Mehrere von Plenaro erstellte Homeoffice-Termine wurden gefunden. Aus Sicherheitsgründen wurde keiner gelöscht.");
                 entryId = search.events.SingleOrDefault()?.EntryId ?? string.Empty;
             }
 
@@ -126,14 +123,4 @@ public sealed class HomeOfficeService
         }
     }
 
-    private (bool ok, List<OutlookCalendarEvent> events, string error) FindHomeOfficeCandidates(DateTime day)
-    {
-        var fetched = _outlook.GetCalendarEvents(day.Date, day.Date.AddDays(1), ignoreCalendarDisabled: true);
-        if (!fetched.ok) return (false, new List<OutlookCalendarEvent>(), fetched.error);
-        var events = fetched.events
-            .Where(item => item.IsAllDay && item.StartLocal.Date == day.Date)
-            .Where(item => OutlookAllDayMarkerMapper.TryMapAllDayMarker(item, out _) == "HO")
-            .ToList();
-        return (true, events, string.Empty);
-    }
 }

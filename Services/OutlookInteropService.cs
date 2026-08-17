@@ -15,6 +15,7 @@ public class OutlookInteropService
     private const int OlMailItem = 0;
     private const int OlFolderCalendar = 9;
     private const int MaxCalendarFetchIterations = 10000;
+    private const int MaxHomeOfficeSearchIterations = 64;
     private const int MaxRepeatedCalendarItemCount = 25;
     private const int OlBusy = 2;
     // Microsoft.Office.Interop.Outlook.OlBusyStatus.olWorkingElsewhere.
@@ -181,15 +182,29 @@ public class OutlookInteropService
                         : nsDyn.GetItemFromID(existingEntryId);
                     if (item == null) return (false, string.Empty, "Outlook-Termin konnte nicht erstellt werden.");
                     dynamic appointment = item;
-                    appointment.Subject = "Homeoffice";
+                    var title = GetPlenaroHomeOfficeTitle(day);
+                    appointment.Subject = title;
+                    appointment.Body = title;
                     appointment.Start = day.Date;
                     appointment.End = day.Date.AddDays(1);
                     appointment.AllDayEvent = true;
                     appointment.ReminderSet = false;
                     appointment.BusyStatus = OlWorkingElsewhere;
-                    appointment.Categories = "HO";
+                    appointment.Location = "An anderem Ort tätig";
+                    appointment.Categories = string.Empty;
                     appointment.Save();
-                    return (true, Convert.ToString(appointment.EntryID) ?? string.Empty, string.Empty);
+
+                    var savedSubject = Convert.ToString(appointment.Subject) ?? string.Empty;
+                    var savedStart = Convert.ToDateTime(appointment.Start);
+                    var savedEnd = Convert.ToDateTime(appointment.End);
+                    var savedAllDay = Convert.ToBoolean(appointment.AllDayEvent);
+                    var savedBusyStatus = Convert.ToInt32(appointment.BusyStatus);
+                    var savedLocation = Convert.ToString(appointment.Location) ?? string.Empty;
+                    var savedCategories = Convert.ToString(appointment.Categories) ?? string.Empty;
+                    var savedBodyLength = (Convert.ToString(appointment.Body) ?? string.Empty).Length;
+                    var savedEntryId = Convert.ToString(appointment.EntryID) ?? string.Empty;
+                    _logger.Info($"[HomeOfficeOutlookSaved] date={day:yyyy-MM-dd} subject='{savedSubject}' start={savedStart:O} end={savedEnd:O} allDay={savedAllDay.ToString().ToLowerInvariant()} busyStatus={savedBusyStatus} location='{savedLocation}' categories='{savedCategories}' bodyLength={savedBodyLength} entryId='{savedEntryId}'");
+                    return (true, savedEntryId, string.Empty);
                 }
                 finally
                 {
@@ -202,6 +217,96 @@ public class OutlookInteropService
             _logger.Error(BuildOutlookExceptionLog("UpsertHomeOfficeAppointment", ex, day.Date, day.Date.AddDays(1)));
             return (false, string.Empty, BuildUserFacingOutlookError(ex));
         }
+    }
+
+    public (bool ok, List<OutlookCalendarEvent> events, string error) FindPlenaroHomeOfficeAppointmentsForDay(DateTime day)
+    {
+        day = day.Date;
+        try
+        {
+            return ExecuteOnSta<(bool ok, List<OutlookCalendarEvent> events, string error)>(() =>
+            {
+                var outlookType = Type.GetTypeFromProgID("Outlook.Application");
+                if (outlookType == null)
+                    return (false, new List<OutlookCalendarEvent>(), "Outlook ist nicht installiert.");
+
+                object? app = null; object? ns = null; object? folder = null; object? items = null; object? restricted = null;
+                try
+                {
+                    app = CreateOrAttachOutlook(outlookType);
+                    if (app == null) return (false, new List<OutlookCalendarEvent>(), "Outlook konnte nicht gestartet werden.");
+                    dynamic appDyn = app;
+                    ns = appDyn.GetNamespace("MAPI");
+                    TryLogon(ns);
+                    dynamic nsDyn = ns!;
+                    folder = nsDyn.GetDefaultFolder(OlFolderCalendar);
+                    dynamic folderDyn = folder!;
+                    var calendarName = Convert.ToString(folderDyn.Name) ?? string.Empty;
+                    items = folderDyn.Items;
+                    dynamic itemsDyn = items!;
+                    itemsDyn.Sort("[Start]", false);
+                    itemsDyn.IncludeRecurrences = true;
+
+                    var culture = CultureInfo.CurrentCulture;
+                    var fromFilter = FormatOutlookRestrictDate(day, culture);
+                    var toFilter = FormatOutlookRestrictDate(day.AddDays(1), culture);
+                    var title = GetPlenaroHomeOfficeTitle(day);
+                    var filter = $"[Start] < '{toFilter}' AND [End] > '{fromFilter}' AND [Subject] = '{title}'";
+                    restricted = itemsDyn.Restrict(filter);
+
+                    var matches = new List<OutlookCalendarEvent>();
+                    dynamic collection = restricted!;
+                    object? item = collection.GetFirst();
+                    var scanned = 0;
+                    while (item != null && scanned < MaxHomeOfficeSearchIterations)
+                    {
+                        try
+                        {
+                            scanned++;
+                            if (TryReadCalendarEvent(item, calendarName, day, day.AddDays(1), out var calendarEvent, out _)
+                                && calendarEvent != null
+                                && HasPlenaroHomeOfficeSignature(calendarEvent, day))
+                                matches.Add(calendarEvent);
+                        }
+                        finally
+                        {
+                            SafeReleaseComObject(item);
+                        }
+                        item = collection.GetNext();
+                    }
+                    var limitReached = item != null;
+                    if (limitReached) SafeReleaseComObject(item);
+                    _logger.Info($"[HomeOfficeOutlookSearch] date={day:yyyy-MM-dd} scanned={scanned} matched={matches.Count} bounded=true fallback=false");
+                    if (limitReached)
+                        return (false, new List<OutlookCalendarEvent>(), "Die begrenzte Homeoffice-Suche hat ihr Sicherheitslimit erreicht.");
+                    return (true, matches, string.Empty);
+                }
+                finally
+                {
+                    SafeReleaseComObject(restricted); SafeReleaseComObject(items); SafeReleaseComObject(folder); SafeReleaseComObject(ns); SafeReleaseComObject(app);
+                }
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.Error(BuildOutlookExceptionLog("FindPlenaroHomeOfficeAppointmentsForDay", ex, day, day.AddDays(1)));
+            return (false, new List<OutlookCalendarEvent>(), BuildUserFacingOutlookError(ex));
+        }
+    }
+
+    private static string GetPlenaroHomeOfficeTitle(DateTime day) => $"Homeoffice am {day:yyyy-MM-dd}";
+
+    private static bool HasPlenaroHomeOfficeSignature(OutlookCalendarEvent appointment, DateTime day)
+    {
+        var title = GetPlenaroHomeOfficeTitle(day);
+        return appointment.IsAllDay
+            && appointment.StartLocal.Date == day.Date
+            && appointment.EndLocal == day.Date.AddDays(1)
+            && string.Equals(appointment.Subject, title, StringComparison.Ordinal)
+            && string.Equals(appointment.BodyPreview, title, StringComparison.Ordinal)
+            && string.Equals(appointment.Location, "An anderem Ort tätig", StringComparison.OrdinalIgnoreCase)
+            && int.TryParse(appointment.BusyStatus, NumberStyles.Integer, CultureInfo.InvariantCulture, out var busyStatus)
+            && busyStatus == OlWorkingElsewhere;
     }
 
     public (bool ok, string error) SendHomeOfficeMail(DateTime day, IReadOnlyCollection<string> recipients)
