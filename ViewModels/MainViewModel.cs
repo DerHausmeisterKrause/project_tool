@@ -13,6 +13,7 @@ public class MainViewModel : ObservableObject
     private readonly WeekViewModel _weekViewModel;
     private readonly TicketSystemViewModel _ticketSystemViewModel;
     private readonly LoggerService _logger;
+    public SettingsViewModel SettingsViewModel { get; }
 
     private object _selectedView;
     public object SelectedView
@@ -66,16 +67,17 @@ public class MainViewModel : ObservableObject
         _logger.Info($"[TicketOpenInApp] ticketId='{Uri.UnescapeDataString(ticketId)}' ticketNumber='' targetUrl='{uri.Scheme}://{uri.Host}{uri.AbsolutePath}' targetTab=Ticketsystem");
     }
 
-    public MainViewModel(TaskService taskService, WorkDayService workDayService, SettingsService settingsService, NotificationService notifications, OutlookCalendarService outlookCalendar, TicketSystemService ticketSystem, LoggerService logger)
+    public MainViewModel(TaskService taskService, WorkDayService workDayService, SettingsService settingsService, NotificationService notifications, OutlookCalendarService outlookCalendar, TicketSystemService ticketSystem, UpdateService updates, AppVersionService appVersion, LoggerService logger)
     {
         _logger = logger;
-        TodayViewModel = new TodayViewModel(taskService, workDayService, settingsService, outlookCalendar);
+        TodayViewModel = new TodayViewModel(taskService, workDayService, settingsService, outlookCalendar, ticketSystem);
+        ticketSystem.TasksChanged += TodayViewModel.Refresh;
         _weekViewModel = new WeekViewModel(taskService, workDayService, settingsService, outlookCalendar);
         _ticketSystemViewModel = new TicketSystemViewModel(settingsService);
-        var reports = new ReportsViewModel(taskService, workDayService, settingsService);
-        var settings = new SettingsViewModel(settingsService, notifications, outlookCalendar, taskService, ticketSystem, TodayViewModel.Refresh);
+        var reports = new ReportsViewModel(taskService);
+        SettingsViewModel = new SettingsViewModel(settingsService, notifications, outlookCalendar, taskService, ticketSystem, updates, appVersion);
 
-        NavigationItems = new ObservableCollection<object> { TodayViewModel, _weekViewModel, _ticketSystemViewModel, reports, settings };
+        NavigationItems = new ObservableCollection<object> { TodayViewModel, _weekViewModel, _ticketSystemViewModel, reports, SettingsViewModel };
         _selectedView = TodayViewModel;
     }
 }

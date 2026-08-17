@@ -2,7 +2,10 @@ namespace TaskTool.Models;
 
 public class AppSettings
 {
+    public const string DefaultTicketSystemTicketUpdateRoute = "/Ticket/{TicketID}/Update";
+    public const string LegacyTicketSystemTicketUpdateRoute = "/Ticket/Update";
     public bool DynamicIslandEnabled { get; set; } = true;
+    public bool CheckForUpdatesOnStartup { get; set; } = true;
     public string DynamicIslandDockPosition { get; set; } = "TopCenter";
 
     public bool OutlookSyncEnabled { get; set; } = true;
@@ -17,6 +20,7 @@ public class AppSettings
     public int OutlookCalendarRangeFutureDays { get; set; } = 14;
     public bool OutlookInterpretAllDayAsMarkers { get; set; } = true;
     public bool ShowWeekendInWeekView { get; set; } = false;
+    public bool ShowInternalTaskSegmentsInCalendar { get; set; } = false;
     public string CalendarTimeZoneId { get; set; } = "Europe/Berlin";
     public int ReminderLeadMinutes { get; set; } = 2;
     public string DateTimeFormat { get; set; } = "yyyy-MM-dd HH:mm";
@@ -33,6 +37,12 @@ public class AppSettings
     public string TicketSystemTicketGetRouteTemplate { get; set; } = "/Ticket/{TicketID}";
     public string TicketSystemTicketGetMethod { get; set; } = "GET";
     public string TicketSystemTicketGetAuthMode { get; set; } = "Session";
+    public string TicketSystemTicketUpdateRoute { get; set; } = DefaultTicketSystemTicketUpdateRoute;
+    public string TicketSystemDynamicFieldOptionsRoute { get; set; } = "/Ticket/DynamicField/{FieldName}/Options";
+    public string TicketSystemCostCenterFieldName { get; set; } = "KostenstelleID";
+    public string TicketSystemOrderFieldName { get; set; } = "AuftragsID";
+    public string TicketSystemCostCenterOptions { get; set; } = string.Empty;
+    public string TicketSystemOrderOptions { get; set; } = string.Empty;
     public int TicketSystemSyncIntervalMinutes { get; set; } = 15;
     public bool TicketSystemOnlyOpenTickets { get; set; } = true;
     public bool TicketSystemShowClosedTickets { get; set; } = false;

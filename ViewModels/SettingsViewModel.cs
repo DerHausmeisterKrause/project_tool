@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Windows;
 using TaskTool.Infrastructure;
+using TaskTool.Models;
 using TaskTool.Services;
 
 namespace TaskTool.ViewModels;
@@ -14,7 +15,24 @@ public class SettingsViewModel : ObservableObject
     private readonly TaskService _tasks;
     private readonly TicketSystemService _ticketSystem;
     private readonly Action? _tasksChanged;
+    private readonly UpdateService _updates;
+    private readonly AppVersionService _appVersion;
     public string Title => "Einstellungen";
+    public string InstalledVersion => _appVersion.CurrentVersionText;
+    public bool CheckForUpdatesOnStartup { get => _settings.Current.CheckForUpdatesOnStartup; set { _settings.Current.CheckForUpdatesOnStartup = value; Save(); } }
+    private UpdateState _updateState = UpdateState.Idle;
+    public UpdateState CurrentUpdateState { get => _updateState; set { if (Set(ref _updateState, value)) RaiseUpdateCommands(); } }
+    private string _updateStatus = "Noch nicht geprüft";
+    public string UpdateStatus { get => _updateStatus; set => Set(ref _updateStatus, value); }
+    private string _lastUpdateCheck = "Noch nicht geprüft";
+    public string LastUpdateCheck { get => _lastUpdateCheck; set => Set(ref _lastUpdateCheck, value); }
+    private string _availableVersion = "–";
+    public string AvailableVersion { get => _availableVersion; set => Set(ref _availableVersion, value); }
+    private string _releaseNotes = string.Empty;
+    public string ReleaseNotes { get => _releaseNotes; set => Set(ref _releaseNotes, value); }
+    private int _updateProgress;
+    public int UpdateProgress { get => _updateProgress; set => Set(ref _updateProgress, value); }
+    private UpdateInfo? _availableUpdate;
 
     public bool OutlookSyncEnabled { get => _settings.Current.OutlookSyncEnabled; set { _settings.Current.OutlookSyncEnabled = value; Save(); } }
     public string OutlookCategoryName { get => _settings.Current.OutlookCategoryName; set { _settings.Current.OutlookCategoryName = value; Save(); } }
@@ -23,6 +41,7 @@ public class SettingsViewModel : ObservableObject
     public bool OutlookTeamsButtonEnabled { get => _settings.Current.OutlookTeamsButtonEnabled; set { _settings.Current.OutlookTeamsButtonEnabled = value; Save(); } }
     public bool OutlookInterpretAllDayAsMarkers { get => _settings.Current.OutlookInterpretAllDayAsMarkers; set { _settings.Current.OutlookInterpretAllDayAsMarkers = value; Save(); } }
     public bool ShowWeekendInWeekView { get => _settings.Current.ShowWeekendInWeekView; set { _settings.Current.ShowWeekendInWeekView = value; Save(); } }
+    public bool ShowInternalTaskSegmentsInCalendar { get => _settings.Current.ShowInternalTaskSegmentsInCalendar; set { _settings.Current.ShowInternalTaskSegmentsInCalendar = value; Save(); } }
     public string CalendarTimeZoneId { get => _settings.Current.CalendarTimeZoneId; set { _settings.Current.CalendarTimeZoneId = value; Save(); } }
     public string OutlookCalendarSyncMode { get => _settings.Current.OutlookCalendarSyncMode; set { _settings.Current.OutlookCalendarSyncMode = value; Save(); } }
     public int OutlookCalendarSyncIntervalMinutes { get => _settings.Current.OutlookCalendarSyncIntervalMinutes; set { _settings.Current.OutlookCalendarSyncIntervalMinutes = value; Save(); } }
@@ -51,6 +70,12 @@ public class SettingsViewModel : ObservableObject
     public string TicketSystemTicketGetRouteTemplate { get => _settings.Current.TicketSystemTicketGetRouteTemplate; set { _settings.Current.TicketSystemTicketGetRouteTemplate = value; Save(); } }
     public string TicketSystemTicketGetMethod { get => _settings.Current.TicketSystemTicketGetMethod; set { _settings.Current.TicketSystemTicketGetMethod = value; Save(); } }
     public string TicketSystemTicketGetAuthMode { get => _settings.Current.TicketSystemTicketGetAuthMode; set { _settings.Current.TicketSystemTicketGetAuthMode = value; Save(); } }
+    public string TicketSystemTicketUpdateRoute { get => _settings.Current.TicketSystemTicketUpdateRoute; set { _settings.Current.TicketSystemTicketUpdateRoute = value; Save(); } }
+    public string TicketSystemDynamicFieldOptionsRoute { get => _settings.Current.TicketSystemDynamicFieldOptionsRoute; set { _settings.Current.TicketSystemDynamicFieldOptionsRoute = value; Save(); } }
+    public string TicketSystemCostCenterFieldName { get => _settings.Current.TicketSystemCostCenterFieldName; set { _settings.Current.TicketSystemCostCenterFieldName = value; Save(); } }
+    public string TicketSystemOrderFieldName { get => _settings.Current.TicketSystemOrderFieldName; set { _settings.Current.TicketSystemOrderFieldName = value; Save(); } }
+    public string TicketSystemCostCenterOptions { get => _settings.Current.TicketSystemCostCenterOptions; set { _settings.Current.TicketSystemCostCenterOptions = value; Save(); } }
+    public string TicketSystemOrderOptions { get => _settings.Current.TicketSystemOrderOptions; set { _settings.Current.TicketSystemOrderOptions = value; Save(); } }
     public int TicketSystemSyncIntervalMinutes { get => _settings.Current.TicketSystemSyncIntervalMinutes; set { _settings.Current.TicketSystemSyncIntervalMinutes = value; Save(); } }
     public bool TicketSystemOnlyOpenTickets { get => _settings.Current.TicketSystemOnlyOpenTickets; set { _settings.Current.TicketSystemOnlyOpenTickets = value; Save(); } }
     public bool TicketSystemShowClosedTickets { get => _settings.Current.TicketSystemShowClosedTickets; set { _settings.Current.TicketSystemShowClosedTickets = value; Save(); } }
@@ -105,14 +130,19 @@ public class SettingsViewModel : ObservableObject
     public RelayCommand ImportTicketSystemTasksCommand { get; }
     public RelayCommand TestTicketSystemConnectionCommand { get; }
     public RelayCommand TestTicketSystemRoutesCommand { get; }
+    public RelayCommand CheckForUpdatesCommand { get; }
+    public RelayCommand InstallUpdateCommand { get; }
+    public RelayCommand OpenReleaseCommand { get; }
 
-    public SettingsViewModel(SettingsService settings, NotificationService notifications, OutlookCalendarService outlookCalendar, TaskService tasks, TicketSystemService ticketSystem, Action? tasksChanged = null)
+    public SettingsViewModel(SettingsService settings, NotificationService notifications, OutlookCalendarService outlookCalendar, TaskService tasks, TicketSystemService ticketSystem, UpdateService updates, AppVersionService appVersion, Action? tasksChanged = null)
     {
         _settings = settings;
         _notifications = notifications;
         _outlookCalendar = outlookCalendar;
         _tasks = tasks;
         _ticketSystem = ticketSystem;
+        _updates = updates;
+        _appVersion = appVersion;
         _tasksChanged = tasksChanged;
         TestReminderCommand = new RelayCommand(() => _notifications.ShowTestNotification());
         RefreshOutlookCalendarCommand = new RelayCommand(async () => await _outlookCalendar.TriggerSyncAsync("manual-button"));
@@ -120,6 +150,58 @@ public class SettingsViewModel : ObservableObject
         ImportTicketSystemTasksCommand = new RelayCommand(async () => await ImportTicketSystemTasksAsync());
         TestTicketSystemConnectionCommand = new RelayCommand(async () => await TestTicketSystemConnectionAsync());
         TestTicketSystemRoutesCommand = new RelayCommand(async () => await TestTicketSystemRoutesAsync());
+        CheckForUpdatesCommand = new RelayCommand(async () => await CheckForUpdatesAsync(false), () => CurrentUpdateState is not (UpdateState.Checking or UpdateState.Downloading or UpdateState.Installing));
+        InstallUpdateCommand = new RelayCommand(async () => await InstallUpdateAsync(), () => CurrentUpdateState == UpdateState.UpdateAvailable && _availableUpdate != null);
+        OpenReleaseCommand = new RelayCommand(() => { if (_availableUpdate != null) UrlLauncher.TryOpen(_availableUpdate.HtmlUrl, out _); }, () => _availableUpdate != null);
+    }
+
+    public async Task RunStartupUpdateCheckAsync()
+    {
+        if (!CheckForUpdatesOnStartup) return;
+        await Task.Delay(TimeSpan.FromSeconds(4));
+        await CheckForUpdatesAsync(true);
+    }
+
+    private async Task CheckForUpdatesAsync(bool automatic)
+    {
+        CurrentUpdateState = UpdateState.Checking; UpdateStatus = "Updates werden geprüft ...";
+        try
+        {
+            var result = await _updates.CheckForUpdatesAsync();
+            LastUpdateCheck = DateTime.Now.ToString("dd.MM.yyyy HH:mm");
+            _availableUpdate = result.Update;
+            AvailableVersion = result.Update?.Version.ToString() ?? "–";
+            ReleaseNotes = result.Update?.ReleaseNotes ?? string.Empty;
+            CurrentUpdateState = result.UpdateAvailable ? UpdateState.UpdateAvailable : UpdateState.UpToDate;
+            UpdateStatus = result.Message;
+        }
+        catch (Exception ex)
+        {
+            CurrentUpdateState = UpdateState.Failed; UpdateStatus = automatic ? "Automatische Prüfung fehlgeschlagen." : $"Updateprüfung fehlgeschlagen: {ex.Message}";
+        }
+        RaiseUpdateCommands();
+    }
+
+    private async Task InstallUpdateAsync()
+    {
+        if (_availableUpdate == null) return;
+        try
+        {
+            CurrentUpdateState = UpdateState.Downloading; UpdateStatus = "Update wird heruntergeladen ...";
+            var progress = new Progress<int>(value => { UpdateProgress = value; UpdateStatus = $"Update wird heruntergeladen ... {value} %"; });
+            var path = await _updates.DownloadUpdateAsync(_availableUpdate, progress);
+            CurrentUpdateState = UpdateState.ReadyToInstall;
+            if (!_updates.InstallUpdate(path, _availableUpdate, out var error)) { CurrentUpdateState = UpdateState.Failed; UpdateStatus = error; return; }
+            CurrentUpdateState = UpdateState.Installing; UpdateStatus = "Update wird installiert ...";
+            Application.Current.Shutdown();
+        }
+        catch (Exception ex) { CurrentUpdateState = UpdateState.Failed; UpdateStatus = $"Update fehlgeschlagen: {ex.Message}"; }
+        RaiseUpdateCommands();
+    }
+
+    private void RaiseUpdateCommands()
+    {
+        CheckForUpdatesCommand?.RaiseCanExecuteChanged(); InstallUpdateCommand?.RaiseCanExecuteChanged(); OpenReleaseCommand?.RaiseCanExecuteChanged();
     }
 
     private async Task TestTicketSystemRoutesAsync()
