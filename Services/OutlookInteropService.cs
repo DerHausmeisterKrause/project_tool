@@ -194,15 +194,15 @@ public class OutlookInteropService
                     appointment.Categories = string.Empty;
                     appointment.Save();
 
-                    var savedSubject = Convert.ToString(appointment.Subject) ?? string.Empty;
-                    var savedStart = Convert.ToDateTime(appointment.Start);
-                    var savedEnd = Convert.ToDateTime(appointment.End);
-                    var savedAllDay = Convert.ToBoolean(appointment.AllDayEvent);
-                    var savedBusyStatus = Convert.ToInt32(appointment.BusyStatus);
-                    var savedLocation = Convert.ToString(appointment.Location) ?? string.Empty;
-                    var savedCategories = Convert.ToString(appointment.Categories) ?? string.Empty;
-                    var savedBodyLength = (Convert.ToString(appointment.Body) ?? string.Empty).Length;
-                    var savedEntryId = Convert.ToString(appointment.EntryID) ?? string.Empty;
+                    string savedSubject = ReadComString(item, "Subject");
+                    DateTime savedStart = ReadComDate(item, "Start") ?? day.Date;
+                    DateTime savedEnd = ReadComDate(item, "End") ?? day.Date.AddDays(1);
+                    bool savedAllDay = ReadComBool(item, "AllDayEvent") ?? false;
+                    int savedBusyStatus = ReadComInt(item, "BusyStatus") ?? -1;
+                    string savedLocation = ReadComString(item, "Location");
+                    string savedCategories = ReadComString(item, "Categories");
+                    int savedBodyLength = ReadComString(item, "Body").Length;
+                    string savedEntryId = ReadComString(item, "EntryID");
                     _logger.Info($"[HomeOfficeOutlookSaved] date={day:yyyy-MM-dd} subject='{savedSubject}' start={savedStart:O} end={savedEnd:O} allDay={savedAllDay.ToString().ToLowerInvariant()} busyStatus={savedBusyStatus} location='{savedLocation}' categories='{savedCategories}' bodyLength={savedBodyLength} entryId='{savedEntryId}'");
                     return (true, savedEntryId, string.Empty);
                 }
@@ -241,7 +241,8 @@ public class OutlookInteropService
                     dynamic nsDyn = ns!;
                     folder = nsDyn.GetDefaultFolder(OlFolderCalendar);
                     dynamic folderDyn = folder!;
-                    var calendarName = Convert.ToString(folderDyn.Name) ?? string.Empty;
+                    string calendarName = ReadComString(folder, "Name");
+                    if (string.IsNullOrWhiteSpace(calendarName)) calendarName = "Kalender";
                     items = folderDyn.Items;
                     dynamic itemsDyn = items!;
                     itemsDyn.Sort("[Start]", false);
