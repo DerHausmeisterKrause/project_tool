@@ -190,6 +190,98 @@ VALUES ($id,$title,$desc,$url,$start,$end,$status,$priority,$tags,$entry,$ticket
         UpdateTask(task);
     }
 
+    public void CreateTicketTimeBooking(TicketTimeBooking booking)
+    {
+        using var conn = new SqliteConnection(_db.ConnectionString);
+        conn.Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = @"INSERT INTO ticket_time_bookings
+(id,task_id,ticket_id,ticket_number,booking_id,article_id,minutes,source_seconds,booked_at_utc,short_description,cost_center,order_value,status)
+VALUES ($id,$task,$ticket,$number,$booking,$article,$minutes,$seconds,$booked,$description,$cost,$order,$status)";
+        BindTicketTimeBooking(cmd, booking);
+        cmd.ExecuteNonQuery();
+    }
+
+    public void CompleteTicketTimeBooking(TicketTimeBooking booking, string articleId)
+    {
+        using var conn = new SqliteConnection(_db.ConnectionString);
+        conn.Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "UPDATE ticket_time_bookings SET article_id=$article,status='Succeeded',booked_at_utc=$booked WHERE id=$id AND status='Pending'";
+        cmd.Parameters.AddWithValue("$article", articleId ?? string.Empty);
+        cmd.Parameters.AddWithValue("$booked", DateTime.UtcNow.ToString("O"));
+        cmd.Parameters.AddWithValue("$id", booking.Id.ToString());
+        cmd.ExecuteNonQuery();
+    }
+
+    public void FailTicketTimeBooking(TicketTimeBooking booking)
+    {
+        using var conn = new SqliteConnection(_db.ConnectionString);
+        conn.Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "UPDATE ticket_time_bookings SET status='Failed' WHERE id=$id AND status='Pending'";
+        cmd.Parameters.AddWithValue("$id", booking.Id.ToString());
+        cmd.ExecuteNonQuery();
+    }
+
+    public TicketTimeBooking? GetPendingTicketTimeBooking(Guid taskId)
+        => GetTicketTimeBookings(taskId, "Pending").FirstOrDefault();
+
+    public List<TicketTimeBooking> GetSuccessfulTicketTimeBookings(Guid taskId)
+        => GetTicketTimeBookings(taskId, "Succeeded");
+
+    public long GetSuccessfullyTransferredSeconds(Guid taskId)
+        => GetSuccessfulTicketTimeBookings(taskId).Sum(booking => booking.SourceSeconds);
+
+    private List<TicketTimeBooking> GetTicketTimeBookings(Guid taskId, string status)
+    {
+        var result = new List<TicketTimeBooking>();
+        using var conn = new SqliteConnection(_db.ConnectionString);
+        conn.Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT * FROM ticket_time_bookings WHERE task_id=$task AND status=$status ORDER BY booked_at_utc DESC";
+        cmd.Parameters.AddWithValue("$task", taskId.ToString());
+        cmd.Parameters.AddWithValue("$status", status);
+        using var reader = cmd.ExecuteReader();
+        while (reader.Read())
+        {
+            result.Add(new TicketTimeBooking
+            {
+                Id = Guid.Parse(reader["id"].ToString()!),
+                TaskId = Guid.Parse(reader["task_id"].ToString()!),
+                TicketId = reader["ticket_id"].ToString() ?? string.Empty,
+                TicketNumber = reader["ticket_number"].ToString() ?? string.Empty,
+                BookingId = reader["booking_id"].ToString() ?? string.Empty,
+                ArticleId = reader["article_id"].ToString() ?? string.Empty,
+                Minutes = Convert.ToDecimal(reader["minutes"]),
+                SourceSeconds = Convert.ToInt64(reader["source_seconds"]),
+                BookedAtUtc = DateTime.Parse(reader["booked_at_utc"].ToString()!, null, System.Globalization.DateTimeStyles.RoundtripKind),
+                ShortDescription = reader["short_description"].ToString() ?? string.Empty,
+                CostCenter = reader["cost_center"].ToString() ?? string.Empty,
+                Order = reader["order_value"].ToString() ?? string.Empty,
+                Status = reader["status"].ToString() ?? string.Empty
+            });
+        }
+        return result;
+    }
+
+    private static void BindTicketTimeBooking(SqliteCommand cmd, TicketTimeBooking booking)
+    {
+        cmd.Parameters.AddWithValue("$id", booking.Id.ToString());
+        cmd.Parameters.AddWithValue("$task", booking.TaskId.ToString());
+        cmd.Parameters.AddWithValue("$ticket", booking.TicketId);
+        cmd.Parameters.AddWithValue("$number", booking.TicketNumber);
+        cmd.Parameters.AddWithValue("$booking", booking.BookingId);
+        cmd.Parameters.AddWithValue("$article", booking.ArticleId);
+        cmd.Parameters.AddWithValue("$minutes", Convert.ToDouble(booking.Minutes));
+        cmd.Parameters.AddWithValue("$seconds", booking.SourceSeconds);
+        cmd.Parameters.AddWithValue("$booked", booking.BookedAtUtc.ToString("O"));
+        cmd.Parameters.AddWithValue("$description", booking.ShortDescription);
+        cmd.Parameters.AddWithValue("$cost", booking.CostCenter);
+        cmd.Parameters.AddWithValue("$order", booking.Order);
+        cmd.Parameters.AddWithValue("$status", booking.Status);
+    }
+
     public TimeSpan GetTrackedDuration(Guid taskId)
     {
         var total = TimeSpan.Zero;

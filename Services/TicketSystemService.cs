@@ -40,6 +40,141 @@ public class TicketSystemService : IDisposable
     public Task<(int created, int updated, int skipped)> ImportAssignedOpenTicketsAsync()
         => SyncAssignedTicketsAsync("manual");
 
+    public async Task<TicketBookingContext> GetTicketBookingContextAsync(TaskItem task)
+    {
+        var ticketId = ExtractZnunyTicketIdFromTask(task);
+        if (string.IsNullOrWhiteSpace(ticketId))
+            throw new InvalidOperationException("Der ausgewählte Task besitzt keine eindeutige Znuny-TicketID.");
+
+        var configError = ValidateConfiguration(requireAgentId: false);
+        if (!string.IsNullOrWhiteSpace(configError))
+            throw new InvalidOperationException(configError);
+
+        var sessionId = await CreateSessionAsync();
+        var ticket = await GetTicketAsync(ticketId, sessionId, HashSessionId(sessionId))
+                     ?? throw new InvalidOperationException("TicketGet lieferte keine Ticketdaten.");
+        var costField = _settings.Current.TicketSystemCostCenterFieldName;
+        var orderField = _settings.Current.TicketSystemOrderFieldName;
+        var costOptions = ParseConfiguredOptions(_settings.Current.TicketSystemCostCenterOptions);
+        var orderOptions = ParseConfiguredOptions(_settings.Current.TicketSystemOrderOptions);
+        _logger.Info($"[ZnunyTicketDynamicFields] ticketId={ticket.TicketID} availableFields=[{string.Join(',', ticket.DynamicFieldValues.Keys.OrderBy(name => name, StringComparer.OrdinalIgnoreCase))}] configuredCostCenter='{costField}' configuredOrder='{orderField}'");
+        var informationParts = new List<string>();
+        if (string.IsNullOrWhiteSpace(costField) || string.IsNullOrWhiteSpace(orderField))
+            informationParts.Add("Die internen DynamicField-Namen müssen in den Einstellungen konfiguriert werden.");
+        if (!string.IsNullOrWhiteSpace(costField) && !ticket.DynamicFieldValues.ContainsKey(costField))
+            informationParts.Add($"TicketGet enthält das konfigurierte Kostenstellenfeld '{costField}' nicht.");
+        if (!string.IsNullOrWhiteSpace(orderField) && !ticket.DynamicFieldValues.ContainsKey(orderField))
+            informationParts.Add($"TicketGet enthält das konfigurierte Auftragsfeld '{orderField}' nicht.");
+        if (costOptions.Count == 0 || orderOptions.Count == 0)
+            informationParts.Add("TicketGet liefert keine Optionslisten; Dropdown-Werte werden aus den konfigurierten Key=Anzeigetext-Listen geladen.");
+        var information = string.Join(" ", informationParts);
+
+        return new TicketBookingContext(
+            ticket.TicketID,
+            ticket.TicketNumber,
+            ticket.GetDynamicFieldValue(costField),
+            ticket.GetDynamicFieldValue(orderField),
+            costOptions,
+            orderOptions,
+            information);
+    }
+
+    public async Task<TicketBookingResult> BookTimeAsync(
+        TaskItem task,
+        long sourceSeconds,
+        string shortDescription,
+        string costCenter,
+        string order)
+    {
+        var ticketId = ExtractZnunyTicketIdFromTask(task);
+        var ticketNumber = ExtractZnunyTicketNumberFromTask(task);
+        if (string.IsNullOrWhiteSpace(ticketId))
+            return new TicketBookingResult(false, false, "Der Task ist keinem eindeutigen Znuny-Ticket zugeordnet.");
+        if (sourceSeconds <= 0)
+            return new TicketBookingResult(false, false, "Es ist keine noch nicht gebuchte Zeit vorhanden.");
+
+        var configError = ValidateConfiguration(requireAgentId: false);
+        if (!string.IsNullOrWhiteSpace(configError))
+            return new TicketBookingResult(false, false, configError);
+
+        TicketTimeBooking? booking = null;
+        var serverConfirmed = false;
+        try
+        {
+            var sessionId = await CreateSessionAsync();
+            var sessionHash = HashSessionId(sessionId);
+            var pending = _tasks.GetPendingTicketTimeBooking(task.Id);
+            if (pending != null)
+            {
+                var currentTicket = await GetTicketAsync(ticketId, sessionId, sessionHash);
+                var reconciledArticleId = currentTicket?.FindArticleIdContaining(BookingMarker(pending.BookingId));
+                if (!string.IsNullOrWhiteSpace(reconciledArticleId))
+                {
+                    _tasks.CompleteTicketTimeBooking(pending, reconciledArticleId);
+                    _logger.Info($"[ZnunyTimeBooking] ticketId={ticketId} taskId={task.Id} bookingId={pending.BookingId} articleId={reconciledArticleId} action=reconciled");
+                    return new TicketBookingResult(true, false, $"{pending.Minutes:0.##} Min. erfolgreich in OTRS gebucht.");
+                }
+
+                return new TicketBookingResult(false, true,
+                    "Der Status der vorherigen Buchung ist noch unklar. Sie wurde nicht erneut gesendet, um eine Doppelbuchung zu verhindern. Bitte später erneut abgleichen.");
+            }
+
+            var minutes = decimal.Round(sourceSeconds / 60m, 2, MidpointRounding.AwayFromZero);
+            var timeUnit = decimal.Round(minutes / _settings.Current.TicketSystemTimeUnitMinutesPerUnit, 4, MidpointRounding.AwayFromZero);
+            booking = new TicketTimeBooking
+            {
+                TaskId = task.Id,
+                TicketId = ticketId,
+                TicketNumber = ticketNumber,
+                Minutes = minutes,
+                SourceSeconds = sourceSeconds,
+                ShortDescription = string.IsNullOrWhiteSpace(shortDescription) ? "Zeitbuchung" : shortDescription.Trim(),
+                CostCenter = costCenter ?? string.Empty,
+                Order = order ?? string.Empty
+            };
+            _tasks.CreateTicketTimeBooking(booking);
+
+            var payload = BuildTicketTimeBookingPayload(ticketId, sessionId, booking, timeUnit);
+            var route = NormalizeRouteValue(_settings.Current.TicketSystemTicketUpdateRoute, "/Ticket/Update");
+            using var request = new HttpRequestMessage(HttpMethod.Post, Combine(_settings.Current.TicketSystemApiUrl, route))
+            {
+                Content = new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json")
+            };
+            _logger.Info($"[ZnunyTimeBooking] route={route} ticketId={ticketId} taskId={task.Id} bookingId={booking.BookingId} minutes={minutes:0.##} timeUnit={timeUnit:0.####} action=send");
+            var response = await SendZnunyAsync(request, "TicketUpdateTimeBooking", "[ZnunyTicketUpdateResponse]");
+            serverConfirmed = true;
+            var articleId = ExtractFirstValueRecursive(response.Body, "ArticleID");
+            _tasks.CompleteTicketTimeBooking(booking, articleId);
+            _logger.Info($"[ZnunyTimeBooking] ticketId={ticketId} taskId={task.Id} bookingId={booking.BookingId} articleId={articleId} action=completed");
+            return new TicketBookingResult(true, false, $"{minutes:0.##} Min. erfolgreich in OTRS gebucht.");
+        }
+        catch (ZnunyApiException ex)
+        {
+            var uncertainServerFailure = booking != null && (int)ex.StatusCode >= 500;
+            if (booking != null && !uncertainServerFailure)
+                _tasks.FailTicketTimeBooking(booking);
+            LogZnunyError(ex);
+            if (uncertainServerFailure)
+                return new TicketBookingResult(false, true, "Znuny meldete einen Serverfehler nach dem Sendeversuch. Die Booking-ID wird vor einem weiteren Versuch abgeglichen; es erfolgt keine automatische Doppelbuchung.");
+            return new TicketBookingResult(false, false, FormatApiError("Zeitbuchung fehlgeschlagen", ex));
+        }
+        catch (Exception ex) when (booking != null && (ex is HttpRequestException || ex is TaskCanceledException))
+        {
+            _logger.Error($"[ZnunyTimeBooking] ticketId={ticketId} taskId={task.Id} bookingId={booking.BookingId} action=pending-reconciliation message={ex.Message}");
+            return new TicketBookingResult(false, true,
+                "Die Serverantwort ist ausgeblieben. Die Buchung bleibt zur sicheren Prüfung vorgemerkt und wird nicht automatisch erneut gesendet.");
+        }
+        catch (Exception ex)
+        {
+            if (booking != null && !serverConfirmed)
+                _tasks.FailTicketTimeBooking(booking);
+            _logger.Error($"[ZnunyTimeBooking] ticketId={ticketId} taskId={task.Id} action=failed message={ex.Message}");
+            if (serverConfirmed)
+                return new TicketBookingResult(false, true, "Znuny hat die Buchung bestätigt, aber die lokale Bestätigung konnte nicht gespeichert werden. Beim nächsten Klick wird die Booking-ID sicher abgeglichen.");
+            return new TicketBookingResult(false, false, $"Zeitbuchung fehlgeschlagen: {ex.Message}");
+        }
+    }
+
     public async Task<(bool success, string message)> TestConnectionAsync()
     {
         LastError = string.Empty;
@@ -539,6 +674,99 @@ public class TicketSystemService : IDisposable
         return id?.Split(':', 2).ElementAtOrDefault(1) ?? string.Empty;
     }
 
+    private static string ExtractZnunyTicketNumberFromTask(TaskItem task)
+    {
+        var parts = (task.Tags ?? string.Empty).Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        var number = parts.FirstOrDefault(p => p.StartsWith("ZnunyTicketNumber:", StringComparison.OrdinalIgnoreCase));
+        return number?.Split(':', 2).ElementAtOrDefault(1) ?? string.Empty;
+    }
+
+    private Dictionary<string, object?> BuildTicketTimeBookingPayload(
+        string ticketId,
+        string sessionId,
+        TicketTimeBooking booking,
+        decimal timeUnit)
+    {
+        var body = $"{booking.ShortDescription}\n\n{BookingMarker(booking.BookingId)}";
+        var payload = new Dictionary<string, object?>
+        {
+            ["SessionID"] = sessionId,
+            ["TicketID"] = ticketId,
+            ["Article"] = new Dictionary<string, object?>
+            {
+                ["Subject"] = "TaskTool Zeitbuchung",
+                ["Body"] = body,
+                ["ContentType"] = "text/plain; charset=utf-8",
+                ["MimeType"] = "text/plain",
+                ["Charset"] = "utf-8",
+                ["SenderType"] = "agent",
+                ["CommunicationChannel"] = "Internal",
+                ["IsVisibleForCustomer"] = 0,
+                ["TimeUnit"] = timeUnit
+            }
+        };
+
+        var dynamicFields = new List<Dictionary<string, string>>();
+        AddDynamicField(dynamicFields, _settings.Current.TicketSystemCostCenterFieldName, booking.CostCenter);
+        AddDynamicField(dynamicFields, _settings.Current.TicketSystemOrderFieldName, booking.Order);
+        if (dynamicFields.Count > 0)
+            payload["DynamicField"] = dynamicFields;
+        return payload;
+    }
+
+    private static void AddDynamicField(List<Dictionary<string, string>> fields, string name, string value)
+    {
+        if (string.IsNullOrWhiteSpace(name) || string.IsNullOrWhiteSpace(value))
+            return;
+        fields.Add(new Dictionary<string, string> { ["Name"] = name.Trim(), ["Value"] = value.Trim() });
+    }
+
+    private static string BookingMarker(string bookingId) => $"TaskTool-Booking-ID: {bookingId}";
+
+    private static IReadOnlyList<TicketFieldOption> ParseConfiguredOptions(string configured)
+    {
+        return (configured ?? string.Empty)
+            .Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(entry => entry.Split('=', 2, StringSplitOptions.TrimEntries))
+            .Where(parts => !string.IsNullOrWhiteSpace(parts[0]))
+            .Select(parts => new TicketFieldOption(parts[0], parts.Length > 1 && !string.IsNullOrWhiteSpace(parts[1]) ? parts[1] : parts[0]))
+            .GroupBy(option => option.Key, StringComparer.OrdinalIgnoreCase)
+            .Select(group => group.First())
+            .ToList();
+    }
+
+    private static string ExtractFirstValueRecursive(string json, string propertyName)
+    {
+        if (!TryParseJson(json, out var doc)) return string.Empty;
+        using (doc)
+        {
+            return FindFirstValueRecursive(doc.RootElement, propertyName);
+        }
+    }
+
+    private static string FindFirstValueRecursive(JsonElement element, string propertyName)
+    {
+        if (element.ValueKind == JsonValueKind.Object)
+        {
+            foreach (var property in element.EnumerateObject())
+            {
+                if (string.Equals(property.Name, propertyName, StringComparison.OrdinalIgnoreCase))
+                    return TicketIdToString(property.Value);
+                var nested = FindFirstValueRecursive(property.Value, propertyName);
+                if (!string.IsNullOrWhiteSpace(nested)) return nested;
+            }
+        }
+        else if (element.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var item in element.EnumerateArray())
+            {
+                var nested = FindFirstValueRecursive(item, propertyName);
+                if (!string.IsNullOrWhiteSpace(nested)) return nested;
+            }
+        }
+        return string.Empty;
+    }
+
     private void LogSessionKeys(JsonElement root)
     {
         var keys = CollectSessionKeys(root).Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(k => k).ToList();
@@ -906,12 +1134,21 @@ public class TicketSystemService : IDisposable
         public string SLA { get; init; } = string.Empty;
         public string WebUrl { get; init; } = string.Empty;
         public string DynamicFields { get; init; } = string.Empty;
+        public IReadOnlyDictionary<string, string> DynamicFieldValues { get; init; } = new Dictionary<string, string>();
         public string FirstArticleBody { get; init; } = string.Empty;
         public string FirstArticleId { get; init; } = string.Empty;
         public string FirstArticleSenderType { get; init; } = string.Empty;
         public string FirstArticleCreated { get; init; } = string.Empty;
         public int ArticleCount { get; init; }
         public bool IsClosed => IsClosedValue(StateType) || IsClosedValue(State);
+
+        public string GetDynamicFieldValue(string name)
+            => string.IsNullOrWhiteSpace(name) || !DynamicFieldValues.TryGetValue(name, out var value) ? string.Empty : value;
+
+        public string FindArticleIdContaining(string marker)
+            => Articles.FirstOrDefault(article => article.Body.Contains(marker, StringComparison.OrdinalIgnoreCase))?.ArticleId ?? string.Empty;
+
+        private IReadOnlyList<ZnunyArticle> Articles { get; init; } = Array.Empty<ZnunyArticle>();
 
         private static bool IsClosedValue(string value)
         {
@@ -959,6 +1196,8 @@ public class TicketSystemService : IDisposable
                 SLA = FirstString(item, "SLA"),
                 WebUrl = BuildTicketWebUrl(webBaseUrl, id),
                 DynamicFields = ExtractDynamicFields(item),
+                DynamicFieldValues = ExtractDynamicFieldValues(item),
+                Articles = articles,
                 ArticleCount = articles.Count,
                 FirstArticleBody = selectedArticle?.Body ?? string.Empty,
                 FirstArticleId = selectedArticle?.ArticleId ?? string.Empty,
@@ -1098,6 +1337,24 @@ public class TicketSystemService : IDisposable
         {
             if (!item.TryGetProperty("DynamicField", out var value)) return string.Empty;
             return value.ToString();
+        }
+
+        private static IReadOnlyDictionary<string, string> ExtractDynamicFieldValues(JsonElement item)
+        {
+            var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            if (!TryGetPropertyCaseInsensitive(item, "DynamicField", out var value)) return result;
+            IEnumerable<JsonElement> fields = value.ValueKind == JsonValueKind.Array
+                ? value.EnumerateArray().ToArray()
+                : new[] { value };
+            foreach (var field in fields)
+            {
+                if (field.ValueKind != JsonValueKind.Object) continue;
+                var name = FirstString(field, "Name");
+                if (string.IsNullOrWhiteSpace(name)) continue;
+                var fieldValue = FirstString(field, "Value");
+                result[name] = fieldValue;
+            }
+            return result;
         }
     }
 }

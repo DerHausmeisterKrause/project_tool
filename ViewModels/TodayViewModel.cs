@@ -17,6 +17,7 @@ public class TodayViewModel : ObservableObject
     private readonly GermanTimeService _germanTime;
     private readonly DispatcherTimer _clock;
     private readonly OutlookCalendarService _outlookCalendar;
+    private readonly TicketSystemService _ticketSystem;
     private DateTime _agendaDate;
 
     public string Title => "Heute";
@@ -29,6 +30,9 @@ public class TodayViewModel : ObservableObject
     public ObservableCollection<TodayAgendaItem> TodayAgendaItems { get; } = new();
     public ObservableCollection<BreakEditRow> BreakRows { get; } = new();
     public ObservableCollection<TaskSegment> Segments { get; } = new();
+    public ObservableCollection<TicketTimeBooking> TicketTimeBookings { get; } = new();
+    public ObservableCollection<TicketFieldOption> CostCenterOptions { get; } = new();
+    public ObservableCollection<TicketFieldOption> OrderOptions { get; } = new();
     public ObservableCollection<string> TimeOptions { get; } = new(Enumerable.Range(0, 96).Select(i => TimeSpan.FromMinutes(i * 15).ToString(@"hh\:mm")));
 
     public event Action<Guid>? TaskBringIntoViewRequested;
@@ -43,8 +47,11 @@ public class TodayViewModel : ObservableObject
             {
                 LoadSegments();
                 Raise(nameof(IsTaskSelected));
+                Raise(nameof(HasZnunyTicket));
                 RaiseCommandStates();
                 UpdateTimerDisplay();
+                LoadTicketBookingHistory();
+                _ = LoadTicketBookingContextAsync(value);
             }
         }
     }
@@ -112,6 +119,33 @@ public class TodayViewModel : ObservableObject
 
     private string _timerDisplay = "00:00:00";
     public string TimerDisplay { get => _timerDisplay; set => Set(ref _timerDisplay, value); }
+
+    private TicketFieldOption? _selectedCostCenter;
+    public TicketFieldOption? SelectedCostCenter { get => _selectedCostCenter; set => Set(ref _selectedCostCenter, value); }
+
+    private TicketFieldOption? _selectedOrder;
+    public TicketFieldOption? SelectedOrder { get => _selectedOrder; set => Set(ref _selectedOrder, value); }
+
+    private string _ticketBookingInformation = string.Empty;
+    public string TicketBookingInformation { get => _ticketBookingInformation; set => Set(ref _ticketBookingInformation, value); }
+
+    private bool _isTicketBooking;
+    public bool IsTicketBooking
+    {
+        get => _isTicketBooking;
+        set
+        {
+            if (Set(ref _isTicketBooking, value))
+                BookTimeInTicketSystemCommand.RaiseCanExecuteChanged();
+        }
+    }
+
+    private long _successfullyTransferredSeconds;
+    public long UnbookedTicketSeconds => Math.Max(0, (SelectedTask?.TicketSecondsBooked ?? 0) + (long)(SelectedTask == null ? TimeSpan.Zero : _tasks.GetOpenSessionDuration(SelectedTask.Id)).TotalSeconds - _successfullyTransferredSeconds);
+    public long SuccessfullyTransferredSeconds => _successfullyTransferredSeconds;
+    public string UnbookedTicketTimeText => $"Noch nicht gebucht: {UnbookedTicketSeconds / 60m:0.##} Min.";
+    public string TransferredTicketTimeText => $"Über TaskTool in OTRS gebucht: {SuccessfullyTransferredSeconds / 60m:0.##} Min.";
+    public bool HasZnunyTicket => SelectedTask?.Tags.Contains("ZnunyTicketID:", StringComparison.OrdinalIgnoreCase) == true;
 
     private DateTime? _newSegmentDate = DateTime.Today;
     public DateTime? NewSegmentDate
@@ -185,6 +219,7 @@ public class TodayViewModel : ObservableObject
     public RelayCommand Subtract15Command { get; }
     public RelayCommand Subtract30Command { get; }
     public RelayCommand Subtract60Command { get; }
+    public RelayCommand BookTimeInTicketSystemCommand { get; }
     public RelayCommand ComeCommand { get; }
     public RelayCommand GoCommand { get; }
     public RelayCommand BreakStartCommand { get; }
@@ -220,13 +255,14 @@ public class TodayViewModel : ObservableObject
     private bool _isHo;
     public bool IsHo { get => _isHo; set => Set(ref _isHo, value); }
 
-    public TodayViewModel(TaskService tasks, WorkDayService workDays, SettingsService settings, OutlookCalendarService outlookCalendar)
+    public TodayViewModel(TaskService tasks, WorkDayService workDays, SettingsService settings, OutlookCalendarService outlookCalendar, TicketSystemService ticketSystem)
     {
         _tasks = tasks;
         _workDays = workDays;
         _settings = settings;
         _germanTime = ServiceLocator.GermanTime;
         _outlookCalendar = outlookCalendar;
+        _ticketSystem = ticketSystem;
         _tasks.SegmentsChanged += OnSegmentsChanged;
         _outlookCalendar.EventsUpdated += OnOutlookEventsUpdated;
 
@@ -242,6 +278,7 @@ public class TodayViewModel : ObservableObject
         Subtract15Command = new RelayCommand(() => AdjustBookedMinutes(-15), () => SelectedTask != null);
         Subtract30Command = new RelayCommand(() => AdjustBookedMinutes(-30), () => SelectedTask != null);
         Subtract60Command = new RelayCommand(() => AdjustBookedMinutes(-60), () => SelectedTask != null);
+        BookTimeInTicketSystemCommand = new RelayCommand(async () => await BookTimeInTicketSystemAsync(), () => HasZnunyTicket && !IsTicketBooking && UnbookedTicketSeconds > 0);
         ComeCommand = new RelayCommand(() => { _workDays.SetCome(DateTime.Now); Load(); });
         GoCommand = new RelayCommand(() => { _workDays.SetGo(DateTime.Now); Load(); });
         BreakStartCommand = new RelayCommand(() => { _workDays.StartBreak(DateTime.Today.ToString("yyyy-MM-dd")); Load(); });
@@ -739,6 +776,97 @@ public class TodayViewModel : ObservableObject
         Load();
     }
 
+    private void LoadTicketBookingHistory()
+    {
+        TicketTimeBookings.Clear();
+        _successfullyTransferredSeconds = 0;
+        if (SelectedTask != null)
+        {
+            foreach (var booking in _tasks.GetSuccessfulTicketTimeBookings(SelectedTask.Id))
+                TicketTimeBookings.Add(booking);
+            _successfullyTransferredSeconds = TicketTimeBookings.Sum(booking => booking.SourceSeconds);
+        }
+
+        Raise(nameof(SuccessfullyTransferredSeconds));
+        Raise(nameof(UnbookedTicketSeconds));
+        Raise(nameof(UnbookedTicketTimeText));
+        Raise(nameof(TransferredTicketTimeText));
+        BookTimeInTicketSystemCommand.RaiseCanExecuteChanged();
+    }
+
+    private async Task LoadTicketBookingContextAsync(TaskItem? task)
+    {
+        CostCenterOptions.Clear();
+        OrderOptions.Clear();
+        SelectedCostCenter = null;
+        SelectedOrder = null;
+        TicketBookingInformation = string.Empty;
+        if (task == null || !task.Tags.Contains("ZnunyTicketID:", StringComparison.OrdinalIgnoreCase))
+            return;
+
+        try
+        {
+            var context = await _ticketSystem.GetTicketBookingContextAsync(task);
+            if (SelectedTask?.Id != task.Id) return;
+            foreach (var option in context.CostCenterOptions) CostCenterOptions.Add(option);
+            foreach (var option in context.OrderOptions) OrderOptions.Add(option);
+            SelectedCostCenter = EnsureCurrentOption(CostCenterOptions, context.CostCenterValue);
+            SelectedOrder = EnsureCurrentOption(OrderOptions, context.OrderValue);
+            TicketBookingInformation = context.Information;
+        }
+        catch (Exception ex)
+        {
+            if (SelectedTask?.Id == task.Id)
+                TicketBookingInformation = $"Ticketdaten konnten nicht geladen werden: {ex.Message}";
+        }
+    }
+
+    private static TicketFieldOption? EnsureCurrentOption(ObservableCollection<TicketFieldOption> options, string currentValue)
+    {
+        if (string.IsNullOrWhiteSpace(currentValue)) return options.FirstOrDefault();
+        var existing = options.FirstOrDefault(option => string.Equals(option.Key, currentValue, StringComparison.OrdinalIgnoreCase));
+        if (existing != null) return existing;
+        var current = new TicketFieldOption(currentValue, currentValue);
+        options.Insert(0, current);
+        return current;
+    }
+
+    private async Task BookTimeInTicketSystemAsync()
+    {
+        if (SelectedTask == null || IsTicketBooking) return;
+        var task = SelectedTask;
+        IsTicketBooking = true;
+        try
+        {
+            if (task.Status == TaskStatus.Running)
+                _tasks.StopTimer(task);
+            UpdateTimerDisplay();
+            var seconds = UnbookedTicketSeconds;
+            var description = FirstDescriptionLine(task.Description);
+            var result = await _ticketSystem.BookTimeAsync(
+                task,
+                seconds,
+                description,
+                SelectedCostCenter?.Key ?? string.Empty,
+                SelectedOrder?.Key ?? string.Empty);
+            StatusMessage = result.Message;
+            LoadTicketBookingHistory();
+            UpdateTimerDisplay();
+        }
+        finally
+        {
+            IsTicketBooking = false;
+        }
+    }
+
+    private static string FirstDescriptionLine(string description)
+    {
+        var line = (description ?? string.Empty)
+            .Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .FirstOrDefault() ?? "Zeitbuchung";
+        return line.Length <= 500 ? line : line[..500];
+    }
+
     private void ReopenSelectedTask() { if (SelectedTask == null) return; _tasks.MarkPlanned(SelectedTask); Load(); }
     private void MarkSelectedTaskDone() { if (SelectedTask == null) return; _tasks.MarkDone(SelectedTask); Load(); }
 
@@ -799,11 +927,23 @@ public class TodayViewModel : ObservableObject
 
     private void UpdateTimerDisplay()
     {
-        if (SelectedTask == null) { TimerDisplay = "00:00:00"; return; }
-        var booked = TimeSpan.FromSeconds(Math.Max(0, SelectedTask.TicketSecondsBooked));
-        var runningPart = _tasks.GetOpenSessionDuration(SelectedTask.Id);
-        var total = booked + runningPart;
-        TimerDisplay = $"{(int)total.TotalHours:00}:{total.Minutes:00}:{total.Seconds:00}";
+        var unbooked = TimeSpan.FromSeconds(UnbookedTicketSeconds);
+        TimerDisplay = $"{(int)unbooked.TotalHours:00}:{unbooked.Minutes:00}:{unbooked.Seconds:00}";
+        Raise(nameof(UnbookedTicketSeconds));
+        Raise(nameof(UnbookedTicketTimeText));
+        Raise(nameof(TransferredTicketTimeText));
+        BookTimeInTicketSystemCommand.RaiseCanExecuteChanged();
+    }
+
+    private void OnClockTick()
+    {
+        UpdateTimerDisplay();
+        var localToday = _germanTime.GetLocalNow(_settings.Current.CalendarTimeZoneId).Date;
+        if (localToday == _agendaDate)
+            return;
+
+        ApplyTaskFilters();
+        _ = _outlookCalendar.TriggerSyncAsync(localToday, localToday.AddDays(1), "today-agenda-day-change");
     }
 
     private void OnClockTick()
