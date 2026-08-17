@@ -135,7 +135,7 @@
                         </StackPanel>
                     </Border>
                     <WrapPanel Margin="8,0,0,0">
-                        <ToggleButton Content="HO" Style="{StaticResource DayMarkerChipToggleStyle}" IsChecked="{Binding IsHo}" Command="{Binding SaveMarkersCommand}"/>
+                        <ToggleButton Content="HO" Style="{StaticResource DayMarkerChipToggleStyle}" IsChecked="{Binding IsHo, Mode=OneWay}" Command="{Binding ToggleHomeOfficeCommand}"/>
                         <ToggleButton Content="BR" Style="{StaticResource DayMarkerChipToggleStyle}" IsChecked="{Binding IsBr}" Command="{Binding SaveMarkersCommand}"/>
                     </WrapPanel>
                 </StackPanel>

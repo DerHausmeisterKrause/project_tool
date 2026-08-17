@@ -12,6 +12,7 @@
                         <TextBlock><Run Text="Letzte Prüfung: "/><Run Text="{Binding LastUpdateCheck}"/></TextBlock>
                         <TextBlock><Run Text="Verfügbare Version: "/><Run Text="{Binding AvailableVersion}"/></TextBlock>
                         <CheckBox Content="Beim Start automatisch nach Updates suchen" IsChecked="{Binding CheckForUpdatesOnStartup}" Margin="0,8,0,8"/>
+                        <CheckBox Content="Verfügbare Updates automatisch installieren" IsChecked="{Binding AutoInstallUpdatesOnStartup}" Margin="0,0,0,8"/>
                         <ProgressBar Minimum="0" Maximum="100" Value="{Binding UpdateProgress}" Height="8" Margin="0,0,0,6"/>
                         <TextBlock Text="{Binding UpdateStatus}" Foreground="#FBBF24" TextWrapping="Wrap"/>
                         <TextBlock Text="Release Notes" FontWeight="SemiBold" Margin="0,8,0,3"/>
@@ -21,6 +22,16 @@
                             <Button Content="Update installieren" Width="170" Command="{Binding InstallUpdateCommand}"/>
                             <Button Content="Release auf GitHub öffnen" Width="210" Style="{StaticResource SecondaryButtonStyle}" Command="{Binding OpenReleaseCommand}"/>
                         </WrapPanel>
+                    </StackPanel>
+                </Border>
+
+                <Border Style="{StaticResource CardStyle}">
+                    <StackPanel>
+                        <TextBlock Text="Homeoffice" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,10"/>
+                        <TextBlock Text="E-Mail Empfänger 1" Foreground="{StaticResource MutedTextBrush}"/>
+                        <TextBox Width="420" HorizontalAlignment="Left" Text="{Binding HomeOfficeMailRecipient1, UpdateSourceTrigger=LostFocus}"/>
+                        <TextBlock Text="E-Mail Empfänger 2 (optional)" Foreground="{StaticResource MutedTextBrush}" Margin="0,8,0,0"/>
+                        <TextBox Width="420" HorizontalAlignment="Left" Text="{Binding HomeOfficeMailRecipient2, UpdateSourceTrigger=LostFocus}"/>
                     </StackPanel>
                 </Border>
 

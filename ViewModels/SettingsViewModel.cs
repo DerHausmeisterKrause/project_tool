@@ -19,6 +19,7 @@ public class SettingsViewModel : ObservableObject
     public string Title => "Einstellungen";
     public string InstalledVersion => _settings.Current.InstalledVersion;
     public bool CheckForUpdatesOnStartup { get => _settings.Current.CheckForUpdatesOnStartup; set { _settings.Current.CheckForUpdatesOnStartup = value; Save(); } }
+    public bool AutoInstallUpdatesOnStartup { get => _settings.Current.AutoInstallUpdatesOnStartup; set { _settings.Current.AutoInstallUpdatesOnStartup = value; Save(); } }
     private UpdateState _updateState = UpdateState.Idle;
     public UpdateState CurrentUpdateState { get => _updateState; set { if (Set(ref _updateState, value)) RaiseUpdateCommands(); } }
     private string _updateStatus = "Noch nicht geprüft";
@@ -47,6 +48,8 @@ public class SettingsViewModel : ObservableObject
     public int OutlookCalendarRangePastDays { get => _settings.Current.OutlookCalendarRangePastDays; set { _settings.Current.OutlookCalendarRangePastDays = value; Save(); } }
     public int OutlookCalendarRangeFutureDays { get => _settings.Current.OutlookCalendarRangeFutureDays; set { _settings.Current.OutlookCalendarRangeFutureDays = value; Save(); } }
     public int DefaultSegmentDurationMinutes { get => _settings.Current.DefaultSegmentDurationMinutes; set { _settings.Current.DefaultSegmentDurationMinutes = value; Save(); } }
+    public string HomeOfficeMailRecipient1 { get => _settings.Current.HomeOfficeMailRecipient1; set { _settings.Current.HomeOfficeMailRecipient1 = value; Save(); } }
+    public string HomeOfficeMailRecipient2 { get => _settings.Current.HomeOfficeMailRecipient2; set { _settings.Current.HomeOfficeMailRecipient2 = value; Save(); } }
 
     public string TicketSystemWebUrl { get => _settings.Current.TicketSystemWebUrl; set { _settings.Current.TicketSystemWebUrl = value; Save(); } }
     public string TicketSystemApiUrl { get => _settings.Current.TicketSystemApiUrl; set { _settings.Current.TicketSystemApiUrl = value; Save(); } }
@@ -158,8 +161,17 @@ public class SettingsViewModel : ObservableObject
     public async Task RunStartupUpdateCheckAsync()
     {
         if (!CheckForUpdatesOnStartup) return;
-        await Task.Delay(TimeSpan.FromSeconds(4));
         await CheckForUpdatesAsync(true);
+        if (CurrentUpdateState == UpdateState.Failed)
+        {
+            ServiceLocator.Logger.Error($"[StartupUpdate] failed='{UpdateStatus}'");
+            return;
+        }
+        if (CurrentUpdateState != UpdateState.UpdateAvailable || _availableUpdate == null) return;
+        ServiceLocator.Logger.Info($"[StartupUpdate] installedVersion={InstalledVersion} remoteVersion={_availableUpdate.Version} updateAvailable=true");
+        ServiceLocator.Logger.Info($"[StartupUpdate] autoInstall={AutoInstallUpdatesOnStartup.ToString().ToLowerInvariant()}");
+        if (!AutoInstallUpdatesOnStartup) return;
+        await InstallUpdateAsync(true);
     }
 
     public void RefreshInstalledVersion() => Raise(nameof(InstalledVersion));
@@ -184,20 +196,35 @@ public class SettingsViewModel : ObservableObject
         RaiseUpdateCommands();
     }
 
-    private async Task InstallUpdateAsync()
+    private Task InstallUpdateAsync() => InstallUpdateAsync(false);
+
+    private async Task InstallUpdateAsync(bool startupAutomatic)
     {
         if (_availableUpdate == null) return;
         try
         {
             CurrentUpdateState = UpdateState.Downloading; UpdateStatus = "Update wird heruntergeladen ...";
+            if (startupAutomatic) ServiceLocator.Logger.Info("[StartupUpdate] downloadStarted=true");
             var progress = new Progress<int>(value => { UpdateProgress = value; UpdateStatus = $"Update wird heruntergeladen ... {value} %"; });
             var path = await _updates.DownloadUpdateAsync(_availableUpdate, progress);
             CurrentUpdateState = UpdateState.ReadyToInstall;
-            if (!_updates.InstallUpdate(path, _availableUpdate, out var error)) { CurrentUpdateState = UpdateState.Failed; UpdateStatus = error; return; }
+            if (!_updates.InstallUpdate(path, _availableUpdate, out var error))
+            {
+                CurrentUpdateState = UpdateState.Failed;
+                UpdateStatus = error;
+                if (startupAutomatic) ServiceLocator.Logger.Error($"[StartupUpdate] failed='{error}'");
+                return;
+            }
+            if (startupAutomatic) ServiceLocator.Logger.Info("[StartupUpdate] installPrepared=true");
             CurrentUpdateState = UpdateState.Installing; UpdateStatus = "Update wird installiert ...";
             Application.Current.Shutdown();
         }
-        catch (Exception ex) { CurrentUpdateState = UpdateState.Failed; UpdateStatus = $"Update fehlgeschlagen: {ex.Message}"; }
+        catch (Exception ex)
+        {
+            CurrentUpdateState = UpdateState.Failed;
+            UpdateStatus = $"Update fehlgeschlagen: {ex.Message}";
+            if (startupAutomatic) ServiceLocator.Logger.Error($"[StartupUpdate] failed='{ex.Message}'");
+        }
         RaiseUpdateCommands();
     }
 

@@ -18,6 +18,8 @@ public class WeekViewModel : ObservableObject
     private readonly SettingsService _settings;
     private readonly OutlookCalendarService _outlookCalendar;
     private readonly GermanTimeService _germanTime;
+    private readonly HomeOfficeService _homeOffice;
+    private bool _isHomeOfficeOperationRunning;
     private bool _lastShowInternalTaskSegmentsInCalendar;
     private bool _lastShowWeekend;
 
@@ -135,12 +137,14 @@ public class WeekViewModel : ObservableObject
     public RelayCommand ToggleHoCommand { get; }
     public RelayCommand ToggleBrCommand { get; }
 
-    public WeekViewModel(TaskService tasks, WorkDayService workDays, SettingsService settings, OutlookCalendarService outlookCalendar)
+    public WeekViewModel(TaskService tasks, WorkDayService workDays, SettingsService settings, OutlookCalendarService outlookCalendar, HomeOfficeService homeOffice)
     {
         _tasks = tasks;
         _workDays = workDays;
         _settings = settings;
         _outlookCalendar = outlookCalendar;
+        _homeOffice = homeOffice;
+        _homeOffice.Changed += OnHomeOfficeChanged;
         _germanTime = ServiceLocator.GermanTime;
         _lastShowInternalTaskSegmentsInCalendar = _settings.Current.ShowInternalTaskSegmentsInCalendar;
         _lastShowWeekend = _settings.Current.ShowWeekendInWeekView;
@@ -169,7 +173,7 @@ public class WeekViewModel : ObservableObject
         SetDayTypeNormalCommand = new RelayCommand(() => SetDayType("Normal"), () => SelectedDayGroup != null);
         SetDayTypeUlCommand = new RelayCommand(() => SetDayType("UL"), () => SelectedDayGroup != null);
         SetDayTypeAmCommand = new RelayCommand(() => SetDayType("AM"), () => SelectedDayGroup != null);
-        ToggleHoCommand = new RelayCommand(() => { if (SelectedDayGroup == null) return; SelectedDayGroup.IsHo = !SelectedDayGroup.IsHo; SaveSelectedDay(); }, () => SelectedDayGroup != null);
+        ToggleHoCommand = new RelayCommand(async () => await ToggleHomeOfficeAsync(), () => SelectedDayGroup != null && !_isHomeOfficeOperationRunning);
         ToggleBrCommand = new RelayCommand(() => { if (SelectedDayGroup == null) return; SelectedDayGroup.IsBr = !SelectedDayGroup.IsBr; SaveSelectedDay(); }, () => SelectedDayGroup != null);
 
         _nowIndicatorTimer.Interval = TimeSpan.FromSeconds(30);
@@ -282,6 +286,11 @@ public class WeekViewModel : ObservableObject
         App.Current?.Dispatcher.Invoke(LoadWeek);
     }
 
+    private void OnHomeOfficeChanged()
+    {
+        App.Current?.Dispatcher.BeginInvoke(new Action(LoadWeek));
+    }
+
     private void OnSegmentsChanged()
     {
         if (!_settings.Current.ShowInternalTaskSegmentsInCalendar)
@@ -327,6 +336,37 @@ public class WeekViewModel : ObservableObject
         var selectedDate = SelectedDayGroup.DayDate;
         LoadWeek();
         SelectedDayGroup = Days.FirstOrDefault(d => d.DayDate.Date == selectedDate.Date) ?? Days.FirstOrDefault();
+    }
+
+    private async Task ToggleHomeOfficeAsync()
+    {
+        if (SelectedDayGroup == null || _isHomeOfficeOperationRunning) return;
+        var day = SelectedDayGroup.DayDate.Date;
+        var remove = SelectedDayGroup.IsHo;
+        if (!remove)
+        {
+            var confirmation = MessageBox.Show($"Wollen Sie am {day:dd.MM.yyyy} Homeoffice einreichen?", "Homeoffice einreichen", MessageBoxButton.YesNo, MessageBoxImage.Question);
+            if (confirmation != MessageBoxResult.Yes)
+            {
+                ServiceLocator.Logger.Info($"[HomeOffice] action=submit date={day:yyyy-MM-dd} confirmed=false");
+                Raise(nameof(SelectedIsHo));
+                return;
+            }
+        }
+
+        _isHomeOfficeOperationRunning = true;
+        ToggleHoCommand.RaiseCanExecuteChanged();
+        try
+        {
+            var result = remove ? await _homeOffice.RemoveAsync(day) : await _homeOffice.SubmitAsync(day);
+            LoadWeek();
+            if (!result.Success) MessageBox.Show(result.Message, "Homeoffice", MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+        finally
+        {
+            _isHomeOfficeOperationRunning = false;
+            ToggleHoCommand.RaiseCanExecuteChanged();
+        }
     }
 
     private void LoadWeek()

@@ -9,10 +9,13 @@ public class AppSettings
     public const string LegacyTicketSystemTicketUpdateRoute = "/Ticket/Update";
     public bool DynamicIslandEnabled { get; set; } = true;
     public bool CheckForUpdatesOnStartup { get; set; } = true;
+    public bool AutoInstallUpdatesOnStartup { get; set; } = true;
     public string InstalledVersion { get; set; } = string.Empty;
     public string CurrentTasksSortField { get; set; } = "Updated";
     public bool CurrentTasksSortDescending { get; set; } = true;
     public int DefaultSegmentDurationMinutes { get; set; } = 30;
+    public string HomeOfficeMailRecipient1 { get; set; } = string.Empty;
+    public string HomeOfficeMailRecipient2 { get; set; } = string.Empty;
     public string DynamicIslandDockPosition { get; set; } = "TopCenter";
 
     public bool OutlookSyncEnabled { get; set; } = true;

@@ -49,10 +49,11 @@ CREATE TABLE IF NOT EXISTS schema_version (
             MigrateToV6(conn);
             MigrateToV7(conn);
             MigrateToV8(conn);
+            MigrateToV9(conn);
 
-            if (currentVersion < 8)
+            if (currentVersion < 9)
             {
-                SetVersion(conn, 8);
+                SetVersion(conn, 9);
             }
         }
         catch (Exception ex)
@@ -93,7 +94,8 @@ CREATE TABLE IF NOT EXISTS time_logs (
 CREATE TABLE IF NOT EXISTS work_days (
     day TEXT PRIMARY KEY,
     come_local TEXT NULL,
-    go_local TEXT NULL
+    go_local TEXT NULL,
+    homeoffice_outlook_entry_id TEXT NULL
 );
 
 CREATE TABLE IF NOT EXISTS breaks (
@@ -185,6 +187,11 @@ GROUP BY t.id;");
     private static void MigrateToV8(SqliteConnection conn)
     {
         EnsureColumn(conn, "tasks", "is_pinned", "INTEGER NOT NULL DEFAULT 0");
+    }
+
+    private static void MigrateToV9(SqliteConnection conn)
+    {
+        EnsureColumn(conn, "work_days", "homeoffice_outlook_entry_id", "TEXT NULL");
     }
 
     private static void EnsureColumn(SqliteConnection conn, string table, string column, string definition)

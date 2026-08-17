@@ -12,10 +12,13 @@ namespace TaskTool.Services;
 public class OutlookInteropService
 {
     private const int OlAppointmentItem = 1;
+    private const int OlMailItem = 0;
     private const int OlFolderCalendar = 9;
     private const int MaxCalendarFetchIterations = 10000;
     private const int MaxRepeatedCalendarItemCount = 25;
     private const int OlBusy = 2;
+    // Microsoft.Office.Interop.Outlook.OlBusyStatus.olWorkingElsewhere.
+    private const int OlWorkingElsewhere = 4;
     private const int SW_RESTORE = 9;
 
     private readonly LoggerService _logger;
@@ -105,9 +108,9 @@ public class OutlookInteropService
         }
     }
 
-    public (bool ok, string error) DeleteBlock(string? entryId)
+    public (bool ok, string error) DeleteBlock(string? entryId, bool ignoreSyncDisabled = false)
     {
-        if (!_settings.Current.OutlookSyncEnabled || string.IsNullOrWhiteSpace(entryId))
+        if ((!_settings.Current.OutlookSyncEnabled && !ignoreSyncDisabled) || string.IsNullOrWhiteSpace(entryId))
             return (true, string.Empty);
 
         try
@@ -152,6 +155,92 @@ public class OutlookInteropService
         catch (Exception ex)
         {
             _logger.Error(BuildOutlookExceptionLog("DeleteBlock", ex, null, null));
+            return (false, BuildUserFacingOutlookError(ex));
+        }
+    }
+
+    public (bool ok, string entryId, string error) UpsertHomeOfficeAppointment(string? existingEntryId, DateTime day)
+    {
+        try
+        {
+            return ExecuteOnSta<(bool ok, string entryId, string error)>(() =>
+            {
+                var outlookType = Type.GetTypeFromProgID("Outlook.Application");
+                if (outlookType == null) return (false, string.Empty, "Outlook ist nicht installiert.");
+                object? app = null; object? ns = null; object? item = null;
+                try
+                {
+                    app = CreateOrAttachOutlook(outlookType);
+                    if (app == null) return (false, string.Empty, "Outlook konnte nicht gestartet werden.");
+                    dynamic appDyn = app;
+                    ns = appDyn.GetNamespace("MAPI");
+                    TryLogon(ns);
+                    dynamic nsDyn = ns!;
+                    item = string.IsNullOrWhiteSpace(existingEntryId)
+                        ? appDyn.CreateItem(OlAppointmentItem)
+                        : nsDyn.GetItemFromID(existingEntryId);
+                    if (item == null) return (false, string.Empty, "Outlook-Termin konnte nicht erstellt werden.");
+                    dynamic appointment = item;
+                    appointment.Subject = "Homeoffice";
+                    appointment.Start = day.Date;
+                    appointment.End = day.Date.AddDays(1);
+                    appointment.AllDayEvent = true;
+                    appointment.ReminderSet = false;
+                    appointment.BusyStatus = OlWorkingElsewhere;
+                    appointment.Categories = "HO";
+                    appointment.Save();
+                    return (true, Convert.ToString(appointment.EntryID) ?? string.Empty, string.Empty);
+                }
+                finally
+                {
+                    SafeReleaseComObject(item); SafeReleaseComObject(ns); SafeReleaseComObject(app);
+                }
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.Error(BuildOutlookExceptionLog("UpsertHomeOfficeAppointment", ex, day.Date, day.Date.AddDays(1)));
+            return (false, string.Empty, BuildUserFacingOutlookError(ex));
+        }
+    }
+
+    public (bool ok, string error) SendHomeOfficeMail(DateTime day, IReadOnlyCollection<string> recipients)
+    {
+        try
+        {
+            return ExecuteOnSta<(bool ok, string error)>(() =>
+            {
+                var outlookType = Type.GetTypeFromProgID("Outlook.Application");
+                if (outlookType == null) return (false, "Outlook ist nicht installiert.");
+                object? app = null; object? mail = null; object? recipient = null;
+                try
+                {
+                    app = CreateOrAttachOutlook(outlookType);
+                    if (app == null) return (false, "Outlook konnte nicht gestartet werden.");
+                    dynamic appDyn = app;
+                    mail = appDyn.CreateItem(OlMailItem);
+                    dynamic mailDyn = mail!;
+                    foreach (var address in recipients)
+                    {
+                        recipient = mailDyn.Recipients.Add(address);
+                        SafeReleaseComObject(recipient);
+                        recipient = null;
+                    }
+                    if (!mailDyn.Recipients.ResolveAll()) return (false, "Mindestens ein Homeoffice-Empfänger konnte nicht aufgelöst werden.");
+                    mailDyn.Subject = $"Homeoffice am {day:dd.MM.yyyy}";
+                    mailDyn.Body = $"Hallo,{Environment.NewLine}{Environment.NewLine}ich mache am {day:dd.MM.yyyy} Homeoffice.";
+                    mailDyn.Send();
+                    return (true, string.Empty);
+                }
+                finally
+                {
+                    SafeReleaseComObject(recipient); SafeReleaseComObject(mail); SafeReleaseComObject(app);
+                }
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.Error(BuildOutlookExceptionLog("SendHomeOfficeMail", ex, day.Date, day.Date.AddDays(1)));
             return (false, BuildUserFacingOutlookError(ex));
         }
     }
@@ -238,9 +327,9 @@ public class OutlookInteropService
         }
     }
 
-    public (bool ok, List<OutlookCalendarEvent> events, string error) GetCalendarEvents(DateTime fromLocal, DateTime toLocal)
+    public (bool ok, List<OutlookCalendarEvent> events, string error) GetCalendarEvents(DateTime fromLocal, DateTime toLocal, bool ignoreCalendarDisabled = false)
     {
-        if (!_settings.Current.OutlookCalendarEnabled)
+        if (!_settings.Current.OutlookCalendarEnabled && !ignoreCalendarDisabled)
             return (true, new List<OutlookCalendarEvent>(), string.Empty);
 
         if (toLocal <= fromLocal)

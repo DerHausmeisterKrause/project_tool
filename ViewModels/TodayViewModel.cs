@@ -18,6 +18,7 @@ public class TodayViewModel : ObservableObject
     private readonly DispatcherTimer _clock;
     private readonly OutlookCalendarService _outlookCalendar;
     private readonly TicketSystemService _ticketSystem;
+    private readonly HomeOfficeService _homeOffice;
     private DateTime _agendaDate;
 
     public string Title => "Heute";
@@ -278,6 +279,7 @@ public class TodayViewModel : ObservableObject
     public RelayCommand ManualSaveCommand { get; }
     public RelayCommand AddBreakRowCommand { get; }
     public RelayCommand SaveMarkersCommand { get; }
+    public RelayCommand ToggleHomeOfficeCommand { get; }
     public RelayCommand SetDayTypeNormalCommand { get; }
     public RelayCommand SetDayTypeAmCommand { get; }
     public RelayCommand SetDayTypeUlCommand { get; }
@@ -306,8 +308,9 @@ public class TodayViewModel : ObservableObject
 
     private bool _isHo;
     public bool IsHo { get => _isHo; set => Set(ref _isHo, value); }
+    private bool _isHomeOfficeOperationRunning;
 
-    public TodayViewModel(TaskService tasks, WorkDayService workDays, SettingsService settings, OutlookCalendarService outlookCalendar, TicketSystemService ticketSystem)
+    public TodayViewModel(TaskService tasks, WorkDayService workDays, SettingsService settings, OutlookCalendarService outlookCalendar, TicketSystemService ticketSystem, HomeOfficeService homeOffice)
     {
         _tasks = tasks;
         _workDays = workDays;
@@ -316,6 +319,8 @@ public class TodayViewModel : ObservableObject
         _germanTime = ServiceLocator.GermanTime;
         _outlookCalendar = outlookCalendar;
         _ticketSystem = ticketSystem;
+        _homeOffice = homeOffice;
+        _homeOffice.Changed += Refresh;
         _tasks.SegmentsChanged += OnSegmentsChanged;
         _outlookCalendar.EventsUpdated += OnOutlookEventsUpdated;
 
@@ -342,6 +347,7 @@ public class TodayViewModel : ObservableObject
         ManualSaveCommand = new RelayCommand(SaveManualDay);
         AddBreakRowCommand = new RelayCommand(() => BreakRows.Add(new BreakEditRow()));
         SaveMarkersCommand = new RelayCommand(SaveMarkers);
+        ToggleHomeOfficeCommand = new RelayCommand(async () => await ToggleHomeOfficeAsync(), () => !_isHomeOfficeOperationRunning);
         SetDayTypeNormalCommand = new RelayCommand(() => SetDayType("Normal"));
         SetDayTypeAmCommand = new RelayCommand(() => SetDayType("AM"));
         SetDayTypeUlCommand = new RelayCommand(() => SetDayType("UL"));
@@ -628,6 +634,37 @@ public class TodayViewModel : ObservableObject
     {
         _workDays.SetDayMarkers(DateTime.Today.ToString("yyyy-MM-dd"), DayType, IsBr, IsHo);
         Load();
+    }
+
+    private async Task ToggleHomeOfficeAsync()
+    {
+        if (_isHomeOfficeOperationRunning) return;
+        var day = _germanTime.GetLocalNow(_settings.Current.CalendarTimeZoneId).Date;
+        if (!IsHo)
+        {
+            var confirmation = MessageBox.Show($"Wollen Sie am {day:dd.MM.yyyy} Homeoffice einreichen?", "Homeoffice einreichen", MessageBoxButton.YesNo, MessageBoxImage.Question);
+            if (confirmation != MessageBoxResult.Yes)
+            {
+                ServiceLocator.Logger.Info($"[HomeOffice] action=submit date={day:yyyy-MM-dd} confirmed=false");
+                Raise(nameof(IsHo));
+                return;
+            }
+        }
+
+        _isHomeOfficeOperationRunning = true;
+        ToggleHomeOfficeCommand.RaiseCanExecuteChanged();
+        try
+        {
+            var result = IsHo ? await _homeOffice.RemoveAsync(day) : await _homeOffice.SubmitAsync(day);
+            Load();
+            StatusMessage = result.Message;
+            if (!result.Success) MessageBox.Show(result.Message, "Homeoffice", MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+        finally
+        {
+            _isHomeOfficeOperationRunning = false;
+            ToggleHomeOfficeCommand.RaiseCanExecuteChanged();
+        }
     }
 
     private void LoadSegments()

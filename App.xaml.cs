@@ -32,8 +32,11 @@ public partial class App : Application
                 if (ServiceLocator.Updates.CompletePostUpdate(postUpdateVersion))
                     ServiceLocator.MainViewModel.SettingsViewModel.RefreshInstalledVersion();
             }
-            else ServiceLocator.Updates.CleanupOldTempFolders();
-            _ = ServiceLocator.MainViewModel.SettingsViewModel.RunStartupUpdateCheckAsync();
+            else
+            {
+                ServiceLocator.Updates.CleanupOldTempFolders();
+                _ = ServiceLocator.MainViewModel.SettingsViewModel.RunStartupUpdateCheckAsync();
+            }
         }
         catch (Exception ex)
         {

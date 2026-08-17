@@ -16,6 +16,7 @@ public static class ServiceLocator
     public static GermanTimeService GermanTime { get; private set; } = null!;
     public static AppVersionService AppVersion { get; private set; } = null!;
     public static UpdateService Updates { get; private set; } = null!;
+    public static HomeOfficeService HomeOffice { get; private set; } = null!;
     public static MainViewModel MainViewModel { get; private set; } = null!;
 
     public static void Initialize()
@@ -33,6 +34,7 @@ public static class ServiceLocator
         TicketSystem = new TicketSystemService(Settings, Tasks, Logger);
         Notifications = new NotificationService(Logger, Settings, Tasks);
         OutlookCalendar = new OutlookCalendarService(Logger, Settings, Outlook);
-        MainViewModel = new MainViewModel(Tasks, WorkDays, Settings, Notifications, OutlookCalendar, TicketSystem, Updates, Logger);
+        HomeOffice = new HomeOfficeService(WorkDays, Settings, Outlook, OutlookCalendar, Logger);
+        MainViewModel = new MainViewModel(Tasks, WorkDays, Settings, Notifications, OutlookCalendar, TicketSystem, Updates, HomeOffice, Logger);
     }
 }
