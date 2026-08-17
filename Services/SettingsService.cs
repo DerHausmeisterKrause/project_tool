@@ -10,6 +10,14 @@ namespace TaskTool.Services;
 
 public class SettingsService
 {
+    [Flags]
+    private enum NormalizationChanges
+    {
+        None = 0,
+        TicketUpdateRoute = 1,
+        InstalledVersion = 2
+    }
+
     private readonly LoggerService _logger;
     private readonly string _path = Path.Combine(AppContext.BaseDirectory, "settings.json");
     public AppSettings Current { get; private set; } = new();
@@ -26,16 +34,17 @@ public class SettingsService
         {
             if (!File.Exists(_path))
             {
-                Normalize(Current);
+                var changes = Normalize(Current);
+                LogMigrations(changes);
                 Save();
                 return;
             }
             var json = File.ReadAllText(_path);
             Current = JsonSerializer.Deserialize<AppSettings>(json) ?? new AppSettings();
-            var ticketUpdateRouteMigrated = Normalize(Current);
-            if (ticketUpdateRouteMigrated)
+            var changes = Normalize(Current);
+            if (changes != NormalizationChanges.None)
             {
-                _logger.Info($"[ZnunySettingsMigration] TicketSystemTicketUpdateRoute old='{AppSettings.LegacyTicketSystemTicketUpdateRoute}' new='{AppSettings.DefaultTicketSystemTicketUpdateRoute}'");
+                LogMigrations(changes);
                 Save();
             }
         }
@@ -47,12 +56,28 @@ public class SettingsService
         }
     }
 
-    private static bool Normalize(AppSettings settings)
+    private void LogMigrations(NormalizationChanges changes)
     {
+        if (changes.HasFlag(NormalizationChanges.TicketUpdateRoute))
+            _logger.Info($"[ZnunySettingsMigration] TicketSystemTicketUpdateRoute old='{AppSettings.LegacyTicketSystemTicketUpdateRoute}' new='{AppSettings.DefaultTicketSystemTicketUpdateRoute}'");
+        if (changes.HasFlag(NormalizationChanges.InstalledVersion))
+            _logger.Info($"[SettingsMigration] InstalledVersion missing initializedVersion={AppSettings.InitialInstalledVersion}");
+    }
+
+    private static NormalizationChanges Normalize(AppSettings settings)
+    {
+        var changes = NormalizationChanges.None;
         var ticketUpdateRouteMigrated = string.Equals(
             settings.TicketSystemTicketUpdateRoute?.Trim(),
             AppSettings.LegacyTicketSystemTicketUpdateRoute,
             StringComparison.OrdinalIgnoreCase);
+        if (ticketUpdateRouteMigrated)
+            changes |= NormalizationChanges.TicketUpdateRoute;
+        if (string.IsNullOrWhiteSpace(settings.InstalledVersion))
+        {
+            settings.InstalledVersion = AppSettings.InitialInstalledVersion;
+            changes |= NormalizationChanges.InstalledVersion;
+        }
         if (settings.FridayTargetMinutes <= 0)
             settings.FridayTargetMinutes = 300;
 
@@ -111,7 +136,7 @@ public class SettingsService
             settings.TicketSystemShowClosedTickets = false;
         if (!settings.TicketSystemAutofillCredentials)
             settings.TicketSystemAutoLogin = false;
-        return ticketUpdateRouteMigrated;
+        return changes;
     }
 
     private static string NormalizeRoute(string? route, string defaultRoute)
@@ -144,15 +169,22 @@ public class SettingsService
 
     public void Save()
     {
+        TrySave();
+    }
+
+    public bool TrySave()
+    {
         try
         {
             var json = JsonSerializer.Serialize(Current, new JsonSerializerOptions { WriteIndented = true });
             File.WriteAllText(_path, json);
             SettingsChanged?.Invoke();
+            return true;
         }
         catch (Exception ex)
         {
             _logger.Error($"Settings save failed: {ex.Message}");
+            return false;
         }
     }
 

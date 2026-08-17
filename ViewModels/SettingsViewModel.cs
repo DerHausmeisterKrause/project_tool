@@ -16,9 +16,8 @@ public class SettingsViewModel : ObservableObject
     private readonly TicketSystemService _ticketSystem;
     private readonly Action? _tasksChanged;
     private readonly UpdateService _updates;
-    private readonly AppVersionService _appVersion;
     public string Title => "Einstellungen";
-    public string InstalledVersion => _appVersion.CurrentVersionText;
+    public string InstalledVersion => _settings.Current.InstalledVersion;
     public bool CheckForUpdatesOnStartup { get => _settings.Current.CheckForUpdatesOnStartup; set { _settings.Current.CheckForUpdatesOnStartup = value; Save(); } }
     private UpdateState _updateState = UpdateState.Idle;
     public UpdateState CurrentUpdateState { get => _updateState; set { if (Set(ref _updateState, value)) RaiseUpdateCommands(); } }
@@ -134,7 +133,7 @@ public class SettingsViewModel : ObservableObject
     public RelayCommand InstallUpdateCommand { get; }
     public RelayCommand OpenReleaseCommand { get; }
 
-    public SettingsViewModel(SettingsService settings, NotificationService notifications, OutlookCalendarService outlookCalendar, TaskService tasks, TicketSystemService ticketSystem, UpdateService updates, AppVersionService appVersion, Action? tasksChanged = null)
+    public SettingsViewModel(SettingsService settings, NotificationService notifications, OutlookCalendarService outlookCalendar, TaskService tasks, TicketSystemService ticketSystem, UpdateService updates, Action? tasksChanged = null)
     {
         _settings = settings;
         _notifications = notifications;
@@ -142,7 +141,6 @@ public class SettingsViewModel : ObservableObject
         _tasks = tasks;
         _ticketSystem = ticketSystem;
         _updates = updates;
-        _appVersion = appVersion;
         _tasksChanged = tasksChanged;
         TestReminderCommand = new RelayCommand(() => _notifications.ShowTestNotification());
         RefreshOutlookCalendarCommand = new RelayCommand(async () => await _outlookCalendar.TriggerSyncAsync("manual-button"));
@@ -161,6 +159,8 @@ public class SettingsViewModel : ObservableObject
         await Task.Delay(TimeSpan.FromSeconds(4));
         await CheckForUpdatesAsync(true);
     }
+
+    public void RefreshInstalledVersion() => Raise(nameof(InstalledVersion));
 
     private async Task CheckForUpdatesAsync(bool automatic)
     {

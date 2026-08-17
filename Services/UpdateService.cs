@@ -12,16 +12,19 @@ public sealed class UpdateService : IDisposable
     public const string LatestReleaseEndpoint = "https://api.github.com/repos/DerHausmeisterKrause/project_tool/releases/latest";
     private const string AssetName = "TaskTool.exe";
     private readonly LoggerService _logger;
+    private readonly SettingsService _settings;
     private readonly AppVersionService _version;
     private readonly HttpClient _client = new() { Timeout = TimeSpan.FromSeconds(30) };
     private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly CancellationTokenSource _shutdown = new();
 
-    public UpdateService(LoggerService logger, AppVersionService version)
+    public UpdateService(LoggerService logger, SettingsService settings, AppVersionService version)
     {
         _logger = logger;
+        _settings = settings;
         _version = version;
-        _client.DefaultRequestHeaders.UserAgent.ParseAdd($"Plenaro-Updater/{version.CurrentVersionText}");
+        var userAgentVersion = version.TryGetInstalledVersion(out var installedVersion) ? installedVersion.ToString() : "unknown";
+        _client.DefaultRequestHeaders.UserAgent.ParseAdd($"Plenaro-Updater/{userAgentVersion}");
         _client.DefaultRequestHeaders.Accept.ParseAdd("application/vnd.github+json");
     }
 
@@ -30,7 +33,8 @@ public sealed class UpdateService : IDisposable
         await _gate.WaitAsync(cancellationToken);
         try
         {
-            _logger.Info($"[UpdateCheck] currentVersion={_version.CurrentVersionText}");
+            if (!_version.TryGetInstalledVersion(out var installedVersion))
+                throw new InvalidOperationException("Installierte Versionsinformation ist ungültig.");
             using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _shutdown.Token);
             using var response = await _client.GetAsync(LatestReleaseEndpoint, linked.Token);
             if (response.StatusCode == HttpStatusCode.Forbidden) throw new InvalidOperationException("GitHub Rate Limit erreicht (HTTP 403).");
@@ -46,8 +50,8 @@ public sealed class UpdateService : IDisposable
             if (assetElement.ValueKind == JsonValueKind.Undefined) throw new InvalidOperationException("Release-Asset TaskTool.exe fehlt.");
             var asset = new GitHubReleaseAsset(Read(assetElement, "name"), Read(assetElement, "browser_download_url"), assetElement.GetProperty("size").GetInt64(), Read(assetElement, "digest"));
             var info = new UpdateInfo(remote, tag, Read(root, "name"), Read(root, "body"), Read(root, "html_url"), root.TryGetProperty("published_at", out var p) && p.TryGetDateTimeOffset(out var published) ? published : null, asset);
-            var available = remote > _version.CurrentVersion;
-            _logger.Info($"[UpdateCheck] remoteVersion={remote} updateAvailable={available.ToString().ToLowerInvariant()}");
+            var available = remote > installedVersion;
+            _logger.Info($"[UpdateCheck] installedVersion={installedVersion} remoteVersion={remote} updateAvailable={available.ToString().ToLowerInvariant()}");
             return new UpdateCheckResult(available, available ? info : null, available ? $"Plenaro {remote} ist verfügbar." : "Kein Update verfügbar.");
         }
         catch (Exception ex) { _logger.Error($"[UpdateCheck] failed={ex.Message}"); throw; }
@@ -88,12 +92,14 @@ public sealed class UpdateService : IDisposable
         error = string.Empty;
         try
         {
+            if (!_version.TryGetInstalledVersion(out var currentVersion))
+                throw new InvalidOperationException("Installierte Versionsinformation ist ungültig.");
             var target = Environment.ProcessPath ?? throw new InvalidOperationException("Pfad der laufenden EXE ist unbekannt.");
             var backup = target + ".old";
             var cmd = Path.Combine(Path.GetDirectoryName(sourcePath)!, "update.cmd");
-            File.WriteAllText(cmd, BuildCommandScript(Environment.ProcessId, sourcePath, target, backup), new UTF8Encoding(false));
+            File.WriteAllText(cmd, BuildCommandScript(Environment.ProcessId, sourcePath, target, backup, info.Version.ToString()), new UTF8Encoding(false));
             var elevate = !CanWriteDirectory(Path.GetDirectoryName(target)!);
-            _logger.Info($"[UpdateInstall] source='{sourcePath}' target='{target}' pid={Environment.ProcessId}");
+            _logger.Info($"[UpdateInstall] currentVersion={currentVersion} targetVersion={info.Version} source='{sourcePath}' target='{target}' pid={Environment.ProcessId}");
             var psi = new ProcessStartInfo(cmd) { UseShellExecute = true, WindowStyle = ProcessWindowStyle.Hidden };
             if (elevate) psi.Verb = "runas";
             Process.Start(psi);
@@ -103,19 +109,22 @@ public sealed class UpdateService : IDisposable
         catch (Exception ex) { error = ex.Message; _logger.Error($"[UpdateInstall] failed={ex.Message}"); return false; }
     }
 
-    public void CompletePostUpdateCleanup()
+    public bool CompletePostUpdate(string targetVersion)
     {
-        var target = Environment.ProcessPath; if (string.IsNullOrWhiteSpace(target)) return;
+        _logger.Info($"[UpdateLaunch] postUpdateVersion={targetVersion}");
+        if (!_version.ApplyPostUpdateVersion(targetVersion)) return false;
+        var target = Environment.ProcessPath; if (string.IsNullOrWhiteSpace(target)) return false;
         var success = true;
         try
         {
             var backup = target + ".old"; if (File.Exists(backup)) File.Delete(backup);
-            var currentTemp = Path.Combine(Path.GetTempPath(), "PlenaroUpdate", _version.CurrentVersion.ToString());
+            var currentTemp = Path.Combine(Path.GetTempPath(), "PlenaroUpdate", AppVersionService.ParseVersion(targetVersion).ToString());
             if (Directory.Exists(currentTemp)) Directory.Delete(currentTemp, true);
             CleanupOldTempFolders();
         }
         catch (Exception ex) { success = false; _logger.Error($"[PostUpdate] cleanup={ex.Message}"); }
-        _logger.Info($"[PostUpdate] version={_version.CurrentVersionText} cleanupSuccess={success.ToString().ToLowerInvariant()}");
+        _logger.Info($"[PostUpdate] installedVersion={_settings.Current.InstalledVersion} cleanupSuccess={success.ToString().ToLowerInvariant()}");
+        return true;
     }
 
     public void CleanupOldTempFolders()
@@ -124,17 +133,17 @@ public sealed class UpdateService : IDisposable
         foreach (var dir in Directory.GetDirectories(root)) try { if (Directory.GetCreationTimeUtc(dir) < DateTime.UtcNow.AddDays(-7)) Directory.Delete(dir, true); } catch { }
     }
 
-    private static string BuildCommandScript(int pid, string source, string target, string backup)
+    private static string BuildCommandScript(int pid, string source, string target, string backup, string targetVersion)
     {
         static string E(string value) => value.Replace("%", "%%", StringComparison.Ordinal);
         return string.Join("\r\n", new[]
         {
             "@echo off", "setlocal DisableDelayedExpansion", $"set \"PID={pid}\"",
-            $"set \"SOURCE={E(source)}\"", $"set \"TARGET={E(target)}\"", $"set \"BACKUP={E(backup)}\"",
+            $"set \"SOURCE={E(source)}\"", $"set \"TARGET={E(target)}\"", $"set \"BACKUP={E(backup)}\"", $"set \"TARGETVERSION={E(targetVersion)}\"",
             "for /L %%I in (1,1,60) do (", "  tasklist /FI \"PID eq %PID%\" /NH | findstr /R /C:\"[ ]%PID%[ ]\" >nul || goto stopped",
             "  timeout /t 1 /nobreak >nul", ")", "exit /b 1", ":stopped", "if not exist \"%SOURCE%\" goto abort",
             "if exist \"%BACKUP%\" del /F /Q \"%BACKUP%\"", "move /Y \"%TARGET%\" \"%BACKUP%\" || goto abort",
-            "move /Y \"%SOURCE%\" \"%TARGET%\" || goto rollback", "start \"\" \"%TARGET%\" --post-update", "goto done",
+            "move /Y \"%SOURCE%\" \"%TARGET%\" || goto rollback", "start \"\" \"%TARGET%\" --post-update-version \"%TARGETVERSION%\"", "goto done",
             ":rollback", "if exist \"%TARGET%\" del /F /Q \"%TARGET%\"", "move /Y \"%BACKUP%\" \"%TARGET%\"",
             "start \"\" \"%TARGET%\"", "exit /b 4", ":abort", "start \"\" \"%TARGET%\"", "exit /b 5",
             ":done", "endlocal", "del \"%~f0\"", string.Empty

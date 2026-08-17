@@ -67,7 +67,7 @@ public class MainViewModel : ObservableObject
         _logger.Info($"[TicketOpenInApp] ticketId='{Uri.UnescapeDataString(ticketId)}' ticketNumber='' targetUrl='{uri.Scheme}://{uri.Host}{uri.AbsolutePath}' targetTab=Ticketsystem");
     }
 
-    public MainViewModel(TaskService taskService, WorkDayService workDayService, SettingsService settingsService, NotificationService notifications, OutlookCalendarService outlookCalendar, TicketSystemService ticketSystem, UpdateService updates, AppVersionService appVersion, LoggerService logger)
+    public MainViewModel(TaskService taskService, WorkDayService workDayService, SettingsService settingsService, NotificationService notifications, OutlookCalendarService outlookCalendar, TicketSystemService ticketSystem, UpdateService updates, LoggerService logger)
     {
         _logger = logger;
         TodayViewModel = new TodayViewModel(taskService, workDayService, settingsService, outlookCalendar, ticketSystem);
@@ -75,7 +75,7 @@ public class MainViewModel : ObservableObject
         _weekViewModel = new WeekViewModel(taskService, workDayService, settingsService, outlookCalendar);
         _ticketSystemViewModel = new TicketSystemViewModel(settingsService);
         var reports = new ReportsViewModel(taskService);
-        SettingsViewModel = new SettingsViewModel(settingsService, notifications, outlookCalendar, taskService, ticketSystem, updates, appVersion);
+        SettingsViewModel = new SettingsViewModel(settingsService, notifications, outlookCalendar, taskService, ticketSystem, updates);
 
         NavigationItems = new ObservableCollection<object> { TodayViewModel, _weekViewModel, _ticketSystemViewModel, reports, SettingsViewModel };
         _selectedView = TodayViewModel;

@@ -2,10 +2,14 @@ namespace TaskTool.Models;
 
 public class AppSettings
 {
+    // One-time bootstrap for settings files created before persistent update version tracking.
+    // This is not the current application version and must not be bumped for future releases.
+    public const string InitialInstalledVersion = "2.0.2";
     public const string DefaultTicketSystemTicketUpdateRoute = "/Ticket/{TicketID}/Update";
     public const string LegacyTicketSystemTicketUpdateRoute = "/Ticket/Update";
     public bool DynamicIslandEnabled { get; set; } = true;
     public bool CheckForUpdatesOnStartup { get; set; } = true;
+    public string InstalledVersion { get; set; } = string.Empty;
     public string DynamicIslandDockPosition { get; set; } = "TopCenter";
 
     public bool OutlookSyncEnabled { get; set; } = true;

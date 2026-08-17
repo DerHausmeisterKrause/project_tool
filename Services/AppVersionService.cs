@@ -1,18 +1,15 @@
-using System.Reflection;
-
 namespace TaskTool.Services;
 
 public sealed class AppVersionService
 {
-    public string CurrentVersionText { get; }
-    public Version CurrentVersion { get; }
+    private readonly SettingsService _settings;
+    private readonly LoggerService _logger;
+    public string InstalledVersionText => _settings.Current.InstalledVersion;
 
-    public AppVersionService()
+    public AppVersionService(SettingsService settings, LoggerService logger)
     {
-        var assembly = typeof(AppVersionService).Assembly;
-        var informational = assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion;
-        CurrentVersionText = (informational?.Split('+')[0] ?? assembly.GetName().Version?.ToString(3) ?? "0.0.0").Trim();
-        CurrentVersion = ParseVersion(CurrentVersionText);
+        _settings = settings;
+        _logger = logger;
     }
 
     public static Version ParseVersion(string value)
@@ -24,5 +21,50 @@ public sealed class AppVersionService
         return Version.TryParse(value, out var version)
             ? version
             : throw new FormatException($"Ungültige Versionsnummer: {value}");
+    }
+
+    public bool TryGetInstalledVersion(out Version version)
+    {
+        try
+        {
+            version = ParseVersion(InstalledVersionText);
+            _logger.Info($"[UpdateVersion] installedVersion={version} source=Settings");
+            return true;
+        }
+        catch (Exception)
+        {
+            version = new Version();
+            _logger.Error($"[UpdateVersion] invalidLocalVersion='{InstalledVersionText}'");
+            return false;
+        }
+    }
+
+    public bool ApplyPostUpdateVersion(string targetVersionText)
+    {
+        Version targetVersion;
+        try { targetVersion = ParseVersion(targetVersionText); }
+        catch (Exception)
+        {
+            _logger.Error($"[PostUpdate] invalidTargetVersion='{targetVersionText}'");
+            return false;
+        }
+
+        if (!TryGetInstalledVersion(out var previousVersion)) return false;
+        if (targetVersion < previousVersion)
+        {
+            _logger.Error($"[PostUpdate] previousVersion={previousVersion} newVersion={targetVersion} settingsUpdated=false reason=downgrade");
+            return false;
+        }
+
+        var previousVersionText = _settings.Current.InstalledVersion;
+        _settings.Current.InstalledVersion = targetVersion.ToString();
+        if (!_settings.TrySave())
+        {
+            _settings.Current.InstalledVersion = previousVersionText;
+            _logger.Error($"[PostUpdate] previousVersion={previousVersion} newVersion={targetVersion} settingsUpdated=false reason=settings-save-failed");
+            return false;
+        }
+        _logger.Info($"[PostUpdate] previousVersion={previousVersion} newVersion={targetVersion} settingsUpdated=true");
+        return true;
     }
 }
