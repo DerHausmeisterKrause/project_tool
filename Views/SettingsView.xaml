@@ -74,7 +74,8 @@
                         <TextBlock Text="TicketGet Authentifizierung" Foreground="{StaticResource MutedTextBrush}"/>
                         <ComboBox Width="120" Style="{StaticResource DarkComboBoxStyle}" ItemsSource="{Binding TicketSystemTicketGetAuthModes}" SelectedItem="{Binding TicketSystemTicketGetAuthMode}"/>
                         <TextBlock Text="TicketUpdate Route" Foreground="{StaticResource MutedTextBrush}"/>
-                        <TextBox Text="{Binding TicketSystemTicketUpdateRoute, UpdateSourceTrigger=PropertyChanged}" Width="220" ToolTip="Beispiel: /Ticket/Update"/>
+                        <TextBox Text="{Binding TicketSystemTicketUpdateRoute, UpdateSourceTrigger=PropertyChanged}" Width="320"
+                                 ToolTip="REST-Route für TicketUpdate. {TicketID} wird automatisch durch die interne Znuny-Ticket-ID ersetzt. Standard: /Ticket/{TicketID}/Update"/>
                         <TextBlock Text="DynamicField-Options Route (read-only)" Foreground="{StaticResource MutedTextBrush}"/>
                         <TextBox Text="{Binding TicketSystemDynamicFieldOptionsRoute, UpdateSourceTrigger=PropertyChanged}" Width="360" ToolTip="/Ticket/DynamicField/{FieldName}/Options"/>
                         <TextBlock Text="DynamicField: Kostenstelle (interner Name)" Foreground="{StaticResource MutedTextBrush}"/>

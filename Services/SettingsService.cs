@@ -32,7 +32,12 @@ public class SettingsService
             }
             var json = File.ReadAllText(_path);
             Current = JsonSerializer.Deserialize<AppSettings>(json) ?? new AppSettings();
-            Normalize(Current);
+            var ticketUpdateRouteMigrated = Normalize(Current);
+            if (ticketUpdateRouteMigrated)
+            {
+                _logger.Info($"[ZnunySettingsMigration] TicketSystemTicketUpdateRoute old='{AppSettings.LegacyTicketSystemTicketUpdateRoute}' new='{AppSettings.DefaultTicketSystemTicketUpdateRoute}'");
+                Save();
+            }
         }
         catch (Exception ex)
         {
@@ -42,8 +47,12 @@ public class SettingsService
         }
     }
 
-    private static void Normalize(AppSettings settings)
+    private static bool Normalize(AppSettings settings)
     {
+        var ticketUpdateRouteMigrated = string.Equals(
+            settings.TicketSystemTicketUpdateRoute?.Trim(),
+            AppSettings.LegacyTicketSystemTicketUpdateRoute,
+            StringComparison.OrdinalIgnoreCase);
         if (settings.FridayTargetMinutes <= 0)
             settings.FridayTargetMinutes = 300;
 
@@ -85,7 +94,9 @@ public class SettingsService
         settings.TicketSystemTicketGetRouteTemplate = NormalizeRoute(settings.TicketSystemTicketGetRouteTemplate, "/Ticket/{TicketID}");
         settings.TicketSystemTicketGetMethod = "GET";
         settings.TicketSystemTicketGetAuthMode = string.Equals(settings.TicketSystemTicketGetAuthMode, "Direct", StringComparison.OrdinalIgnoreCase) ? "Direct" : "Session";
-        settings.TicketSystemTicketUpdateRoute = NormalizeRoute(settings.TicketSystemTicketUpdateRoute, "/Ticket/Update");
+        settings.TicketSystemTicketUpdateRoute = ticketUpdateRouteMigrated
+            ? AppSettings.DefaultTicketSystemTicketUpdateRoute
+            : NormalizeRoute(settings.TicketSystemTicketUpdateRoute, AppSettings.DefaultTicketSystemTicketUpdateRoute);
         settings.TicketSystemDynamicFieldOptionsRoute = string.Equals(settings.TicketSystemDynamicFieldOptionsRoute?.Trim(), "/DynamicField/Options", StringComparison.OrdinalIgnoreCase)
             ? "/Ticket/DynamicField/{FieldName}/Options"
             : NormalizeRoute(settings.TicketSystemDynamicFieldOptionsRoute, "/Ticket/DynamicField/{FieldName}/Options");
@@ -100,6 +111,7 @@ public class SettingsService
             settings.TicketSystemShowClosedTickets = false;
         if (!settings.TicketSystemAutofillCredentials)
             settings.TicketSystemAutoLogin = false;
+        return ticketUpdateRouteMigrated;
     }
 
     private static string NormalizeRoute(string? route, string defaultRoute)

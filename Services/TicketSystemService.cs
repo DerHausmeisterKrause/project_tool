@@ -145,7 +145,7 @@ public class TicketSystemService : IDisposable
             _tasks.CreateTicketTimeBooking(booking);
 
             var payload = BuildTicketTimeBookingPayload(ticketId, sessionId, booking, timeUnit);
-            var route = NormalizeRouteValue(_settings.Current.TicketSystemTicketUpdateRoute, "/Ticket/Update");
+            var route = ResolveTicketUpdateRoute(ticketId);
             LogTicketUpdateRequest(route, ticketId, booking, timeUnit);
             using var request = new HttpRequestMessage(HttpMethod.Post, Combine(_settings.Current.TicketSystemApiUrl, route))
             {
@@ -228,7 +228,7 @@ public class TicketSystemService : IDisposable
             _tasks.ResetTicketTimeBookingForRetry(booking);
             var timeUnit = booking.BookedMinutes;
             var payload = BuildTicketTimeBookingPayload(booking.TicketId, sessionId, booking, timeUnit);
-            var route = NormalizeRouteValue(_settings.Current.TicketSystemTicketUpdateRoute, "/Ticket/Update");
+            var route = ResolveTicketUpdateRoute(booking.TicketId);
             LogTicketUpdateRequest(route, booking.TicketId, booking, timeUnit);
             using var request = new HttpRequestMessage(HttpMethod.Post, Combine(_settings.Current.TicketSystemApiUrl, route))
             {
@@ -802,6 +802,22 @@ public class TicketSystemService : IDisposable
             dynamicFields.Add($"{LogValue(_settings.Current.TicketSystemOrderFieldName)}={LogValue(booking.Order)}");
 
         _logger.Info($"[ZnunyTicketUpdateRequest] route={route} ticketId={ticketId} articleSubject='TaskTool Zeitbuchung' senderType='agent' channel='Internal' visibleForCustomer=0 timeUnit={timeUnit:0.####} dynamicFields=[{string.Join(',', dynamicFields)}]");
+    }
+
+    private string ResolveTicketUpdateRoute(string ticketId)
+    {
+        var template = NormalizeRouteValue(
+            _settings.Current.TicketSystemTicketUpdateRoute,
+            AppSettings.DefaultTicketSystemTicketUpdateRoute);
+        var route = template.Contains("{TicketID}", StringComparison.OrdinalIgnoreCase)
+            ? template.Replace("{TicketID}", Uri.EscapeDataString(ticketId), StringComparison.OrdinalIgnoreCase)
+            : template;
+        if (route.Contains("{TicketID}", StringComparison.OrdinalIgnoreCase))
+        {
+            _logger.Error($"[ZnunyTicketUpdateRequest] ticketId={ticketId} action=blocked reason=UnresolvedTicketIDPlaceholder");
+            throw new InvalidOperationException("Der {TicketID}-Platzhalter der TicketUpdate-Route konnte nicht aufgelöst werden.");
+        }
+        return route;
     }
 
     private static string LogValue(string value)
