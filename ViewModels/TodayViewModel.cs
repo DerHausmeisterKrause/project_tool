@@ -20,6 +20,8 @@ public class TodayViewModel : ObservableObject
     private readonly TicketSystemService _ticketSystem;
     private readonly HomeOfficeService _homeOffice;
     private DateTime _agendaDate;
+    private DateTime _lastTodayVisibilityRefreshMinute;
+    private bool _lastHidePastTodayItems;
 
     public string Title => "Heute";
     // Existing timer and Dynamic Island consumers use this as the complete active-task collection.
@@ -323,6 +325,8 @@ public class TodayViewModel : ObservableObject
         _homeOffice.Changed += Refresh;
         _tasks.SegmentsChanged += OnSegmentsChanged;
         _outlookCalendar.EventsUpdated += OnOutlookEventsUpdated;
+        _lastHidePastTodayItems = _settings.Current.HidePastTodayItems;
+        _settings.SettingsChanged += OnSettingsChanged;
 
         QuickAddCommand = new RelayCommand(QuickAdd);
         SaveCommand = new RelayCommand(SaveTask, () => SelectedTask != null);
@@ -447,11 +451,29 @@ public class TodayViewModel : ObservableObject
         var dispatcher = Application.Current?.Dispatcher;
         if (dispatcher != null && !dispatcher.CheckAccess())
         {
-            dispatcher.BeginInvoke(new Action(RefreshTodayAgenda));
+            dispatcher.BeginInvoke(new Action(() => RefreshTodayAgenda()));
             return;
         }
 
         RefreshTodayAgenda();
+    }
+
+    private void OnSettingsChanged()
+    {
+        var hidePastTodayItems = _settings.Current.HidePastTodayItems;
+        if (hidePastTodayItems == _lastHidePastTodayItems)
+            return;
+
+        _lastHidePastTodayItems = hidePastTodayItems;
+        _lastTodayVisibilityRefreshMinute = default;
+        var dispatcher = Application.Current?.Dispatcher;
+        if (dispatcher != null && !dispatcher.CheckAccess())
+        {
+            dispatcher.BeginInvoke(new Action(ApplyTaskFilters));
+            return;
+        }
+
+        ApplyTaskFilters();
     }
 
     private void Load()
@@ -491,8 +513,23 @@ public class TodayViewModel : ObservableObject
     private void ApplyTaskFilters()
     {
         var all = _tasks.GetAllTasks();
-        var localToday = _germanTime.GetLocalNow(_settings.Current.CalendarTimeZoneId).Date;
-        var todayTaskIds = _tasks.GetTaskIdsWithSegmentsForRange(localToday, localToday.AddDays(1));
+        var now = _germanTime.GetLocalNow(_settings.Current.CalendarTimeZoneId).DateTime;
+        var localToday = now.Date;
+        var hidePastTodayItems = _settings.Current.HidePastTodayItems;
+        List<(TaskItem Task, TaskSegment Segment)>? todaySegments = null;
+        HashSet<Guid> todayTaskIds;
+        if (hidePastTodayItems)
+        {
+            todaySegments = _tasks.GetSegmentsForRange(localToday, localToday.AddDays(1));
+            todayTaskIds = todaySegments
+                .Where(pair => pair.Segment.EndLocal > now)
+                .Select(pair => pair.Task.Id)
+                .ToHashSet();
+        }
+        else
+        {
+            todayTaskIds = _tasks.GetTaskIdsWithSegmentsForRange(localToday, localToday.AddDays(1));
+        }
 
         var active = all.Where(t => t.Status != TaskStatus.Done).ToList();
         if (!string.IsNullOrWhiteSpace(TaskSearchText))
@@ -528,15 +565,18 @@ public class TodayViewModel : ObservableObject
         foreach (var t in done) CompletedTasks.Add(t);
 
         RefreshDisplayedTasks();
-        RefreshTodayAgenda();
+        _lastTodayVisibilityRefreshMinute = TruncateToMinute(now);
+        RefreshTodayAgenda(todaySegments, now);
     }
 
-    private void RefreshTodayAgenda()
+    private void RefreshTodayAgenda(List<(TaskItem Task, TaskSegment Segment)>? loadedSegments = null, DateTime? localNow = null)
     {
-        var localToday = _germanTime.GetLocalNow(_settings.Current.CalendarTimeZoneId).Date;
+        var now = localNow ?? _germanTime.GetLocalNow(_settings.Current.CalendarTimeZoneId).DateTime;
+        var localToday = now.Date;
         _agendaDate = localToday;
         var tomorrow = localToday.AddDays(1);
-        var segments = _tasks.GetSegmentsForRange(localToday, tomorrow);
+        var segments = loadedSegments ?? _tasks.GetSegmentsForRange(localToday, tomorrow);
+        var hidePastTodayItems = _settings.Current.HidePastTodayItems;
         var visibleTodayTasks = TodayTasks.ToDictionary(task => task.Id);
         var mirroredOutlookEntryIds = segments
             .Select(pair => pair.Segment.OutlookEntryId)
@@ -547,6 +587,8 @@ public class TodayViewModel : ObservableObject
         foreach (var (task, segment) in segments)
         {
             if (task.Status == TaskStatus.Done || !visibleTodayTasks.TryGetValue(task.Id, out var visibleTask))
+                continue;
+            if (hidePastTodayItems && segment.EndLocal <= now)
                 continue;
 
             agenda.Add(new TodayAgendaItem
@@ -562,6 +604,8 @@ public class TodayViewModel : ObservableObject
         foreach (var outlookEvent in _outlookCalendar.GetEvents(localToday, tomorrow))
         {
             if (outlookEvent.IsCancelled || IsMirroredTaskSegment(outlookEvent, mirroredOutlookEntryIds))
+                continue;
+            if (hidePastTodayItems && !outlookEvent.IsAllDay && outlookEvent.EndLocal <= now)
                 continue;
 
             if (outlookEvent.IsAllDay
@@ -1140,13 +1184,22 @@ public class TodayViewModel : ObservableObject
     private void OnClockTick()
     {
         UpdateTimerDisplay();
-        var localToday = _germanTime.GetLocalNow(_settings.Current.CalendarTimeZoneId).Date;
-        if (localToday == _agendaDate)
+        var now = _germanTime.GetLocalNow(_settings.Current.CalendarTimeZoneId).DateTime;
+        var localToday = now.Date;
+        if (localToday != _agendaDate)
+        {
+            ApplyTaskFilters();
+            _ = _outlookCalendar.TriggerSyncAsync(localToday, localToday.AddDays(1), "today-agenda-day-change");
             return;
+        }
 
-        ApplyTaskFilters();
-        _ = _outlookCalendar.TriggerSyncAsync(localToday, localToday.AddDays(1), "today-agenda-day-change");
+        var minute = TruncateToMinute(now);
+        if (_settings.Current.HidePastTodayItems && minute != _lastTodayVisibilityRefreshMinute)
+            ApplyTaskFilters();
     }
+
+    private static DateTime TruncateToMinute(DateTime value)
+        => new(value.Year, value.Month, value.Day, value.Hour, value.Minute, 0, value.Kind);
 
 
     public bool NavigateToTask(Guid taskId)

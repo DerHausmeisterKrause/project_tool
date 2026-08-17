@@ -13,6 +13,7 @@ public class AppSettings
     public string InstalledVersion { get; set; } = string.Empty;
     public string CurrentTasksSortField { get; set; } = "Updated";
     public bool CurrentTasksSortDescending { get; set; } = true;
+    public bool HidePastTodayItems { get; set; } = true;
     public int DefaultSegmentDurationMinutes { get; set; } = 30;
     public string HomeOfficeMailRecipient1 { get; set; } = string.Empty;
     public string HomeOfficeMailRecipient2 { get; set; } = string.Empty;

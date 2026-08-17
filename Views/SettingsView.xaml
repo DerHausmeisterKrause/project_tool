@@ -27,6 +27,18 @@
 
                 <Border Style="{StaticResource CardStyle}">
                     <StackPanel>
+                        <TextBlock Text="Heute-Ansicht" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,10"/>
+                        <CheckBox Content="Bereits vergangene Termine und Aufgaben ausblenden"
+                                  IsChecked="{Binding HidePastTodayItems}"/>
+                        <TextBlock Text="Vergangene Termine und Task-Segmente werden automatisch aus „Heute“ entfernt. Aufgaben ohne weitere heutige Segmente erscheinen wieder unter „Aktuelle Aufgaben“."
+                                   Foreground="{StaticResource MutedTextBrush}"
+                                   TextWrapping="Wrap"
+                                   Margin="24,4,0,0"/>
+                    </StackPanel>
+                </Border>
+
+                <Border Style="{StaticResource CardStyle}">
+                    <StackPanel>
                         <TextBlock Text="Homeoffice" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,10"/>
                         <TextBlock Text="E-Mail Empfänger 1" Foreground="{StaticResource MutedTextBrush}"/>
                         <TextBox Width="420" HorizontalAlignment="Left" Text="{Binding HomeOfficeMailRecipient1, UpdateSourceTrigger=LostFocus}"/>
