@@ -146,12 +146,14 @@ public class TicketSystemService : IDisposable
 
             var payload = BuildTicketTimeBookingPayload(ticketId, sessionId, booking, timeUnit);
             var route = NormalizeRouteValue(_settings.Current.TicketSystemTicketUpdateRoute, "/Ticket/Update");
+            LogTicketUpdateRequest(route, ticketId, booking, timeUnit);
             using var request = new HttpRequestMessage(HttpMethod.Post, Combine(_settings.Current.TicketSystemApiUrl, route))
             {
                 Content = new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json")
             };
             _logger.Info($"[ZnunyTimeBooking] route={route} ticketId={ticketId} taskId={task.Id} bookingId={booking.BookingId} minutes={minutes:0.##} timeUnit={timeUnit:0.####} action=send");
             var response = await SendZnunyAsync(request, "TicketUpdateTimeBooking", "[ZnunyTicketUpdateResponse]");
+            EnsureTicketUpdateResponseIsInterpretable(response);
             serverConfirmed = true;
             var articleId = ExtractFirstValueRecursive(response.Body, "ArticleID");
             _tasks.CompleteTicketTimeBooking(booking, articleId);
@@ -168,7 +170,7 @@ public class TicketSystemService : IDisposable
                 return new TicketBookingResult(false, true, "Znuny meldete einen Serverfehler nach dem Sendeversuch. Die Booking-ID wird vor einem weiteren Versuch abgeglichen; es erfolgt keine automatische Doppelbuchung.");
             return new TicketBookingResult(false, false, FormatApiError("Zeitbuchung fehlgeschlagen", ex));
         }
-        catch (Exception ex) when (booking != null && (ex is HttpRequestException || ex is TaskCanceledException))
+        catch (Exception ex) when (booking != null && (ex is HttpRequestException || ex is TaskCanceledException || ex is JsonException))
         {
             _logger.Error($"[ZnunyTimeBooking] ticketId={ticketId} taskId={task.Id} bookingId={booking.BookingId} action=pending-reconciliation message={ex.Message}");
             return new TicketBookingResult(false, true,
@@ -227,11 +229,13 @@ public class TicketSystemService : IDisposable
             var timeUnit = booking.BookedMinutes;
             var payload = BuildTicketTimeBookingPayload(booking.TicketId, sessionId, booking, timeUnit);
             var route = NormalizeRouteValue(_settings.Current.TicketSystemTicketUpdateRoute, "/Ticket/Update");
+            LogTicketUpdateRequest(route, booking.TicketId, booking, timeUnit);
             using var request = new HttpRequestMessage(HttpMethod.Post, Combine(_settings.Current.TicketSystemApiUrl, route))
             {
                 Content = new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json")
             };
             var response = await SendZnunyAsync(request, "TicketUpdateTimeBookingRetry", "[ZnunyTicketUpdateResponse]");
+            EnsureTicketUpdateResponseIsInterpretable(response);
             var articleId = ExtractFirstValueRecursive(response.Body, "ArticleID");
             _tasks.CompleteTicketTimeBooking(booking, articleId);
             _logger.Info($"[ZnunyTimeBooking] ticketId={booking.TicketId} taskId={task.Id} bookingId={booking.BookingId} articleId={articleId} action=retried");
@@ -787,6 +791,26 @@ public class TicketSystemService : IDisposable
         if (dynamicFields.Count > 0)
             payload["DynamicField"] = dynamicFields;
         return payload;
+    }
+
+    private void LogTicketUpdateRequest(string route, string ticketId, TicketTimeBooking booking, decimal timeUnit)
+    {
+        var dynamicFields = new List<string>();
+        if (!string.IsNullOrWhiteSpace(_settings.Current.TicketSystemCostCenterFieldName) && !string.IsNullOrWhiteSpace(booking.CostCenter))
+            dynamicFields.Add($"{LogValue(_settings.Current.TicketSystemCostCenterFieldName)}={LogValue(booking.CostCenter)}");
+        if (!string.IsNullOrWhiteSpace(_settings.Current.TicketSystemOrderFieldName) && !string.IsNullOrWhiteSpace(booking.Order))
+            dynamicFields.Add($"{LogValue(_settings.Current.TicketSystemOrderFieldName)}={LogValue(booking.Order)}");
+
+        _logger.Info($"[ZnunyTicketUpdateRequest] route={route} ticketId={ticketId} articleSubject='TaskTool Zeitbuchung' senderType='agent' channel='Internal' visibleForCustomer=0 timeUnit={timeUnit:0.####} dynamicFields=[{string.Join(',', dynamicFields)}]");
+    }
+
+    private static string LogValue(string value)
+        => value.Replace("\r", string.Empty, StringComparison.Ordinal).Replace("\n", string.Empty, StringComparison.Ordinal).Replace("'", string.Empty, StringComparison.Ordinal);
+
+    private static void EnsureTicketUpdateResponseIsInterpretable(ZnunyHttpResult response)
+    {
+        using var doc = JsonDocument.Parse(response.Body);
+        ThrowIfApiError(doc.RootElement, "TicketUpdate", response.StatusCode, response.Body);
     }
 
     private static void AddDynamicField(List<Dictionary<string, string>> fields, string name, string value)
