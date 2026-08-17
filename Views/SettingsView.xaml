@@ -14,6 +14,9 @@
                         <CheckBox Content="Teams-Button anzeigen" IsChecked="{Binding OutlookTeamsButtonEnabled}" Margin="0,0,0,8"/>
                         <CheckBox Content="Ganztagstermine als Tagesmarker interpretieren" IsChecked="{Binding OutlookInterpretAllDayAsMarkers}" Margin="0,0,0,8"/>
                         <CheckBox Content="Wochenende anzeigen" IsChecked="{Binding ShowWeekendInWeekView}" Margin="0,0,0,8"/>
+                        <CheckBox Content="Interne Aufgaben-Segmente zusätzlich im Kalender anzeigen" IsChecked="{Binding ShowInternalTaskSegmentsInCalendar}" Margin="0,0,0,4"/>
+                        <TextBlock Text="Bei aktiver Outlook-Synchronisierung können geplante Segmente sonst doppelt erscheinen."
+                                   Foreground="{StaticResource MutedTextBrush}" TextWrapping="Wrap" Margin="24,0,0,8"/>
                         <TextBlock Text="Kalender-Zeitzone" Foreground="{StaticResource MutedTextBrush}"/>
                         <ComboBox Width="220" Style="{StaticResource DarkComboBoxStyle}" ItemsSource="{Binding CalendarTimeZones}" SelectedItem="{Binding CalendarTimeZoneId}" Margin="0,0,0,8"/>
                         <TextBlock Text="Outlook Kalender Sync-Modus" Foreground="{StaticResource MutedTextBrush}"/>
@@ -70,6 +73,18 @@
                         <TextBox Text="{Binding TicketSystemTicketGetMethod}" Width="120" IsReadOnly="True"/>
                         <TextBlock Text="TicketGet Authentifizierung" Foreground="{StaticResource MutedTextBrush}"/>
                         <ComboBox Width="120" Style="{StaticResource DarkComboBoxStyle}" ItemsSource="{Binding TicketSystemTicketGetAuthModes}" SelectedItem="{Binding TicketSystemTicketGetAuthMode}"/>
+                        <TextBlock Text="TicketUpdate Route" Foreground="{StaticResource MutedTextBrush}"/>
+                        <TextBox Text="{Binding TicketSystemTicketUpdateRoute, UpdateSourceTrigger=PropertyChanged}" Width="220" ToolTip="Beispiel: /Ticket/Update"/>
+                        <TextBlock Text="DynamicField: Kostenstelle (interner Name)" Foreground="{StaticResource MutedTextBrush}"/>
+                        <TextBox Text="{Binding TicketSystemCostCenterFieldName, UpdateSourceTrigger=PropertyChanged}" Width="320"/>
+                        <TextBlock Text="Kostenstellen-Optionen (Key=Anzeigetext;...)" Foreground="{StaticResource MutedTextBrush}"/>
+                        <TextBox Text="{Binding TicketSystemCostCenterOptions, UpdateSourceTrigger=PropertyChanged}" Width="560" ToolTip="Beispiel: 4711=Kostenstelle 4711;815=Kostenstelle 815"/>
+                        <TextBlock Text="DynamicField: Auftrag (interner Name)" Foreground="{StaticResource MutedTextBrush}"/>
+                        <TextBox Text="{Binding TicketSystemOrderFieldName, UpdateSourceTrigger=PropertyChanged}" Width="320"/>
+                        <TextBlock Text="Auftrags-Optionen (Key=Anzeigetext;...)" Foreground="{StaticResource MutedTextBrush}"/>
+                        <TextBox Text="{Binding TicketSystemOrderOptions, UpdateSourceTrigger=PropertyChanged}" Width="560" ToolTip="Beispiel: 123456=Auftrag 123456"/>
+                        <TextBlock Text="TicketGet liefert die aktuellen DynamicField-Werte, aber üblicherweise keine vollständigen Optionslisten. Ohne zusätzlichen GenericInterface-Metadaten-Endpunkt werden die obigen konfigurierbaren Key/Anzeigetext-Listen verwendet; die Weboberfläche wird nicht gescrapt."
+                                   Foreground="{StaticResource MutedTextBrush}" TextWrapping="Wrap" Margin="0,0,0,8"/>
                         <TextBlock Text="Bei älteren OTRS/Znuny-6.x-GenericTicketConnectorREST-Konfigurationen verwendet TicketSearch GET /Ticket." Foreground="{StaticResource MutedTextBrush}" TextWrapping="Wrap" Margin="0,0,0,8"/>
                         <TextBlock Text="Synchronisationsintervall (Minuten)" Foreground="{StaticResource MutedTextBrush}"/>
                         <TextBox Text="{Binding TicketSystemSyncIntervalMinutes, UpdateSourceTrigger=PropertyChanged}" Width="120"/>
