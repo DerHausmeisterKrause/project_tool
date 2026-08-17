@@ -825,20 +825,22 @@ public class TicketSystemService : IDisposable
                 .Where(name => !string.IsNullOrWhiteSpace(name))
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToArray();
-            var route = NormalizeRouteValue(_settings.Current.TicketSystemDynamicFieldOptionsRoute, "/DynamicField/Options");
-            var query = new Dictionary<string, string>
+            var parsed = new Dictionary<string, IReadOnlyList<TicketFieldOption>>(StringComparer.OrdinalIgnoreCase);
+            foreach (var name in names)
             {
-                ["SessionID"] = sessionId,
-                ["Names"] = string.Join(',', names)
-            };
-            using var request = new HttpRequestMessage(HttpMethod.Get, Combine(_settings.Current.TicketSystemApiUrl, route) + ToQueryString(query));
-            var response = await SendZnunyAsync(request, "DynamicFieldOptions", "[ZnunyDynamicFieldOptionsResponse]");
-            var parsed = ParseDynamicFieldOptionsResponse(response.Body);
+                try
+                {
+                    parsed[name] = await LoadDynamicFieldOptionsAsync(sessionId, name);
+                }
+                catch (Exception ex)
+                {
+                    parsed[name] = Array.Empty<TicketFieldOption>();
+                    _logger.Error($"[ZnunyDynamicFieldOptions] field='{name}' optionCount=0 source=ConfiguredFallback message={ex.Message}");
+                }
+            }
             _dynamicFieldOptionsCache = parsed;
             _dynamicFieldOptionsCacheExpiresUtc = DateTime.UtcNow.AddMinutes(30);
             _dynamicFieldOptionsCacheValid = true;
-            foreach (var name in names)
-                _logger.Info($"[ZnunyDynamicFieldOptions] field='{name}' optionCount={(parsed.TryGetValue(name, out var options) ? options.Count : 0)} source=Znuny");
             return _dynamicFieldOptionsCache;
         }
         catch (Exception ex)
@@ -853,6 +855,36 @@ public class TicketSystemService : IDisposable
         {
             _dynamicFieldOptionsGate.Release();
         }
+    }
+
+    private async Task<IReadOnlyList<TicketFieldOption>> LoadDynamicFieldOptionsAsync(string sessionId, string fieldName)
+    {
+        var template = NormalizeRouteValue(
+            _settings.Current.TicketSystemDynamicFieldOptionsRoute,
+            "/Ticket/DynamicField/{FieldName}/Options");
+        if (!template.Contains("{FieldName}", StringComparison.OrdinalIgnoreCase))
+        {
+            _logger.Error($"[ZnunyDynamicFieldOptionsRequest] field='{fieldName}' action=blocked reason=MissingFieldNamePlaceholder");
+            throw new InvalidOperationException("Die DynamicField-Options-Route enthält keinen {FieldName}-Platzhalter.");
+        }
+
+        var route = template.Replace(
+            "{FieldName}",
+            Uri.EscapeDataString(fieldName),
+            StringComparison.OrdinalIgnoreCase);
+        if (route.Contains("{FieldName}", StringComparison.OrdinalIgnoreCase))
+        {
+            _logger.Error($"[ZnunyDynamicFieldOptionsRequest] field='{fieldName}' action=blocked reason=UnresolvedFieldNamePlaceholder");
+            throw new InvalidOperationException("Der {FieldName}-Platzhalter konnte nicht aufgelöst werden.");
+        }
+
+        _logger.Info($"[ZnunyDynamicFieldOptionsRequest] field='{fieldName}' route='{route}'");
+        var query = new Dictionary<string, string> { ["SessionID"] = sessionId };
+        using var request = new HttpRequestMessage(HttpMethod.Get, Combine(_settings.Current.TicketSystemApiUrl, route) + ToQueryString(query));
+        var response = await SendZnunyAsync(request, "DynamicFieldOptions", "[ZnunyDynamicFieldOptionsResponse]");
+        var options = ParseDynamicFieldOptionsResponse(response.Body, fieldName);
+        _logger.Info($"[ZnunyDynamicFieldOptions] field='{fieldName}' optionCount={options.Count} source=Znuny");
+        return options;
     }
 
     private IReadOnlyList<TicketFieldOption> GetFieldOptions(
@@ -875,30 +907,26 @@ public class TicketSystemService : IDisposable
         _logger.Info($"[ZnunyDynamicFieldSelection] ticketId={ticketId} field='{fieldName}' key='{selectedKey}' displayValue='{display}'");
     }
 
-    private static IReadOnlyDictionary<string, IReadOnlyList<TicketFieldOption>> ParseDynamicFieldOptionsResponse(string json)
+    private static IReadOnlyList<TicketFieldOption> ParseDynamicFieldOptionsResponse(string json, string requestedFieldName)
     {
-        var result = new Dictionary<string, IReadOnlyList<TicketFieldOption>>(StringComparer.OrdinalIgnoreCase);
         using var doc = JsonDocument.Parse(json);
-        if (!TryGetPropertyCaseInsensitive(doc.RootElement, "Fields", out var fields))
+        if (!TryGetPropertyCaseInsensitive(doc.RootElement, "Field", out var field))
         {
             if (!TryGetPropertyCaseInsensitive(doc.RootElement, "Data", out var data)
-                || !TryGetPropertyCaseInsensitive(data, "Fields", out fields))
-                return result;
+                || !TryGetPropertyCaseInsensitive(data, "Field", out field))
+                return Array.Empty<TicketFieldOption>();
         }
-        if (fields.ValueKind != JsonValueKind.Array) return result;
-        foreach (var field in fields.EnumerateArray())
-        {
-            var name = FirstString(field, "Name");
-            if (string.IsNullOrWhiteSpace(name) || !TryGetPropertyCaseInsensitive(field, "Options", out var values) || values.ValueKind != JsonValueKind.Array)
-                continue;
-            result[name] = values.EnumerateArray()
-                .Select(option => new TicketFieldOption(FirstString(option, "Key"), FirstString(option, "Value")))
-                .Where(option => !string.IsNullOrWhiteSpace(option.Key))
-                .GroupBy(option => option.Key, StringComparer.OrdinalIgnoreCase)
-                .Select(group => group.First())
-                .ToList();
-        }
-        return result;
+        var name = FirstString(field, "Name");
+        if (!string.IsNullOrWhiteSpace(name) && !string.Equals(name, requestedFieldName, StringComparison.OrdinalIgnoreCase))
+            return Array.Empty<TicketFieldOption>();
+        if (!TryGetPropertyCaseInsensitive(field, "Options", out var values) || values.ValueKind != JsonValueKind.Array)
+            return Array.Empty<TicketFieldOption>();
+        return values.EnumerateArray()
+            .Select(option => new TicketFieldOption(FirstString(option, "Key"), FirstString(option, "Value")))
+            .Where(option => !string.IsNullOrWhiteSpace(option.Key))
+            .GroupBy(option => option.Key, StringComparer.OrdinalIgnoreCase)
+            .Select(group => group.First())
+            .ToList();
     }
 
     private static string ExtractFirstValueRecursive(string json, string propertyName)

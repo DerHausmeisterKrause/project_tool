@@ -86,7 +86,9 @@ public class SettingsService
         settings.TicketSystemTicketGetMethod = "GET";
         settings.TicketSystemTicketGetAuthMode = string.Equals(settings.TicketSystemTicketGetAuthMode, "Direct", StringComparison.OrdinalIgnoreCase) ? "Direct" : "Session";
         settings.TicketSystemTicketUpdateRoute = NormalizeRoute(settings.TicketSystemTicketUpdateRoute, "/Ticket/Update");
-        settings.TicketSystemDynamicFieldOptionsRoute = NormalizeRoute(settings.TicketSystemDynamicFieldOptionsRoute, "/DynamicField/Options");
+        settings.TicketSystemDynamicFieldOptionsRoute = string.Equals(settings.TicketSystemDynamicFieldOptionsRoute?.Trim(), "/DynamicField/Options", StringComparison.OrdinalIgnoreCase)
+            ? "/Ticket/DynamicField/{FieldName}/Options"
+            : NormalizeRoute(settings.TicketSystemDynamicFieldOptionsRoute, "/Ticket/DynamicField/{FieldName}/Options");
         settings.TicketSystemCostCenterFieldName = string.IsNullOrWhiteSpace(settings.TicketSystemCostCenterFieldName) ? "KostenstelleID" : settings.TicketSystemCostCenterFieldName.Trim();
         settings.TicketSystemOrderFieldName = string.IsNullOrWhiteSpace(settings.TicketSystemOrderFieldName) ? "AuftragsID" : settings.TicketSystemOrderFieldName.Trim();
         settings.TicketSystemCostCenterOptions = settings.TicketSystemCostCenterOptions?.Trim() ?? string.Empty;

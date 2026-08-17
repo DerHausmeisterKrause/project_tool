@@ -35,7 +35,7 @@ public class AppSettings
     public string TicketSystemTicketGetMethod { get; set; } = "GET";
     public string TicketSystemTicketGetAuthMode { get; set; } = "Session";
     public string TicketSystemTicketUpdateRoute { get; set; } = "/Ticket/Update";
-    public string TicketSystemDynamicFieldOptionsRoute { get; set; } = "/DynamicField/Options";
+    public string TicketSystemDynamicFieldOptionsRoute { get; set; } = "/Ticket/DynamicField/{FieldName}/Options";
     public string TicketSystemCostCenterFieldName { get; set; } = "KostenstelleID";
     public string TicketSystemOrderFieldName { get; set; } = "AuftragsID";
     public string TicketSystemCostCenterOptions { get; set; } = string.Empty;

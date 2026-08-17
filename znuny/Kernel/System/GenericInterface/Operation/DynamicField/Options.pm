@@ -17,38 +17,33 @@ sub new {
 
 sub Run {
     my ( $Self, %Param ) = @_;
-    my $Names = $Param{Data}->{Names} // '';
-    my @Names = grep { $_ ne '' } split /\s*,\s*/, $Names;
-    return $Self->{DebuggerObject}->Error( Summary => 'Names is required.' ) if !@Names;
+    my $Name = $Param{Data}->{FieldName} // '';
+    return $Self->{DebuggerObject}->Error( Summary => 'FieldName is required.' ) if $Name eq '';
 
     my $DynamicFieldObject = $Kernel::OM->Get('Kernel::System::DynamicField');
     my $BackendObject      = $Kernel::OM->Get('Kernel::System::DynamicField::Backend');
-    my @Fields;
+    my $Config = $DynamicFieldObject->DynamicFieldGet( Name => $Name );
+    return $Self->{DebuggerObject}->Error( Summary => 'Field is not an allowed ticket dropdown.' )
+        if !$Config
+        || ($Config->{ObjectType} // '') ne 'Ticket'
+        || ($Config->{FieldType}  // '') ne 'Dropdown';
 
-    NAME:
-    for my $Name (@Names) {
-        my $Config = $DynamicFieldObject->DynamicFieldGet( Name => $Name );
-        next NAME if !$Config;
-        next NAME if ($Config->{ObjectType} // '') ne 'Ticket';
-        next NAME if ($Config->{FieldType}  // '') ne 'Dropdown';
-
-        my $PossibleValues = $BackendObject->PossibleValuesGet(
-            DynamicFieldConfig => $Config,
-        ) || {};
-        my @Options = map {
-            +{ Key => "$_", Value => "$PossibleValues->{$_}" }
-        } sort keys %{$PossibleValues};
-
-        push @Fields, {
-            Name    => $Config->{Name},
-            Label   => $Config->{Label} // $Config->{Name},
-            Options => \@Options,
-        };
-    }
+    my $PossibleValues = $BackendObject->PossibleValuesGet(
+        DynamicFieldConfig => $Config,
+    ) || {};
+    my @Options = map {
+        +{ Key => "$_", Value => "$PossibleValues->{$_}" }
+    } sort keys %{$PossibleValues};
 
     return {
         Success => 1,
-        Data    => { Fields => \@Fields },
+        Data    => {
+            Field => {
+                Name    => $Config->{Name},
+                Label   => $Config->{Label} // $Config->{Name},
+                Options => \@Options,
+            },
+        },
     };
 }
 
