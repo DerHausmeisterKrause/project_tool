@@ -72,7 +72,7 @@ public class MainViewModel : ObservableObject
         TodayViewModel = new TodayViewModel(taskService, workDayService, settingsService, outlookCalendar);
         _weekViewModel = new WeekViewModel(taskService, workDayService, settingsService, outlookCalendar);
         _ticketSystemViewModel = new TicketSystemViewModel(settingsService);
-        var reports = new ReportsViewModel(taskService, workDayService, settingsService);
+        var reports = new ReportsViewModel(taskService);
         var settings = new SettingsViewModel(settingsService, notifications, outlookCalendar, taskService, ticketSystem, TodayViewModel.Refresh);
 
         NavigationItems = new ObservableCollection<object> { TodayViewModel, _weekViewModel, _ticketSystemViewModel, reports, settings };
