@@ -66,6 +66,8 @@
                         <TextBlock Text="Auftrag" Foreground="{StaticResource MutedTextBrush}" Margin="0,8,0,2"/>
                         <ComboBox Style="{StaticResource DarkComboBoxStyle}" ItemsSource="{Binding OrderOptions}" SelectedItem="{Binding SelectedOrder}" DisplayMemberPath="DisplayText"/>
                         <TextBlock Text="{Binding TicketBookingInformation}" Foreground="{StaticResource MutedTextBrush}" TextWrapping="Wrap" Margin="0,6,0,0"/>
+                        <Button Content="Kostenstellen/Aufträge neu laden" Margin="0,8,0,0" HorizontalAlignment="Stretch"
+                                Style="{StaticResource SecondaryButtonStyle}" Command="{Binding RefreshTicketFieldOptionsCommand}"/>
                         <Button Content="Im Ticketsystem buchen" Margin="0,10,0,0" HorizontalAlignment="Stretch"
                                 Command="{Binding BookTimeInTicketSystemCommand}"/>
                     </StackPanel>

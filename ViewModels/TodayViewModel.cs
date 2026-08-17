@@ -138,6 +138,7 @@ public class TodayViewModel : ObservableObject
             if (Set(ref _isTicketBooking, value))
             {
                 BookTimeInTicketSystemCommand.RaiseCanExecuteChanged();
+                RefreshTicketFieldOptionsCommand.RaiseCanExecuteChanged();
                 CheckTicketTimeBookingCommand.RaiseCanExecuteChanged();
                 RetryTicketTimeBookingCommand.RaiseCanExecuteChanged();
             }
@@ -227,6 +228,7 @@ public class TodayViewModel : ObservableObject
     public RelayCommand Subtract30Command { get; }
     public RelayCommand Subtract60Command { get; }
     public RelayCommand BookTimeInTicketSystemCommand { get; }
+    public RelayCommand RefreshTicketFieldOptionsCommand { get; }
     public RelayCommand<TicketTimeBooking> CheckTicketTimeBookingCommand { get; }
     public RelayCommand<TicketTimeBooking> RetryTicketTimeBookingCommand { get; }
     public RelayCommand ComeCommand { get; }
@@ -288,6 +290,7 @@ public class TodayViewModel : ObservableObject
         Subtract30Command = new RelayCommand(() => AdjustBookedMinutes(-30), () => SelectedTask != null);
         Subtract60Command = new RelayCommand(() => AdjustBookedMinutes(-60), () => SelectedTask != null);
         BookTimeInTicketSystemCommand = new RelayCommand(async () => await BookTimeInTicketSystemAsync(), () => HasZnunyTicket && !IsTicketBooking && !_hasUnresolvedTicketTimeBooking && UnbookedTicketSeconds > 0);
+        RefreshTicketFieldOptionsCommand = new RelayCommand(async () => await RefreshTicketFieldOptionsAsync(), () => HasZnunyTicket && !IsTicketBooking);
         CheckTicketTimeBookingCommand = new RelayCommand<TicketTimeBooking>(async booking => await CheckTicketTimeBookingAsync(booking), booking => booking?.CanCheckStatus == true && !IsTicketBooking);
         RetryTicketTimeBookingCommand = new RelayCommand<TicketTimeBooking>(async booking => await RetryTicketTimeBookingAsync(booking), booking => booking?.CanRetry == true && !IsTicketBooking);
         ComeCommand = new RelayCommand(() => { _workDays.SetCome(DateTime.Now); Load(); });
@@ -345,6 +348,8 @@ public class TodayViewModel : ObservableObject
         Subtract15Command.RaiseCanExecuteChanged();
         Subtract30Command.RaiseCanExecuteChanged();
         Subtract60Command.RaiseCanExecuteChanged();
+        BookTimeInTicketSystemCommand.RaiseCanExecuteChanged();
+        RefreshTicketFieldOptionsCommand.RaiseCanExecuteChanged();
         AddSegmentCommand.RaiseCanExecuteChanged();
         SaveSegmentCommand.RaiseCanExecuteChanged();
         DeleteSegmentCommand.RaiseCanExecuteChanged();
@@ -841,9 +846,26 @@ public class TodayViewModel : ObservableObject
         }
     }
 
+    private async Task RefreshTicketFieldOptionsAsync()
+    {
+        if (SelectedTask == null || IsTicketBooking) return;
+        IsTicketBooking = true;
+        try
+        {
+            _ticketSystem.InvalidateDynamicFieldOptionsCache();
+            await LoadTicketBookingContextAsync(SelectedTask);
+            StatusMessage = "Kostenstellen und Aufträge wurden neu geladen.";
+        }
+        finally
+        {
+            IsTicketBooking = false;
+        }
+    }
+
     private static TicketFieldOption? EnsureCurrentOption(ObservableCollection<TicketFieldOption> options, string currentValue)
     {
-        if (string.IsNullOrWhiteSpace(currentValue)) return options.FirstOrDefault();
+        if (string.IsNullOrWhiteSpace(currentValue))
+            return options.FirstOrDefault(option => option.Key == "00000");
         var existing = options.FirstOrDefault(option => string.Equals(option.Key, currentValue, StringComparison.OrdinalIgnoreCase));
         if (existing != null) return existing;
         var current = new TicketFieldOption(currentValue, currentValue);

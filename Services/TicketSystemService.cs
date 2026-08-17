@@ -17,7 +17,11 @@ public class TicketSystemService : IDisposable
     private readonly LoggerService _logger;
     private readonly HttpClient _client = new() { Timeout = TimeSpan.FromSeconds(45) };
     private readonly SemaphoreSlim _syncGate = new(1, 1);
+    private readonly SemaphoreSlim _dynamicFieldOptionsGate = new(1, 1);
     private readonly System.Threading.Timer _timer;
+    private IReadOnlyDictionary<string, IReadOnlyList<TicketFieldOption>> _dynamicFieldOptionsCache = new Dictionary<string, IReadOnlyList<TicketFieldOption>>(StringComparer.OrdinalIgnoreCase);
+    private DateTime _dynamicFieldOptionsCacheExpiresUtc;
+    private bool _dynamicFieldOptionsCacheValid;
 
     public string LastError { get; private set; } = string.Empty;
     public event Action? TasksChanged;
@@ -55,13 +59,16 @@ public class TicketSystemService : IDisposable
                      ?? throw new InvalidOperationException("TicketGet lieferte keine Ticketdaten.");
         var costField = _settings.Current.TicketSystemCostCenterFieldName;
         var orderField = _settings.Current.TicketSystemOrderFieldName;
-        var costOptions = ParseConfiguredOptions(_settings.Current.TicketSystemCostCenterOptions);
-        var orderOptions = ParseConfiguredOptions(_settings.Current.TicketSystemOrderOptions);
+        var optionFields = await GetDynamicFieldOptionsAsync(sessionId, forceRefresh: false);
+        var costOptions = GetFieldOptions(optionFields, costField, _settings.Current.TicketSystemCostCenterOptions);
+        var orderOptions = GetFieldOptions(optionFields, orderField, _settings.Current.TicketSystemOrderOptions);
         var costCenterValue = ticket.GetDynamicFieldValue(costField);
         var orderValue = ticket.GetDynamicFieldValue(orderField);
         _logger.Info($"[ZnunyTicketDynamicFields] ticketId={ticket.TicketID} requestedDynamicFields=true availableFields=[{string.Join(',', ticket.DynamicFieldValues.Keys.OrderBy(name => name, StringComparer.OrdinalIgnoreCase))}] costCenterValue='{costCenterValue}' orderValue='{orderValue}'");
         var fieldsMissing = !ticket.DynamicFieldValues.ContainsKey(costField) || !ticket.DynamicFieldValues.ContainsKey(orderField);
         var information = fieldsMissing ? "Kostenstelle/Auftrag konnten nicht aus OTRS geladen werden." : string.Empty;
+        LogDynamicFieldSelection(ticket.TicketID, costField, costCenterValue, costOptions);
+        LogDynamicFieldSelection(ticket.TicketID, orderField, orderValue, orderOptions);
 
         return new TicketBookingContext(
             ticket.TicketID,
@@ -71,6 +78,13 @@ public class TicketSystemService : IDisposable
             costOptions,
             orderOptions,
             information);
+    }
+
+    public void InvalidateDynamicFieldOptionsCache()
+    {
+        _dynamicFieldOptionsCache = new Dictionary<string, IReadOnlyList<TicketFieldOption>>(StringComparer.OrdinalIgnoreCase);
+        _dynamicFieldOptionsCacheExpiresUtc = DateTime.MinValue;
+        _dynamicFieldOptionsCacheValid = false;
     }
 
     public async Task<TicketBookingResult> BookTimeAsync(
@@ -796,6 +810,97 @@ public class TicketSystemService : IDisposable
             .ToList();
     }
 
+    private async Task<IReadOnlyDictionary<string, IReadOnlyList<TicketFieldOption>>> GetDynamicFieldOptionsAsync(string sessionId, bool forceRefresh)
+    {
+        if (!forceRefresh && _dynamicFieldOptionsCacheValid && DateTime.UtcNow < _dynamicFieldOptionsCacheExpiresUtc)
+            return _dynamicFieldOptionsCache;
+
+        await _dynamicFieldOptionsGate.WaitAsync();
+        try
+        {
+            if (!forceRefresh && _dynamicFieldOptionsCacheValid && DateTime.UtcNow < _dynamicFieldOptionsCacheExpiresUtc)
+                return _dynamicFieldOptionsCache;
+
+            var names = new[] { _settings.Current.TicketSystemCostCenterFieldName, _settings.Current.TicketSystemOrderFieldName }
+                .Where(name => !string.IsNullOrWhiteSpace(name))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+            var route = NormalizeRouteValue(_settings.Current.TicketSystemDynamicFieldOptionsRoute, "/DynamicField/Options");
+            var query = new Dictionary<string, string>
+            {
+                ["SessionID"] = sessionId,
+                ["Names"] = string.Join(',', names)
+            };
+            using var request = new HttpRequestMessage(HttpMethod.Get, Combine(_settings.Current.TicketSystemApiUrl, route) + ToQueryString(query));
+            var response = await SendZnunyAsync(request, "DynamicFieldOptions", "[ZnunyDynamicFieldOptionsResponse]");
+            var parsed = ParseDynamicFieldOptionsResponse(response.Body);
+            _dynamicFieldOptionsCache = parsed;
+            _dynamicFieldOptionsCacheExpiresUtc = DateTime.UtcNow.AddMinutes(30);
+            _dynamicFieldOptionsCacheValid = true;
+            foreach (var name in names)
+                _logger.Info($"[ZnunyDynamicFieldOptions] field='{name}' optionCount={(parsed.TryGetValue(name, out var options) ? options.Count : 0)} source=Znuny");
+            return _dynamicFieldOptionsCache;
+        }
+        catch (Exception ex)
+        {
+            _logger.Error($"[ZnunyDynamicFieldOptions] source=ConfiguredFallback message={ex.Message}");
+            _dynamicFieldOptionsCache = new Dictionary<string, IReadOnlyList<TicketFieldOption>>(StringComparer.OrdinalIgnoreCase);
+            _dynamicFieldOptionsCacheExpiresUtc = DateTime.UtcNow.AddMinutes(5);
+            _dynamicFieldOptionsCacheValid = true;
+            return _dynamicFieldOptionsCache;
+        }
+        finally
+        {
+            _dynamicFieldOptionsGate.Release();
+        }
+    }
+
+    private IReadOnlyList<TicketFieldOption> GetFieldOptions(
+        IReadOnlyDictionary<string, IReadOnlyList<TicketFieldOption>> fields,
+        string fieldName,
+        string configuredFallback)
+    {
+        if (fields.TryGetValue(fieldName, out var options) && options.Count > 0)
+            return options;
+        var fallback = ParseConfiguredOptions(configuredFallback);
+        _logger.Info($"[ZnunyDynamicFieldOptions] field='{fieldName}' optionCount={fallback.Count} source=ConfiguredFallback");
+        return fallback;
+    }
+
+    private void LogDynamicFieldSelection(string ticketId, string fieldName, string currentKey, IReadOnlyList<TicketFieldOption> options)
+    {
+        var selectedKey = string.IsNullOrWhiteSpace(currentKey) && options.Any(option => option.Key == "00000") ? "00000" : currentKey;
+        var display = options.FirstOrDefault(option => string.Equals(option.Key, selectedKey, StringComparison.OrdinalIgnoreCase))?.DisplayText
+                      ?? selectedKey;
+        _logger.Info($"[ZnunyDynamicFieldSelection] ticketId={ticketId} field='{fieldName}' key='{selectedKey}' displayValue='{display}'");
+    }
+
+    private static IReadOnlyDictionary<string, IReadOnlyList<TicketFieldOption>> ParseDynamicFieldOptionsResponse(string json)
+    {
+        var result = new Dictionary<string, IReadOnlyList<TicketFieldOption>>(StringComparer.OrdinalIgnoreCase);
+        using var doc = JsonDocument.Parse(json);
+        if (!TryGetPropertyCaseInsensitive(doc.RootElement, "Fields", out var fields))
+        {
+            if (!TryGetPropertyCaseInsensitive(doc.RootElement, "Data", out var data)
+                || !TryGetPropertyCaseInsensitive(data, "Fields", out fields))
+                return result;
+        }
+        if (fields.ValueKind != JsonValueKind.Array) return result;
+        foreach (var field in fields.EnumerateArray())
+        {
+            var name = FirstString(field, "Name");
+            if (string.IsNullOrWhiteSpace(name) || !TryGetPropertyCaseInsensitive(field, "Options", out var values) || values.ValueKind != JsonValueKind.Array)
+                continue;
+            result[name] = values.EnumerateArray()
+                .Select(option => new TicketFieldOption(FirstString(option, "Key"), FirstString(option, "Value")))
+                .Where(option => !string.IsNullOrWhiteSpace(option.Key))
+                .GroupBy(option => option.Key, StringComparer.OrdinalIgnoreCase)
+                .Select(group => group.First())
+                .ToList();
+        }
+        return result;
+    }
+
     private static string ExtractFirstValueRecursive(string json, string propertyName)
     {
         if (!TryParseJson(json, out var doc)) return string.Empty;
@@ -1150,6 +1255,7 @@ public class TicketSystemService : IDisposable
     {
         _timer.Dispose();
         _syncGate.Dispose();
+        _dynamicFieldOptionsGate.Dispose();
         _client.Dispose();
     }
 
