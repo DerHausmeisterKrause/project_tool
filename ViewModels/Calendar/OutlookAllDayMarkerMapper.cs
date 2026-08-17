@@ -3,7 +3,7 @@ using TaskTool.Models;
 
 namespace TaskTool.ViewModels;
 
-internal static class OutlookAllDayMarkerMapper
+public static class OutlookAllDayMarkerMapper
 {
     public static string? TryMapAllDayMarker(OutlookCalendarEvent evt, out string matchedRule)
     {
