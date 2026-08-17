@@ -70,10 +70,11 @@ public class MainViewModel : ObservableObject
     {
         _logger = logger;
         TodayViewModel = new TodayViewModel(taskService, workDayService, settingsService, outlookCalendar);
+        ticketSystem.TasksChanged += TodayViewModel.Refresh;
         _weekViewModel = new WeekViewModel(taskService, workDayService, settingsService, outlookCalendar);
         _ticketSystemViewModel = new TicketSystemViewModel(settingsService);
-        var reports = new ReportsViewModel(taskService, workDayService, settingsService);
-        var settings = new SettingsViewModel(settingsService, notifications, outlookCalendar, taskService, ticketSystem, TodayViewModel.Refresh);
+        var reports = new ReportsViewModel(taskService);
+        var settings = new SettingsViewModel(settingsService, notifications, outlookCalendar, taskService, ticketSystem);
 
         NavigationItems = new ObservableCollection<object> { TodayViewModel, _weekViewModel, _ticketSystemViewModel, reports, settings };
         _selectedView = TodayViewModel;

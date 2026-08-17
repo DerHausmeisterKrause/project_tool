@@ -20,6 +20,7 @@ public class TicketSystemService : IDisposable
     private readonly System.Threading.Timer _timer;
 
     public string LastError { get; private set; } = string.Empty;
+    public event Action? TasksChanged;
 
     public TicketSystemService(SettingsService settings, TaskService tasks, LoggerService logger)
     {
@@ -134,6 +135,7 @@ public class TicketSystemService : IDisposable
         var created = 0;
         var updated = 0;
         var skipped = 0;
+        var hasTaskChanges = false;
 
         try
         {
@@ -155,15 +157,30 @@ public class TicketSystemService : IDisposable
                 sessionHash,
                 _settings.Current.TicketSystemIncludeOwner,
                 _settings.Current.TicketSystemIncludeResponsible);
-            var ticketIds = uniqueTicketIds;
-            var duplicateCount = ownerIds.Count + responsibleIds.Count - ticketIds.Count;
-            _logger.Info($"[ZnunySearchMerge] ownerTickets={ownerIds.Count} responsibleTickets={responsibleIds.Count} uniqueTickets={ticketIds.Count} duplicateOwnerResponsibleTickets={duplicateCount}");
-
-            var existing = _tasks.GetAllTasks()
+            var existingGroups = _tasks.GetAllTasks()
                 .Where(t => !string.IsNullOrWhiteSpace(ExtractZnunyTicketIdFromTask(t)))
                 .GroupBy(ExtractZnunyTicketIdFromTask, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+            var existing = existingGroups
+                .Where(group => group.Count() == 1)
                 .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
-            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var ambiguousTicketIds = existingGroups
+                .Where(group => group.Count() > 1)
+                .Select(group => group.Key)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+            foreach (var ambiguousTicketId in ambiguousTicketIds)
+                _logger.Error($"[ZnunyTaskMapping] ticketId={ambiguousTicketId} action=skipped-ambiguous-task-mapping");
+
+            // An open-only TicketSearch no longer returns a ticket as soon as it is closed.
+            // Re-fetch already synchronized IDs explicitly so TicketGet can provide their
+            // authoritative State/StateType and closure is never inferred from absence.
+            var ticketIds = uniqueTicketIds
+                .Concat(_settings.Current.TicketSystemOnlyOpenTickets ? existingGroups.Select(group => group.Key) : Array.Empty<string>())
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+            var duplicateCount = ownerIds.Count + responsibleIds.Count - uniqueTicketIds.Count;
+            _logger.Info($"[ZnunySearchMerge] ownerTickets={ownerIds.Count} responsibleTickets={responsibleIds.Count} uniqueTickets={uniqueTicketIds.Count} existingTicketsRechecked={ticketIds.Count - uniqueTicketIds.Count} duplicateOwnerResponsibleTickets={duplicateCount}");
 
             foreach (var ticketId in ticketIds)
             {
@@ -174,39 +191,61 @@ public class TicketSystemService : IDisposable
                     continue;
                 }
 
-                if (ticket.IsClosed && _settings.Current.TicketSystemOnlyOpenTickets && !_settings.Current.TicketSystemShowClosedTickets)
+                if (ambiguousTicketIds.Contains(ticket.TicketID))
                 {
                     skipped++;
                     continue;
                 }
 
-                seen.Add(ticket.TicketID);
                 if (existing.TryGetValue(ticket.TicketID, out var task))
                 {
-                    MapTicketToTask(ticket, task);
-                    _tasks.UpdateTask(task);
-                    updated++;
-                    _logger.Info($"[ZnunyTaskUpdated] ticketId={ticket.TicketID} ticketNumber='{ticket.TicketNumber}' taskId={task.Id}");
+                    var metadataChanged = MapTicketToTask(ticket, task);
+                    if (ticket.IsClosed)
+                    {
+                        if (task.Status == TaskStatus.Done)
+                        {
+                            if (metadataChanged)
+                            {
+                                _tasks.UpdateTask(task);
+                                updated++;
+                                hasTaskChanges = true;
+                            }
+
+                            LogAutoComplete(ticket, task, "already-completed");
+                        }
+                        else
+                        {
+                            // Use the same persistence path as the manual "Erledigt" action.
+                            _tasks.MarkDone(task);
+                            updated++;
+                            hasTaskChanges = true;
+                            LogAutoComplete(ticket, task, "completed");
+                        }
+                    }
+                    else if (metadataChanged)
+                    {
+                        // Deliberately preserve Done: reopening in Znuny is not propagated back.
+                        _tasks.UpdateTask(task);
+                        updated++;
+                        hasTaskChanges = true;
+                        _logger.Info($"[ZnunyTaskUpdated] ticketId={ticket.TicketID} ticketNumber='{ticket.TicketNumber}' taskId={task.Id}");
+                    }
                 }
                 else
                 {
+                    if (ticket.IsClosed && _settings.Current.TicketSystemOnlyOpenTickets && !_settings.Current.TicketSystemShowClosedTickets)
+                    {
+                        skipped++;
+                        continue;
+                    }
+
                     task = new TaskItem();
                     MapTicketToTask(ticket, task);
+                    task.Status = ticket.IsClosed ? TaskStatus.Done : TaskStatus.Planned;
                     _tasks.CreateTask(task);
                     created++;
+                    hasTaskChanges = true;
                     _logger.Info($"[ZnunyTaskCreated] ticketId={ticket.TicketID} ticketNumber='{ticket.TicketNumber}' taskId={task.Id}");
-                }
-            }
-
-            if (_settings.Current.TicketSystemOnlyOpenTickets)
-            {
-                foreach (var task in existing.Values.Where(t => !seen.Contains(ExtractZnunyTicketIdFromTask(t))))
-                {
-                    if (task.Status == TaskStatus.Done) continue;
-                    task.Status = TaskStatus.Done;
-                    _tasks.UpdateTask(task);
-                    updated++;
-                    _logger.Info($"[ZnunyTaskUpdated] missingOpenTicket taskId={task.Id} action=MarkedDone");
                 }
             }
 
@@ -228,6 +267,8 @@ public class TicketSystemService : IDisposable
         finally
         {
             _syncGate.Release();
+            if (hasTaskChanges)
+                NotifyTasksChanged();
         }
     }
 
@@ -459,13 +500,36 @@ public class TicketSystemService : IDisposable
         return payload;
     }
 
-    private void MapTicketToTask(ZnunyTicket ticket, TaskItem task)
+    private static bool MapTicketToTask(ZnunyTicket ticket, TaskItem task)
     {
-        task.Title = $"[{ticket.TicketNumber}] {ticket.Title}".Trim();
-        task.Description = ticket.ToDescription();
+        var title = $"[{ticket.TicketNumber}] {ticket.Title}".Trim();
+        var description = ticket.ToDescription();
+        var tags = $"Znuny;ZnunyTicketID:{ticket.TicketID};ZnunyTicketNumber:{ticket.TicketNumber}";
+        var changed = !string.Equals(task.Title, title, StringComparison.Ordinal)
+                      || !string.Equals(task.Description, description, StringComparison.Ordinal)
+                      || !string.Equals(task.TicketUrl, ticket.WebUrl, StringComparison.Ordinal)
+                      || !string.Equals(task.Tags, tags, StringComparison.Ordinal);
+
+        task.Title = title;
+        task.Description = description;
         task.TicketUrl = ticket.WebUrl;
-        task.Status = ticket.IsClosed ? TaskStatus.Done : TaskStatus.Planned;
-        task.Tags = $"Znuny;ZnunyTicketID:{ticket.TicketID};ZnunyTicketNumber:{ticket.TicketNumber}";
+        task.Tags = tags;
+        return changed;
+    }
+
+    private void LogAutoComplete(ZnunyTicket ticket, TaskItem task, string action)
+        => _logger.Info($"[ZnunyAutoComplete] ticketId={ticket.TicketID} ticketNumber='{ticket.TicketNumber}' taskId={task.Id} ticketState='{ticket.State}' ticketStateType='{ticket.StateType}' action={action}");
+
+    private void NotifyTasksChanged()
+    {
+        try
+        {
+            TasksChanged?.Invoke();
+        }
+        catch (Exception ex)
+        {
+            _logger.Error($"[ZnunyTaskRefresh] action=failed errorCode={ex.HResult:X8} message={ex.Message}");
+        }
     }
 
     private static string ExtractZnunyTicketIdFromTask(TaskItem task)
@@ -826,6 +890,7 @@ public class TicketSystemService : IDisposable
         public string Title { get; init; } = string.Empty;
         public string Queue { get; init; } = string.Empty;
         public string State { get; init; } = string.Empty;
+        public string StateType { get; init; } = string.Empty;
         public string Priority { get; init; } = string.Empty;
         public string Owner { get; init; } = string.Empty;
         public string Responsible { get; init; } = string.Empty;
@@ -846,7 +911,18 @@ public class TicketSystemService : IDisposable
         public string FirstArticleSenderType { get; init; } = string.Empty;
         public string FirstArticleCreated { get; init; } = string.Empty;
         public int ArticleCount { get; init; }
-        public bool IsClosed => State.Contains("closed", StringComparison.OrdinalIgnoreCase) || State.Contains("removed", StringComparison.OrdinalIgnoreCase) || State.Contains("merged", StringComparison.OrdinalIgnoreCase);
+        public bool IsClosed => IsClosedValue(StateType) || IsClosedValue(State);
+
+        private static bool IsClosedValue(string value)
+        {
+            var normalized = value.Trim();
+            return normalized.Equals("closed", StringComparison.OrdinalIgnoreCase)
+                   || normalized.StartsWith("closed ", StringComparison.OrdinalIgnoreCase)
+                   || normalized.Equals("removed", StringComparison.OrdinalIgnoreCase)
+                   || normalized.StartsWith("removed ", StringComparison.OrdinalIgnoreCase)
+                   || normalized.Equals("merged", StringComparison.OrdinalIgnoreCase)
+                   || normalized.StartsWith("merged ", StringComparison.OrdinalIgnoreCase);
+        }
 
         public static ZnunyTicket FromJson(JsonElement item, string webBaseUrl, JsonElement? responseRoot = null)
         {
@@ -867,6 +943,7 @@ public class TicketSystemService : IDisposable
                 Title = FirstString(item, "Title"),
                 Queue = FirstString(item, "Queue"),
                 State = FirstString(item, "State"),
+                StateType = FirstString(item, "StateType"),
                 Priority = FirstString(item, "Priority"),
                 Owner = FirstString(item, "Owner"),
                 Responsible = FirstString(item, "Responsible"),
@@ -907,6 +984,7 @@ public class TicketSystemService : IDisposable
             sb.AppendLine($"Title: {Title}");
             sb.AppendLine($"Queue: {Queue}");
             sb.AppendLine($"State: {State}");
+            if (!string.IsNullOrWhiteSpace(StateType)) sb.AppendLine($"StateType: {StateType}");
             sb.AppendLine($"Priority: {Priority}");
             sb.AppendLine($"Owner: {Owner}");
             sb.AppendLine($"Responsible: {Responsible}");
