@@ -48,10 +48,11 @@ CREATE TABLE IF NOT EXISTS schema_version (
             MigrateToV5(conn);
             MigrateToV6(conn);
             MigrateToV7(conn);
+            MigrateToV8(conn);
 
-            if (currentVersion < 7)
+            if (currentVersion < 8)
             {
-                SetVersion(conn, 7);
+                SetVersion(conn, 8);
             }
         }
         catch (Exception ex)
@@ -76,6 +77,7 @@ CREATE TABLE IF NOT EXISTS tasks (
     outlook_entry_id TEXT,
     ticket_minutes_booked INTEGER NOT NULL DEFAULT 0,
     ticket_seconds_booked INTEGER NOT NULL DEFAULT 0,
+    is_pinned INTEGER NOT NULL DEFAULT 0,
     created_utc TEXT NOT NULL,
     updated_utc TEXT NOT NULL
 );
@@ -178,6 +180,11 @@ SELECT t.id,
 FROM tasks t
 LEFT JOIN ticket_time_bookings b ON b.task_id = t.id
 GROUP BY t.id;");
+    }
+
+    private static void MigrateToV8(SqliteConnection conn)
+    {
+        EnsureColumn(conn, "tasks", "is_pinned", "INTEGER NOT NULL DEFAULT 0");
     }
 
     private static void EnsureColumn(SqliteConnection conn, string table, string column, string definition)

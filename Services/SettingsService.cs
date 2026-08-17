@@ -78,6 +78,9 @@ public class SettingsService
             settings.InstalledVersion = AppSettings.InitialInstalledVersion;
             changes |= NormalizationChanges.InstalledVersion;
         }
+        settings.CurrentTasksSortField = string.Equals(settings.CurrentTasksSortField, "Created", StringComparison.OrdinalIgnoreCase)
+            ? "Created"
+            : "Updated";
         if (settings.FridayTargetMinutes <= 0)
             settings.FridayTargetMinutes = 300;
 

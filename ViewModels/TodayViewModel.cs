@@ -34,6 +34,8 @@ public class TodayViewModel : ObservableObject
     public ObservableCollection<TicketFieldOption> CostCenterOptions { get; } = new();
     public ObservableCollection<TicketFieldOption> OrderOptions { get; } = new();
     public ObservableCollection<string> TimeOptions { get; } = new(Enumerable.Range(0, 96).Select(i => TimeSpan.FromMinutes(i * 15).ToString(@"hh\:mm")));
+    public IReadOnlyList<string> CurrentTaskSortFields { get; } = new[] { "Zuletzt bearbeitet", "Erstellungsdatum" };
+    public IReadOnlyList<string> CurrentTaskSortDirections { get; } = new[] { "Neueste zuerst", "Älteste zuerst" };
 
     public event Action<Guid>? TaskBringIntoViewRequested;
 
@@ -98,6 +100,36 @@ public class TodayViewModel : ObservableObject
     public bool ShowCurrentTaskList => SelectedTaskScope == TodayTaskScope.Current;
     public bool ShowCompletedTaskList => SelectedTaskScope == TodayTaskScope.Completed;
     public string ActiveTaskListHeading => SelectedTaskScope == TodayTaskScope.Today ? "Heute:" : "Aktuelle Aufgaben:";
+
+    public string SelectedCurrentTaskSortField
+    {
+        get => string.Equals(_settings.Current.CurrentTasksSortField, "Created", StringComparison.OrdinalIgnoreCase)
+            ? "Erstellungsdatum"
+            : "Zuletzt bearbeitet";
+        set
+        {
+            var field = string.Equals(value, "Erstellungsdatum", StringComparison.Ordinal) ? "Created" : "Updated";
+            if (string.Equals(_settings.Current.CurrentTasksSortField, field, StringComparison.Ordinal)) return;
+            _settings.Current.CurrentTasksSortField = field;
+            _settings.Save();
+            Raise();
+            RefreshDisplayedTasks();
+        }
+    }
+
+    public string SelectedCurrentTaskSortDirection
+    {
+        get => _settings.Current.CurrentTasksSortDescending ? "Neueste zuerst" : "Älteste zuerst";
+        set
+        {
+            var descending = !string.Equals(value, "Älteste zuerst", StringComparison.Ordinal);
+            if (_settings.Current.CurrentTasksSortDescending == descending) return;
+            _settings.Current.CurrentTasksSortDescending = descending;
+            _settings.Save();
+            Raise();
+            RefreshDisplayedTasks();
+        }
+    }
 
     private string _statusMessage = string.Empty;
     public string StatusMessage { get => _statusMessage; set => Set(ref _statusMessage, value); }
@@ -250,6 +282,7 @@ public class TodayViewModel : ObservableObject
     public RelayCommand<TaskItem> StartTaskCommand { get; }
     public RelayCommand<TaskItem> StopTaskCommand { get; }
     public RelayCommand<TaskItem> DoneTaskCommand { get; }
+    public RelayCommand<TaskItem> TogglePinTaskCommand { get; }
     public RelayCommand<string> OpenTicketUrlCommand { get; }
     public RelayCommand<OutlookCalendarEvent> OpenAgendaOutlookEventCommand { get; }
     public RelayCommand<string> OpenAgendaTeamsCommand { get; }
@@ -312,6 +345,7 @@ public class TodayViewModel : ObservableObject
         StartTaskCommand = new RelayCommand<TaskItem>(StartTaskFromCard);
         StopTaskCommand = new RelayCommand<TaskItem>(task => OnCardTaskAction(task, _tasks.StopTimer));
         DoneTaskCommand = new RelayCommand<TaskItem>(task => OnCardTaskAction(task, _tasks.MarkDone));
+        TogglePinTaskCommand = new RelayCommand<TaskItem>(TogglePinTask, task => task != null);
         OpenTicketUrlCommand = new RelayCommand<string>(OpenTicketUrl, url => !string.IsNullOrWhiteSpace(url));
         OpenAgendaOutlookEventCommand = new RelayCommand<OutlookCalendarEvent>(OpenAgendaOutlookEvent, outlookEvent => outlookEvent != null);
         OpenAgendaTeamsCommand = new RelayCommand<string>(OpenAgendaTeams, url => !string.IsNullOrWhiteSpace(url));
@@ -537,8 +571,29 @@ public class TodayViewModel : ObservableObject
     {
         DisplayedTasks.Clear();
         var source = SelectedTaskScope == TodayTaskScope.Today ? TodayTasks : _currentTasksWithoutToday;
-        foreach (var task in source)
+        IEnumerable<TaskItem> ordered = source;
+        if (SelectedTaskScope == TodayTaskScope.Current)
+        {
+            var pinnedFirst = source.OrderByDescending(task => task.IsPinned);
+            var sortByCreated = string.Equals(_settings.Current.CurrentTasksSortField, "Created", StringComparison.OrdinalIgnoreCase);
+            ordered = _settings.Current.CurrentTasksSortDescending
+                ? sortByCreated
+                    ? pinnedFirst.ThenByDescending(task => task.CreatedUtc)
+                    : pinnedFirst.ThenByDescending(task => task.UpdatedUtc)
+                : sortByCreated
+                    ? pinnedFirst.ThenBy(task => task.CreatedUtc)
+                    : pinnedFirst.ThenBy(task => task.UpdatedUtc);
+        }
+
+        foreach (var task in ordered)
             DisplayedTasks.Add(task);
+    }
+
+    private void TogglePinTask(TaskItem? task)
+    {
+        if (task == null || SelectedTaskScope != TodayTaskScope.Current) return;
+        _tasks.SetPinned(task, !task.IsPinned);
+        RefreshDisplayedTasks();
     }
 
     private void SetDayType(string type)
