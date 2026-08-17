@@ -23,6 +23,20 @@
                         </WrapPanel>
                     </StackPanel>
                 </Border>
+
+                <Border Style="{StaticResource CardStyle}">
+                    <StackPanel>
+                        <TextBlock Text="Segmentplanung" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,10"/>
+                        <TextBlock Text="Standarddauer für neue Segmente" Foreground="{StaticResource MutedTextBrush}"/>
+                        <StackPanel Orientation="Horizontal">
+                            <ComboBox Width="120" Style="{StaticResource DarkComboBoxStyle}"
+                                      ItemsSource="{Binding SegmentDurationOptions}"
+                                      SelectedItem="{Binding DefaultSegmentDurationMinutes}"/>
+                            <TextBlock Text="Minuten" VerticalAlignment="Center" Margin="8,0,0,0"/>
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+
                 <Border Style="{StaticResource CardStyle}">
                     <StackPanel>
                         <TextBlock Text="Einstellungen" FontSize="24" FontWeight="SemiBold" Margin="0,0,0,10"/>

@@ -15,7 +15,8 @@ public class SettingsService
     {
         None = 0,
         TicketUpdateRoute = 1,
-        InstalledVersion = 2
+        InstalledVersion = 2,
+        SegmentDuration = 4
     }
 
     private readonly LoggerService _logger;
@@ -40,7 +41,12 @@ public class SettingsService
                 return;
             }
             var json = File.ReadAllText(_path);
+            using var settingsDocument = JsonDocument.Parse(json);
+            var hasSegmentDuration = settingsDocument.RootElement.EnumerateObject()
+                .Any(property => string.Equals(property.Name, nameof(AppSettings.DefaultSegmentDurationMinutes), StringComparison.OrdinalIgnoreCase));
             Current = JsonSerializer.Deserialize<AppSettings>(json) ?? new AppSettings();
+            if (!hasSegmentDuration)
+                Current.DefaultSegmentDurationMinutes = 0;
             var changes = Normalize(Current);
             if (changes != NormalizationChanges.None)
             {
@@ -81,6 +87,11 @@ public class SettingsService
         settings.CurrentTasksSortField = string.Equals(settings.CurrentTasksSortField, "Created", StringComparison.OrdinalIgnoreCase)
             ? "Created"
             : "Updated";
+        if (settings.DefaultSegmentDurationMinutes is < 15 or > 240)
+        {
+            settings.DefaultSegmentDurationMinutes = 30;
+            changes |= NormalizationChanges.SegmentDuration;
+        }
         if (settings.FridayTargetMinutes <= 0)
             settings.FridayTargetMinutes = 300;
 

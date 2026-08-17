@@ -195,6 +195,7 @@ public class TodayViewModel : ObservableObject
     }
 
     private string _newSegmentStartTime = "09:00";
+    private bool _newSegmentEndTimeManuallyEdited;
     public string NewSegmentStartTime
     {
         get => _newSegmentStartTime;
@@ -202,8 +203,8 @@ public class TodayViewModel : ObservableObject
         {
             if (Set(ref _newSegmentStartTime, value))
             {
-                if (string.IsNullOrWhiteSpace(NewSegmentEndTime) && TimeSpan.TryParse(value, out var start))
-                    NewSegmentEndTime = start.Add(TimeSpan.FromMinutes(30)).ToString(@"hh\:mm");
+                if (!_newSegmentEndTimeManuallyEdited)
+                    SetAutomaticNewSegmentEndTime(value);
                 RaiseSegmentEditorState();
             }
         }
@@ -213,7 +214,14 @@ public class TodayViewModel : ObservableObject
     public string NewSegmentEndTime
     {
         get => _newSegmentEndTime;
-        set { if (Set(ref _newSegmentEndTime, value)) RaiseSegmentEditorState(); }
+        set
+        {
+            if (Set(ref _newSegmentEndTime, value))
+            {
+                _newSegmentEndTimeManuallyEdited = true;
+                RaiseSegmentEditorState();
+            }
+        }
     }
 
     private string _newSegmentNote = string.Empty;
@@ -304,6 +312,7 @@ public class TodayViewModel : ObservableObject
         _tasks = tasks;
         _workDays = workDays;
         _settings = settings;
+        SetAutomaticNewSegmentEndTime(NewSegmentStartTime);
         _germanTime = ServiceLocator.GermanTime;
         _outlookCalendar = outlookCalendar;
         _ticketSystem = ticketSystem;
@@ -367,6 +376,19 @@ public class TodayViewModel : ObservableObject
         Raise(nameof(CanSaveNewSegment));
         EvaluateNewSegmentConflict();
         AddSegmentCommand.RaiseCanExecuteChanged();
+    }
+
+    private void SetAutomaticNewSegmentEndTime(string startTime)
+    {
+        var endTime = string.Empty;
+        if (TimeSpan.TryParse(startTime, out var start))
+        {
+            var calculatedEnd = start.Add(TimeSpan.FromMinutes(_settings.Current.DefaultSegmentDurationMinutes));
+            if (calculatedEnd < TimeSpan.FromDays(1))
+                endTime = calculatedEnd.ToString(@"hh\:mm");
+        }
+
+        Set(ref _newSegmentEndTime, endTime, nameof(NewSegmentEndTime));
     }
 
     private void RaiseCommandStates()
@@ -734,10 +756,14 @@ public class TodayViewModel : ObservableObject
             return;
 
         _tasks.AddSegment(segment);
+        NewSegmentNote = string.Empty;
+        _newSegmentEndTimeManuallyEdited = false;
+        SetAutomaticNewSegmentEndTime(NewSegmentStartTime);
         var outlookStatus = SyncSegmentOutlookAutomatically(segment);
         ServiceLocator.Notifications.RefreshSchedule();
         StatusMessage = $"Segment hinzugefügt.{outlookStatus}";
         LoadSegments();
+        RaiseSegmentEditorState();
         RaiseCommandStates();
     }
 

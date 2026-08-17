@@ -46,6 +46,7 @@ public class SettingsViewModel : ObservableObject
     public int OutlookCalendarSyncIntervalMinutes { get => _settings.Current.OutlookCalendarSyncIntervalMinutes; set { _settings.Current.OutlookCalendarSyncIntervalMinutes = value; Save(); } }
     public int OutlookCalendarRangePastDays { get => _settings.Current.OutlookCalendarRangePastDays; set { _settings.Current.OutlookCalendarRangePastDays = value; Save(); } }
     public int OutlookCalendarRangeFutureDays { get => _settings.Current.OutlookCalendarRangeFutureDays; set { _settings.Current.OutlookCalendarRangeFutureDays = value; Save(); } }
+    public int DefaultSegmentDurationMinutes { get => _settings.Current.DefaultSegmentDurationMinutes; set { _settings.Current.DefaultSegmentDurationMinutes = value; Save(); } }
 
     public string TicketSystemWebUrl { get => _settings.Current.TicketSystemWebUrl; set { _settings.Current.TicketSystemWebUrl = value; Save(); } }
     public string TicketSystemApiUrl { get => _settings.Current.TicketSystemApiUrl; set { _settings.Current.TicketSystemApiUrl = value; Save(); } }
@@ -122,6 +123,7 @@ public class SettingsViewModel : ObservableObject
     public List<string> TicketSystemSearchMethods { get; } = new() { "POST", "GET" };
     public List<string> TicketSystemAuthModes { get; } = new() { "Session", "Direct" };
     public List<string> TicketSystemTicketGetAuthModes { get; } = new() { "Session", "Direct" };
+    public List<int> SegmentDurationOptions { get; } = new() { 15, 30, 45, 60, 90, 120, 180, 240 };
 
     public RelayCommand TestReminderCommand { get; }
     public RelayCommand RefreshOutlookCalendarCommand { get; }

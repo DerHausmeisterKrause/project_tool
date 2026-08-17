@@ -12,6 +12,7 @@ public class AppSettings
     public string InstalledVersion { get; set; } = string.Empty;
     public string CurrentTasksSortField { get; set; } = "Updated";
     public bool CurrentTasksSortDescending { get; set; } = true;
+    public int DefaultSegmentDurationMinutes { get; set; } = 30;
     public string DynamicIslandDockPosition { get; set; } = "TopCenter";
 
     public bool OutlookSyncEnabled { get; set; } = true;
