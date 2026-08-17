@@ -26,6 +26,10 @@ public partial class App : Application
             MainWindow = mainWindow;
             ServiceLocator.Notifications.AttachMainWindow(mainWindow);
             mainWindow.Show();
+            var postUpdate = e.Args.Any(arg => string.Equals(arg, "--post-update", StringComparison.OrdinalIgnoreCase));
+            if (postUpdate) ServiceLocator.Updates.CompletePostUpdateCleanup();
+            else ServiceLocator.Updates.CleanupOldTempFolders();
+            _ = ServiceLocator.MainViewModel.SettingsViewModel.RunStartupUpdateCheckAsync();
         }
         catch (Exception ex)
         {
@@ -51,6 +55,8 @@ public partial class App : Application
                 ServiceLocator.Notifications.Dispose();
             if (ServiceLocator.OutlookCalendar != null)
                 ServiceLocator.OutlookCalendar.Dispose();
+            if (ServiceLocator.Updates != null)
+                ServiceLocator.Updates.Dispose();
         }
         catch
         {

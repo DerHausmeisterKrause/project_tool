@@ -5,6 +5,7 @@ public class AppSettings
     public const string DefaultTicketSystemTicketUpdateRoute = "/Ticket/{TicketID}/Update";
     public const string LegacyTicketSystemTicketUpdateRoute = "/Ticket/Update";
     public bool DynamicIslandEnabled { get; set; } = true;
+    public bool CheckForUpdatesOnStartup { get; set; } = true;
     public string DynamicIslandDockPosition { get; set; } = "TopCenter";
 
     public bool OutlookSyncEnabled { get; set; } = true;

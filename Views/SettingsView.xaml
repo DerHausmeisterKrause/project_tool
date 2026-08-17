@@ -7,6 +7,24 @@
             <StackPanel>
                 <Border Style="{StaticResource CardStyle}">
                     <StackPanel>
+                        <TextBlock Text="Updates" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,10"/>
+                        <TextBlock><Run Text="Installierte Version: "/><Run Text="{Binding InstalledVersion, Mode=OneWay}"/></TextBlock>
+                        <TextBlock><Run Text="Letzte Prüfung: "/><Run Text="{Binding LastUpdateCheck}"/></TextBlock>
+                        <TextBlock><Run Text="Verfügbare Version: "/><Run Text="{Binding AvailableVersion}"/></TextBlock>
+                        <CheckBox Content="Beim Start automatisch nach Updates suchen" IsChecked="{Binding CheckForUpdatesOnStartup}" Margin="0,8,0,8"/>
+                        <ProgressBar Minimum="0" Maximum="100" Value="{Binding UpdateProgress}" Height="8" Margin="0,0,0,6"/>
+                        <TextBlock Text="{Binding UpdateStatus}" Foreground="#FBBF24" TextWrapping="Wrap"/>
+                        <TextBlock Text="Release Notes" FontWeight="SemiBold" Margin="0,8,0,3"/>
+                        <TextBox Text="{Binding ReleaseNotes, Mode=OneWay}" IsReadOnly="True" AcceptsReturn="True" TextWrapping="Wrap" MaxHeight="160" VerticalScrollBarVisibility="Auto"/>
+                        <WrapPanel Margin="0,8,0,0">
+                            <Button Content="Nach Updates suchen" Width="180" Command="{Binding CheckForUpdatesCommand}"/>
+                            <Button Content="Update installieren" Width="170" Command="{Binding InstallUpdateCommand}"/>
+                            <Button Content="Release auf GitHub öffnen" Width="210" Style="{StaticResource SecondaryButtonStyle}" Command="{Binding OpenReleaseCommand}"/>
+                        </WrapPanel>
+                    </StackPanel>
+                </Border>
+                <Border Style="{StaticResource CardStyle}">
+                    <StackPanel>
                         <TextBlock Text="Einstellungen" FontSize="24" FontWeight="SemiBold" Margin="0,0,0,10"/>
                         <CheckBox Content="Outlook Sync aktiv" IsChecked="{Binding OutlookSyncEnabled}" Margin="0,0,0,8"/>
                         <CheckBox Content="Outlook Kalender anzeigen" IsChecked="{Binding OutlookCalendarEnabled}" Margin="0,0,0,8"/>

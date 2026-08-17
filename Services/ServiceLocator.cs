@@ -14,12 +14,16 @@ public static class ServiceLocator
     public static WorkDayService WorkDays { get; private set; } = null!;
     public static TicketSystemService TicketSystem { get; private set; } = null!;
     public static GermanTimeService GermanTime { get; private set; } = null!;
+    public static AppVersionService AppVersion { get; private set; } = null!;
+    public static UpdateService Updates { get; private set; } = null!;
     public static MainViewModel MainViewModel { get; private set; } = null!;
 
     public static void Initialize()
     {
         Logger = new LoggerService();
         Settings = new SettingsService(Logger);
+        AppVersion = new AppVersionService();
+        Updates = new UpdateService(Logger, AppVersion);
         GermanTime = new GermanTimeService();
         Database = new DatabaseService(Logger);
         Database.Initialize();
@@ -29,6 +33,6 @@ public static class ServiceLocator
         TicketSystem = new TicketSystemService(Settings, Tasks, Logger);
         Notifications = new NotificationService(Logger, Settings, Tasks);
         OutlookCalendar = new OutlookCalendarService(Logger, Settings, Outlook);
-        MainViewModel = new MainViewModel(Tasks, WorkDays, Settings, Notifications, OutlookCalendar, TicketSystem, Logger);
+        MainViewModel = new MainViewModel(Tasks, WorkDays, Settings, Notifications, OutlookCalendar, TicketSystem, Updates, AppVersion, Logger);
     }
 }
