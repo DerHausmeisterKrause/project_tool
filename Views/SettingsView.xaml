@@ -7,6 +7,49 @@
             <StackPanel>
                 <Border Style="{StaticResource CardStyle}">
                     <StackPanel>
+                        <TextBlock Text="Updates" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,10"/>
+                        <TextBlock><Run Text="Installierte Version: "/><Run Text="{Binding InstalledVersion, Mode=OneWay}"/></TextBlock>
+                        <TextBlock><Run Text="Letzte Prüfung: "/><Run Text="{Binding LastUpdateCheck}"/></TextBlock>
+                        <TextBlock><Run Text="Verfügbare Version: "/><Run Text="{Binding AvailableVersion}"/></TextBlock>
+                        <CheckBox Content="Beim Start automatisch nach Updates suchen" IsChecked="{Binding CheckForUpdatesOnStartup}" Margin="0,8,0,8"/>
+                        <CheckBox Content="Verfügbare Updates automatisch installieren" IsChecked="{Binding AutoInstallUpdatesOnStartup}" Margin="0,0,0,8"/>
+                        <ProgressBar Minimum="0" Maximum="100" Value="{Binding UpdateProgress}" Height="8" Margin="0,0,0,6"/>
+                        <TextBlock Text="{Binding UpdateStatus}" Foreground="#FBBF24" TextWrapping="Wrap"/>
+                        <TextBlock Text="Release Notes" FontWeight="SemiBold" Margin="0,8,0,3"/>
+                        <TextBox Text="{Binding ReleaseNotes, Mode=OneWay}" IsReadOnly="True" AcceptsReturn="True" TextWrapping="Wrap" MaxHeight="160" VerticalScrollBarVisibility="Auto"/>
+                        <WrapPanel Margin="0,8,0,0">
+                            <Button Content="Nach Updates suchen" Width="180" Command="{Binding CheckForUpdatesCommand}"/>
+                            <Button Content="Update installieren" Width="170" Command="{Binding InstallUpdateCommand}"/>
+                            <Button Content="Release auf GitHub öffnen" Width="210" Style="{StaticResource SecondaryButtonStyle}" Command="{Binding OpenReleaseCommand}"/>
+                        </WrapPanel>
+                    </StackPanel>
+                </Border>
+
+                <Border Style="{StaticResource CardStyle}">
+                    <StackPanel>
+                        <TextBlock Text="Homeoffice" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,10"/>
+                        <TextBlock Text="E-Mail Empfänger 1" Foreground="{StaticResource MutedTextBrush}"/>
+                        <TextBox Width="420" HorizontalAlignment="Left" Text="{Binding HomeOfficeMailRecipient1, UpdateSourceTrigger=LostFocus}"/>
+                        <TextBlock Text="E-Mail Empfänger 2 (optional)" Foreground="{StaticResource MutedTextBrush}" Margin="0,8,0,0"/>
+                        <TextBox Width="420" HorizontalAlignment="Left" Text="{Binding HomeOfficeMailRecipient2, UpdateSourceTrigger=LostFocus}"/>
+                    </StackPanel>
+                </Border>
+
+                <Border Style="{StaticResource CardStyle}">
+                    <StackPanel>
+                        <TextBlock Text="Segmentplanung" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,10"/>
+                        <TextBlock Text="Standarddauer für neue Segmente" Foreground="{StaticResource MutedTextBrush}"/>
+                        <StackPanel Orientation="Horizontal">
+                            <ComboBox Width="120" Style="{StaticResource DarkComboBoxStyle}"
+                                      ItemsSource="{Binding SegmentDurationOptions}"
+                                      SelectedItem="{Binding DefaultSegmentDurationMinutes}"/>
+                            <TextBlock Text="Minuten" VerticalAlignment="Center" Margin="8,0,0,0"/>
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+
+                <Border Style="{StaticResource CardStyle}">
+                    <StackPanel>
                         <TextBlock Text="Einstellungen" FontSize="24" FontWeight="SemiBold" Margin="0,0,0,10"/>
                         <CheckBox Content="Outlook Sync aktiv" IsChecked="{Binding OutlookSyncEnabled}" Margin="0,0,0,8"/>
                         <CheckBox Content="Outlook Kalender anzeigen" IsChecked="{Binding OutlookCalendarEnabled}" Margin="0,0,0,8"/>
@@ -14,6 +57,9 @@
                         <CheckBox Content="Teams-Button anzeigen" IsChecked="{Binding OutlookTeamsButtonEnabled}" Margin="0,0,0,8"/>
                         <CheckBox Content="Ganztagstermine als Tagesmarker interpretieren" IsChecked="{Binding OutlookInterpretAllDayAsMarkers}" Margin="0,0,0,8"/>
                         <CheckBox Content="Wochenende anzeigen" IsChecked="{Binding ShowWeekendInWeekView}" Margin="0,0,0,8"/>
+                        <CheckBox Content="Interne Aufgaben-Segmente zusätzlich im Kalender anzeigen" IsChecked="{Binding ShowInternalTaskSegmentsInCalendar}" Margin="0,0,0,4"/>
+                        <TextBlock Text="Bei aktiver Outlook-Synchronisierung können geplante Segmente sonst doppelt erscheinen."
+                                   Foreground="{StaticResource MutedTextBrush}" TextWrapping="Wrap" Margin="24,0,0,8"/>
                         <TextBlock Text="Kalender-Zeitzone" Foreground="{StaticResource MutedTextBrush}"/>
                         <ComboBox Width="220" Style="{StaticResource DarkComboBoxStyle}" ItemsSource="{Binding CalendarTimeZones}" SelectedItem="{Binding CalendarTimeZoneId}" Margin="0,0,0,8"/>
                         <TextBlock Text="Outlook Kalender Sync-Modus" Foreground="{StaticResource MutedTextBrush}"/>
@@ -70,6 +116,21 @@
                         <TextBox Text="{Binding TicketSystemTicketGetMethod}" Width="120" IsReadOnly="True"/>
                         <TextBlock Text="TicketGet Authentifizierung" Foreground="{StaticResource MutedTextBrush}"/>
                         <ComboBox Width="120" Style="{StaticResource DarkComboBoxStyle}" ItemsSource="{Binding TicketSystemTicketGetAuthModes}" SelectedItem="{Binding TicketSystemTicketGetAuthMode}"/>
+                        <TextBlock Text="TicketUpdate Route" Foreground="{StaticResource MutedTextBrush}"/>
+                        <TextBox Text="{Binding TicketSystemTicketUpdateRoute, UpdateSourceTrigger=PropertyChanged}" Width="320"
+                                 ToolTip="REST-Route für TicketUpdate. {TicketID} wird automatisch durch die interne Znuny-Ticket-ID ersetzt. Standard: /Ticket/{TicketID}/Update"/>
+                        <TextBlock Text="DynamicField-Options Route (read-only)" Foreground="{StaticResource MutedTextBrush}"/>
+                        <TextBox Text="{Binding TicketSystemDynamicFieldOptionsRoute, UpdateSourceTrigger=PropertyChanged}" Width="360" ToolTip="/Ticket/DynamicField/{FieldName}/Options"/>
+                        <TextBlock Text="DynamicField: Kostenstelle (interner Name)" Foreground="{StaticResource MutedTextBrush}"/>
+                        <TextBox Text="{Binding TicketSystemCostCenterFieldName, UpdateSourceTrigger=PropertyChanged}" Width="320"/>
+                        <TextBlock Text="Kostenstellen-Optionen (Key=Anzeigetext;...)" Foreground="{StaticResource MutedTextBrush}"/>
+                        <TextBox Text="{Binding TicketSystemCostCenterOptions, UpdateSourceTrigger=PropertyChanged}" Width="560" ToolTip="Beispiel: 4711=Kostenstelle 4711;815=Kostenstelle 815"/>
+                        <TextBlock Text="DynamicField: Auftrag (interner Name)" Foreground="{StaticResource MutedTextBrush}"/>
+                        <TextBox Text="{Binding TicketSystemOrderFieldName, UpdateSourceTrigger=PropertyChanged}" Width="320"/>
+                        <TextBlock Text="Auftrags-Optionen (Key=Anzeigetext;...)" Foreground="{StaticResource MutedTextBrush}"/>
+                        <TextBox Text="{Binding TicketSystemOrderOptions, UpdateSourceTrigger=PropertyChanged}" Width="560" ToolTip="Beispiel: 123456=Auftrag 123456"/>
+                        <TextBlock Text="TicketGet liefert die aktuellen DynamicField-Werte, aber üblicherweise keine vollständigen Optionslisten. Ohne zusätzlichen GenericInterface-Metadaten-Endpunkt werden die obigen konfigurierbaren Key/Anzeigetext-Listen verwendet; die Weboberfläche wird nicht gescrapt."
+                                   Foreground="{StaticResource MutedTextBrush}" TextWrapping="Wrap" Margin="0,0,0,8"/>
                         <TextBlock Text="Bei älteren OTRS/Znuny-6.x-GenericTicketConnectorREST-Konfigurationen verwendet TicketSearch GET /Ticket." Foreground="{StaticResource MutedTextBrush}" TextWrapping="Wrap" Margin="0,0,0,8"/>
                         <TextBlock Text="Synchronisationsintervall (Minuten)" Foreground="{StaticResource MutedTextBrush}"/>
                         <TextBox Text="{Binding TicketSystemSyncIntervalMinutes, UpdateSourceTrigger=PropertyChanged}" Width="120"/>
