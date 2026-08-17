@@ -18,19 +18,24 @@ public class WeekViewModel : ObservableObject
     private readonly SettingsService _settings;
     private readonly OutlookCalendarService _outlookCalendar;
     private readonly GermanTimeService _germanTime;
+    private readonly HomeOfficeService _homeOffice;
+    private bool _isHomeOfficeOperationRunning;
+    private bool _lastShowInternalTaskSegmentsInCalendar;
+    private bool _lastShowWeekend;
 
     private const int CalendarStartHour = 6;
     private const int CalendarEndHour = 18;
-    private const double PixelsPerMinuteConst = 1.2;
-    private const double DayColumnWidthConst = 220;
+    private const double PixelsPerHour = 90;
+    private const double MinimumDayColumnWidth = 180;
     private const double DayInnerPadding = 4;
     private const double OverlapGap = 4;
 
     public string Title => "Kalender";
 
     public double TimeColumnWidth => 72;
-    public double DayColumnWidth => ShowWeekend ? DayColumnWidthConst : 280;
-    public double PixelsPerMinute => PixelsPerMinuteConst;
+    private double _dayColumnWidth = MinimumDayColumnWidth;
+    public double DayColumnWidth { get => _dayColumnWidth; private set => Set(ref _dayColumnWidth, value); }
+    public double PixelsPerMinute => PixelsPerHour / 60;
     public double CalendarBodyHeight => (CalendarEndHour - CalendarStartHour) * 60 * PixelsPerMinute;
     public double FullDayColumnHeight => CalendarBodyHeight + 58;
     public bool ShowWeekend => _settings.Current.ShowWeekendInWeekView;
@@ -132,15 +137,20 @@ public class WeekViewModel : ObservableObject
     public RelayCommand ToggleHoCommand { get; }
     public RelayCommand ToggleBrCommand { get; }
 
-    public WeekViewModel(TaskService tasks, WorkDayService workDays, SettingsService settings, OutlookCalendarService outlookCalendar)
+    public WeekViewModel(TaskService tasks, WorkDayService workDays, SettingsService settings, OutlookCalendarService outlookCalendar, HomeOfficeService homeOffice)
     {
         _tasks = tasks;
         _workDays = workDays;
         _settings = settings;
         _outlookCalendar = outlookCalendar;
+        _homeOffice = homeOffice;
+        _homeOffice.Changed += OnHomeOfficeChanged;
         _germanTime = ServiceLocator.GermanTime;
+        _lastShowInternalTaskSegmentsInCalendar = _settings.Current.ShowInternalTaskSegmentsInCalendar;
+        _lastShowWeekend = _settings.Current.ShowWeekendInWeekView;
         _timelineHeight = CalendarBodyHeight;
-        _settings.SettingsChanged += UpdateNowIndicator;
+        _settings.SettingsChanged += OnSettingsChanged;
+        _tasks.SegmentsChanged += OnSegmentsChanged;
 
         BuildTimeScale();
 #if DEBUG
@@ -163,7 +173,7 @@ public class WeekViewModel : ObservableObject
         SetDayTypeNormalCommand = new RelayCommand(() => SetDayType("Normal"), () => SelectedDayGroup != null);
         SetDayTypeUlCommand = new RelayCommand(() => SetDayType("UL"), () => SelectedDayGroup != null);
         SetDayTypeAmCommand = new RelayCommand(() => SetDayType("AM"), () => SelectedDayGroup != null);
-        ToggleHoCommand = new RelayCommand(() => { if (SelectedDayGroup == null) return; SelectedDayGroup.IsHo = !SelectedDayGroup.IsHo; SaveSelectedDay(); }, () => SelectedDayGroup != null);
+        ToggleHoCommand = new RelayCommand(async () => await ToggleHomeOfficeAsync(), () => SelectedDayGroup != null && !_isHomeOfficeOperationRunning);
         ToggleBrCommand = new RelayCommand(() => { if (SelectedDayGroup == null) return; SelectedDayGroup.IsBr = !SelectedDayGroup.IsBr; SaveSelectedDay(); }, () => SelectedDayGroup != null);
 
         _nowIndicatorTimer.Interval = TimeSpan.FromSeconds(30);
@@ -276,6 +286,42 @@ public class WeekViewModel : ObservableObject
         App.Current?.Dispatcher.Invoke(LoadWeek);
     }
 
+    private void OnHomeOfficeChanged()
+    {
+        App.Current?.Dispatcher.BeginInvoke(new Action(LoadWeek));
+    }
+
+    private void OnSegmentsChanged()
+    {
+        if (!_settings.Current.ShowInternalTaskSegmentsInCalendar)
+            return;
+
+        App.Current?.Dispatcher.BeginInvoke(new Action(LoadWeek));
+    }
+
+    private void OnSettingsChanged()
+    {
+        var showInternalSegments = _settings.Current.ShowInternalTaskSegmentsInCalendar;
+        var showWeekend = _settings.Current.ShowWeekendInWeekView;
+        var calendarLayoutChanged = showInternalSegments != _lastShowInternalTaskSegmentsInCalendar || showWeekend != _lastShowWeekend;
+        var weekendChanged = showWeekend != _lastShowWeekend;
+        _lastShowInternalTaskSegmentsInCalendar = showInternalSegments;
+        _lastShowWeekend = showWeekend;
+
+        if (calendarLayoutChanged)
+        {
+            if (weekendChanged)
+            {
+                Raise(nameof(ShowWeekend));
+                Raise(nameof(WeekRangeLabel));
+            }
+            App.Current?.Dispatcher.BeginInvoke(new Action(LoadWeek));
+            return;
+        }
+
+        UpdateNowIndicator();
+    }
+
     private void SetDayType(string type)
     {
         if (SelectedDayGroup == null) return;
@@ -290,6 +336,37 @@ public class WeekViewModel : ObservableObject
         var selectedDate = SelectedDayGroup.DayDate;
         LoadWeek();
         SelectedDayGroup = Days.FirstOrDefault(d => d.DayDate.Date == selectedDate.Date) ?? Days.FirstOrDefault();
+    }
+
+    private async Task ToggleHomeOfficeAsync()
+    {
+        if (SelectedDayGroup == null || _isHomeOfficeOperationRunning) return;
+        var day = SelectedDayGroup.DayDate.Date;
+        var remove = SelectedDayGroup.IsHo;
+        if (!remove)
+        {
+            var confirmation = MessageBox.Show($"Wollen Sie am {day:dd.MM.yyyy} Homeoffice einreichen?", "Homeoffice einreichen", MessageBoxButton.YesNo, MessageBoxImage.Question);
+            if (confirmation != MessageBoxResult.Yes)
+            {
+                ServiceLocator.Logger.Info($"[HomeOffice] action=submit date={day:yyyy-MM-dd} confirmed=false");
+                Raise(nameof(SelectedIsHo));
+                return;
+            }
+        }
+
+        _isHomeOfficeOperationRunning = true;
+        ToggleHoCommand.RaiseCanExecuteChanged();
+        try
+        {
+            var result = remove ? await _homeOffice.RemoveAsync(day) : await _homeOffice.SubmitAsync(day);
+            LoadWeek();
+            if (!result.Success) MessageBox.Show(result.Message, "Homeoffice", MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+        finally
+        {
+            _isHomeOfficeOperationRunning = false;
+            ToggleHoCommand.RaiseCanExecuteChanged();
+        }
     }
 
     private void LoadWeek()
@@ -312,9 +389,12 @@ public class WeekViewModel : ObservableObject
         }
 
         var workDays = _workDays.GetWorkDaysInRange(from, toExclusive.AddDays(-1)).ToDictionary(w => w.Day, w => w);
-        var segmentsInWeek = _tasks.GetSegmentsForRange(from, toExclusive)
-            .GroupBy(x => x.Segment.StartLocal.Date)
-            .ToDictionary(g => g.Key, g => g.OrderBy(x => x.Segment.StartLocal).ToList());
+        var showInternalSegments = _settings.Current.ShowInternalTaskSegmentsInCalendar;
+        var segmentsInWeek = showInternalSegments
+            ? _tasks.GetSegmentsForRange(from, toExclusive)
+                .GroupBy(x => x.Segment.StartLocal.Date)
+                .ToDictionary(g => g.Key, g => g.OrderBy(x => x.Segment.StartLocal).ToList())
+            : new Dictionary<DateTime, List<(TaskItem Task, TaskSegment Segment)>>();
 
         for (int i = 0; i < dayCount; i++)
         {
@@ -330,7 +410,7 @@ public class WeekViewModel : ObservableObject
             var overtime = net - target;
 
             var calendarItems = new List<WeekCalendarItem>();
-            if (segmentsInWeek.TryGetValue(day.Date, out var segmentItems))
+            if (showInternalSegments && segmentsInWeek.TryGetValue(day.Date, out var segmentItems))
             {
                 var indexByTask = new Dictionary<Guid, int>();
                 foreach (var pair in segmentItems)
@@ -351,7 +431,7 @@ public class WeekViewModel : ObservableObject
                     });
                 }
             }
-            else
+            else if (showInternalSegments)
             {
                 var fallbackTasks = _tasks.GetAllTasks()
                     .Where(t => t.StartLocal.HasValue && t.StartLocal.Value.Date == day.Date)
@@ -455,8 +535,7 @@ public class WeekViewModel : ObservableObject
         var dayIndex = (int)(today - WeekStart.Date).TotalDays;
         const double timelineTop = 0;
         var timelineHeight = _timelineHeight > 0 ? _timelineHeight : CalendarBodyHeight;
-        var ratio = minutesFromStart / rangeMinutes;
-        NowLineTop = timelineTop + ratio * timelineHeight;
+        NowLineTop = timelineTop + minutesFromStart * PixelsPerMinute;
         NowMarkerLeft = dayIndex * DayColumnWidth - 4;
         NowMarkerTop = NowLineTop - 4;
         ShowNowIndicator = true;
@@ -476,16 +555,43 @@ public class WeekViewModel : ObservableObject
         UpdateNowIndicator();
     }
 
-    public void RefreshNowIndicator() => UpdateNowIndicator();
-
-    public void UpdateTimelineMetrics(double timelineHeight)
+    public void UpdateCalendarViewport(double viewportWidth)
     {
-        if (timelineHeight > 0)
-            _timelineHeight = timelineHeight;
+        if (viewportWidth <= TimeColumnWidth)
+            return;
+
+        var visibleDayCount = ShowWeekend ? 7 : 5;
+        var availableDayWidth = viewportWidth - TimeColumnWidth;
+        var newDayColumnWidth = Math.Max(MinimumDayColumnWidth, availableDayWidth / visibleDayCount);
+        if (Math.Abs(newDayColumnWidth - DayColumnWidth) < 0.5)
+            return;
+
+        DayColumnWidth = newDayColumnWidth;
+        RelayoutVisibleCalendarItems();
         UpdateNowIndicator();
     }
 
-    public void RefreshNowIndicator() => UpdateNowIndicator();
+    private void RelayoutVisibleCalendarItems()
+    {
+        for (var index = 0; index < Days.Count; index++)
+        {
+            var day = Days[index];
+            var calendarItems = day.CalendarItems.ToList();
+            var externalEvents = day.ExternalEvents.ToList();
+
+            LayoutDayItemsCore(day.DayDate, calendarItems);
+            foreach (var externalEvent in externalEvents)
+            {
+                externalEvent.DisplayLeft = DayInnerPadding;
+                externalEvent.DisplayWidth = Math.Max(46, DayColumnWidth - (DayInnerPadding * 2));
+            }
+
+            ApplySharedOverlapLayout(calendarItems, externalEvents);
+            day.CalendarItems = new ObservableCollection<WeekCalendarItem>(calendarItems.OrderBy(item => item.DisplayTop));
+            day.ExternalEvents = new ObservableCollection<PlenaroWeekOutlookEventBlock>(externalEvents);
+            Days[index] = day;
+        }
+    }
 
     private double MapToCalendarY(DateTime value, DateTime dayDate)
     {
@@ -580,28 +686,14 @@ public class WeekViewModel : ObservableObject
             item.DisplayLeft = DayInnerPadding + (item.OverlapColumn * (blockWidth + OverlapGap));
             item.DisplayWidth = blockWidth;
             item.DisplayTop = MapToCalendarY(item.DisplayStart, dayDate: rangeStart.Date);
-            item.DisplayHeight = Math.Max(28, (item.DisplayEnd - item.DisplayStart).TotalMinutes * PixelsPerMinute - 2);
+            item.DisplayHeight = Math.Max(30, (item.DisplayEnd - item.DisplayStart).TotalMinutes * PixelsPerMinute);
             item.TimeLabel = $"{item.SegmentStart:HH:mm} - {item.SegmentEnd:HH:mm}";
             var durationMinutes = (item.DisplayEnd - item.DisplayStart).TotalMinutes;
-            item.IsCompact = durationMinutes < 30 || item.DisplayHeight < 40;
+            item.IsCompact = durationMinutes < 45;
             item.ShowNote = !item.IsCompact && item.DisplayHeight >= 64 && !string.IsNullOrWhiteSpace(item.SegmentNote);
             item.ShowTime = item.IsCompact || item.DisplayHeight >= 34;
         }
 
-        // Prevent visual overlap caused by enforced minimum height.
-        // We only adjust vertical rendering position, not the actual segment time data.
-        foreach (var colGroup in group.GroupBy(g => g.OverlapColumn))
-        {
-            var colItems = colGroup.OrderBy(i => i.DisplayTop).ToList();
-            for (var i = 1; i < colItems.Count; i++)
-            {
-                var prev = colItems[i - 1];
-                var current = colItems[i];
-                var minTop = prev.DisplayTop + prev.DisplayHeight + 2;
-                if (current.DisplayTop < minTop)
-                    current.DisplayTop = minTop;
-            }
-        }
     }
 
     private (string DerivedDayType, bool DerivedHo, bool DerivedBr, string DerivedMarker, HashSet<string> ConsumedEventIds, List<OutlookCalendarEvent> MarkerCandidates) ResolveOutlookDerivedMarker(DateTime dayDate, IReadOnlyList<OutlookCalendarEvent> events)
@@ -916,9 +1008,9 @@ public class WeekViewModel : ObservableObject
                 var start = e.StartLocal < dayStart ? dayStart : e.StartLocal;
                 var end = e.EndLocal > dayEnd ? dayEnd : e.EndLocal;
                 var top = MapToCalendarY(start, dayDate);
-                var durationMinutes = Math.Max(1, (int)Math.Ceiling((end - start).TotalMinutes));
-                var height = Math.Max(26, durationMinutes * PixelsPerMinute - 2);
-                var isCompact = height < 72;
+                var durationMinutes = Math.Max(1, (end - start).TotalMinutes);
+                var height = Math.Max(30, durationMinutes * PixelsPerMinute);
+                var isCompact = durationMinutes < 60;
                 return new PlenaroWeekOutlookEventBlock
                 {
                     Id = e.Id,
@@ -927,7 +1019,7 @@ public class WeekViewModel : ObservableObject
                     Subject = e.Subject,
                     TimeLabel = $"{e.StartLocal:HH:mm} - {e.EndLocal:HH:mm}",
                     Location = e.Location,
-                    TeamsJoinUrl = (_settings.Current.OutlookTeamsButtonEnabled && !isCompact) ? e.OnlineMeetingJoinUrl : string.Empty,
+                    TeamsJoinUrl = _settings.Current.OutlookTeamsButtonEnabled ? e.OnlineMeetingJoinUrl : string.Empty,
                     DisplayTop = top,
                     DisplayHeight = height,
                     DisplayLeft = DayInnerPadding,
@@ -936,7 +1028,8 @@ public class WeekViewModel : ObservableObject
                     ShowLocation = !isCompact && !string.IsNullOrWhiteSpace(e.Location),
                     ShowActions = !isCompact,
                     TooltipText = $"Outlook: {(e.Subject ?? string.Empty).Replace("\r", " ").Replace("\n", " ")}\n{e.StartLocal:HH:mm} - {e.EndLocal:HH:mm}" +
-                                  (string.IsNullOrWhiteSpace(e.Location) ? string.Empty : $"\nOrt: {e.Location.Replace("\r", " ").Replace("\n", " ")}")
+                                  (string.IsNullOrWhiteSpace(e.Location) ? string.Empty : $"\nOrt: {e.Location.Replace("\r", " ").Replace("\n", " ")}") +
+                                  (string.IsNullOrWhiteSpace(e.BodyPreview) ? string.Empty : $"\n\n{e.BodyPreview.Replace("\r", " ").Replace("\n", " ")}")
                 };
             })
             .OrderBy(e => e.DisplayTop)

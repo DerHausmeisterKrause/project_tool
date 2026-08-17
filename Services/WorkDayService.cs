@@ -22,7 +22,7 @@ public class WorkDayService
         using var conn = new SqliteConnection(_db.ConnectionString);
         conn.Open();
         using var select = conn.CreateCommand();
-        select.CommandText = "SELECT day,come_local,go_local,day_type,is_br,is_ho FROM work_days WHERE day=$d";
+        select.CommandText = "SELECT day,come_local,go_local,day_type,is_br,is_ho,homeoffice_outlook_entry_id FROM work_days WHERE day=$d";
         select.Parameters.AddWithValue("$d", day);
         using var r = select.ExecuteReader();
         if (r.Read()) return MapWorkDay(r, day);
@@ -40,7 +40,7 @@ public class WorkDayService
         using var conn = new SqliteConnection(_db.ConnectionString);
         conn.Open();
         using var cmd = conn.CreateCommand();
-        cmd.CommandText = "SELECT day,come_local,go_local,day_type,is_br,is_ho FROM work_days WHERE day>= $f AND day<= $t ORDER BY day";
+        cmd.CommandText = "SELECT day,come_local,go_local,day_type,is_br,is_ho,homeoffice_outlook_entry_id FROM work_days WHERE day>= $f AND day<= $t ORDER BY day";
         cmd.Parameters.AddWithValue("$f", from.ToString("yyyy-MM-dd"));
         cmd.Parameters.AddWithValue("$t", to.ToString("yyyy-MM-dd"));
         using var r = cmd.ExecuteReader();
@@ -111,6 +111,20 @@ public class WorkDayService
         cmd.Parameters.AddWithValue("$ho", isHo ? 1 : 0);
         cmd.Parameters.AddWithValue("$d", day);
         cmd.ExecuteNonQuery();
+    }
+
+    public void SetHomeOfficeState(string day, bool isHo, string entryId)
+    {
+        GetOrCreateDay(day);
+        using var conn = new SqliteConnection(_db.ConnectionString);
+        conn.Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "UPDATE work_days SET is_ho=$ho,homeoffice_outlook_entry_id=$entry WHERE day=$d";
+        cmd.Parameters.AddWithValue("$ho", isHo ? 1 : 0);
+        cmd.Parameters.AddWithValue("$entry", string.IsNullOrWhiteSpace(entryId) ? DBNull.Value : entryId);
+        cmd.Parameters.AddWithValue("$d", day);
+        if (cmd.ExecuteNonQuery() != 1)
+            throw new InvalidOperationException("Homeoffice-Marker konnte nicht gespeichert werden.");
     }
 
     public void StartBreak(string day)
@@ -193,6 +207,7 @@ ON CONFLICT(day) DO UPDATE SET come_local=$c, go_local=$g";
         GoLocal = DateTime.TryParse(r["go_local"]?.ToString(), out var g) ? g : null,
         DayType = r["day_type"]?.ToString() ?? "Normal",
         IsBr = Convert.ToInt32(r["is_br"]) == 1,
-        IsHo = Convert.ToInt32(r["is_ho"]) == 1
+        IsHo = Convert.ToInt32(r["is_ho"]) == 1,
+        HomeOfficeOutlookEntryId = r["homeoffice_outlook_entry_id"]?.ToString() ?? string.Empty
     };
 }
