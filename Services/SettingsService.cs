@@ -85,6 +85,13 @@ public class SettingsService
         settings.TicketSystemTicketGetRouteTemplate = NormalizeRoute(settings.TicketSystemTicketGetRouteTemplate, "/Ticket/{TicketID}");
         settings.TicketSystemTicketGetMethod = "GET";
         settings.TicketSystemTicketGetAuthMode = string.Equals(settings.TicketSystemTicketGetAuthMode, "Direct", StringComparison.OrdinalIgnoreCase) ? "Direct" : "Session";
+        settings.TicketSystemTicketUpdateRoute = NormalizeRoute(settings.TicketSystemTicketUpdateRoute, "/Ticket/Update");
+        settings.TicketSystemCostCenterFieldName = settings.TicketSystemCostCenterFieldName?.Trim() ?? string.Empty;
+        settings.TicketSystemOrderFieldName = settings.TicketSystemOrderFieldName?.Trim() ?? string.Empty;
+        settings.TicketSystemCostCenterOptions = settings.TicketSystemCostCenterOptions?.Trim() ?? string.Empty;
+        settings.TicketSystemOrderOptions = settings.TicketSystemOrderOptions?.Trim() ?? string.Empty;
+        if (settings.TicketSystemTimeUnitMinutesPerUnit <= 0)
+            settings.TicketSystemTimeUnitMinutesPerUnit = 1m;
         settings.TicketSystemSyncIntervalMinutes = settings.TicketSystemSyncIntervalMinutes <= 0 ? 15 : Math.Clamp(settings.TicketSystemSyncIntervalMinutes, 1, 1440);
         if (!settings.TicketSystemIncludeOwner && !settings.TicketSystemIncludeResponsible)
             settings.TicketSystemIncludeOwner = true;
