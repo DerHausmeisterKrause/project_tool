@@ -35,11 +35,10 @@ public class AppSettings
     public string TicketSystemTicketGetMethod { get; set; } = "GET";
     public string TicketSystemTicketGetAuthMode { get; set; } = "Session";
     public string TicketSystemTicketUpdateRoute { get; set; } = "/Ticket/Update";
-    public string TicketSystemCostCenterFieldName { get; set; } = string.Empty;
-    public string TicketSystemOrderFieldName { get; set; } = string.Empty;
+    public string TicketSystemCostCenterFieldName { get; set; } = "KostenstelleID";
+    public string TicketSystemOrderFieldName { get; set; } = "AuftragsID";
     public string TicketSystemCostCenterOptions { get; set; } = string.Empty;
     public string TicketSystemOrderOptions { get; set; } = string.Empty;
-    public decimal TicketSystemTimeUnitMinutesPerUnit { get; set; } = 1m;
     public int TicketSystemSyncIntervalMinutes { get; set; } = 15;
     public bool TicketSystemOnlyOpenTickets { get; set; } = true;
     public bool TicketSystemShowClosedTickets { get; set; } = false;

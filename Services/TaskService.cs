@@ -196,8 +196,8 @@ VALUES ($id,$title,$desc,$url,$start,$end,$status,$priority,$tags,$entry,$ticket
         conn.Open();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = @"INSERT INTO ticket_time_bookings
-(id,task_id,ticket_id,ticket_number,booking_id,article_id,minutes,source_seconds,booked_at_utc,short_description,cost_center,order_value,status)
-VALUES ($id,$task,$ticket,$number,$booking,$article,$minutes,$seconds,$booked,$description,$cost,$order,$status)";
+(id,task_id,ticket_id,ticket_number,booking_id,article_id,minutes,booked_minutes,source_seconds,booked_at_utc,short_description,cost_center,order_value,status)
+VALUES ($id,$task,$ticket,$number,$booking,$article,$minutes,$bookedMinutes,$seconds,$booked,$description,$cost,$order,$status)";
         BindTicketTimeBooking(cmd, booking);
         cmd.ExecuteNonQuery();
     }
@@ -207,7 +207,7 @@ VALUES ($id,$task,$ticket,$number,$booking,$article,$minutes,$seconds,$booked,$d
         using var conn = new SqliteConnection(_db.ConnectionString);
         conn.Open();
         using var cmd = conn.CreateCommand();
-        cmd.CommandText = "UPDATE ticket_time_bookings SET article_id=$article,status='Succeeded',booked_at_utc=$booked WHERE id=$id AND status='Pending'";
+        cmd.CommandText = "UPDATE ticket_time_bookings SET article_id=$article,status='Succeeded',booked_at_utc=$booked WHERE id=$id AND status<>'Succeeded'";
         cmd.Parameters.AddWithValue("$article", articleId ?? string.Empty);
         cmd.Parameters.AddWithValue("$booked", DateTime.UtcNow.ToString("O"));
         cmd.Parameters.AddWithValue("$id", booking.Id.ToString());
@@ -224,24 +224,47 @@ VALUES ($id,$task,$ticket,$number,$booking,$article,$minutes,$seconds,$booked,$d
         cmd.ExecuteNonQuery();
     }
 
+    public void ResetTicketTimeBookingForRetry(TicketTimeBooking booking)
+    {
+        using var conn = new SqliteConnection(_db.ConnectionString);
+        conn.Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "UPDATE ticket_time_bookings SET status='Pending' WHERE id=$id AND status='Failed'";
+        cmd.Parameters.AddWithValue("$id", booking.Id.ToString());
+        cmd.ExecuteNonQuery();
+    }
+
     public TicketTimeBooking? GetPendingTicketTimeBooking(Guid taskId)
         => GetTicketTimeBookings(taskId, "Pending").FirstOrDefault();
 
     public List<TicketTimeBooking> GetSuccessfulTicketTimeBookings(Guid taskId)
         => GetTicketTimeBookings(taskId, "Succeeded");
 
+    public List<TicketTimeBooking> GetAllTicketTimeBookings(Guid taskId)
+        => GetTicketTimeBookings(taskId, null);
+
     public long GetSuccessfullyTransferredSeconds(Guid taskId)
         => GetSuccessfulTicketTimeBookings(taskId).Sum(booking => booking.SourceSeconds);
 
-    private List<TicketTimeBooking> GetTicketTimeBookings(Guid taskId, string status)
+    public long GetTicketTimeBookingBaselineSeconds(Guid taskId)
+    {
+        using var conn = new SqliteConnection(_db.ConnectionString);
+        conn.Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT baseline_seconds FROM ticket_time_booking_baselines WHERE task_id=$task";
+        cmd.Parameters.AddWithValue("$task", taskId.ToString());
+        return Convert.ToInt64(cmd.ExecuteScalar() ?? 0L);
+    }
+
+    private List<TicketTimeBooking> GetTicketTimeBookings(Guid taskId, string? status)
     {
         var result = new List<TicketTimeBooking>();
         using var conn = new SqliteConnection(_db.ConnectionString);
         conn.Open();
         using var cmd = conn.CreateCommand();
-        cmd.CommandText = "SELECT * FROM ticket_time_bookings WHERE task_id=$task AND status=$status ORDER BY booked_at_utc DESC";
+        cmd.CommandText = "SELECT * FROM ticket_time_bookings WHERE task_id=$task AND ($status IS NULL OR status=$status) ORDER BY booked_at_utc DESC";
         cmd.Parameters.AddWithValue("$task", taskId.ToString());
-        cmd.Parameters.AddWithValue("$status", status);
+        cmd.Parameters.AddWithValue("$status", (object?)status ?? DBNull.Value);
         using var reader = cmd.ExecuteReader();
         while (reader.Read())
         {
@@ -254,6 +277,7 @@ VALUES ($id,$task,$ticket,$number,$booking,$article,$minutes,$seconds,$booked,$d
                 BookingId = reader["booking_id"].ToString() ?? string.Empty,
                 ArticleId = reader["article_id"].ToString() ?? string.Empty,
                 Minutes = Convert.ToDecimal(reader["minutes"]),
+                BookedMinutes = Convert.ToDecimal(reader["booked_minutes"]),
                 SourceSeconds = Convert.ToInt64(reader["source_seconds"]),
                 BookedAtUtc = DateTime.Parse(reader["booked_at_utc"].ToString()!, null, System.Globalization.DateTimeStyles.RoundtripKind),
                 ShortDescription = reader["short_description"].ToString() ?? string.Empty,
@@ -274,6 +298,7 @@ VALUES ($id,$task,$ticket,$number,$booking,$article,$minutes,$seconds,$booked,$d
         cmd.Parameters.AddWithValue("$booking", booking.BookingId);
         cmd.Parameters.AddWithValue("$article", booking.ArticleId);
         cmd.Parameters.AddWithValue("$minutes", Convert.ToDouble(booking.Minutes));
+        cmd.Parameters.AddWithValue("$bookedMinutes", Convert.ToDouble(booking.BookedMinutes));
         cmd.Parameters.AddWithValue("$seconds", booking.SourceSeconds);
         cmd.Parameters.AddWithValue("$booked", booking.BookedAtUtc.ToString("O"));
         cmd.Parameters.AddWithValue("$description", booking.ShortDescription);

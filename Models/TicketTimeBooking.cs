@@ -9,6 +9,7 @@ public class TicketTimeBooking
     public string BookingId { get; set; } = Guid.NewGuid().ToString("D");
     public string ArticleId { get; set; } = string.Empty;
     public decimal Minutes { get; set; }
+    public decimal BookedMinutes { get; set; }
     public long SourceSeconds { get; set; }
     public DateTime BookedAtUtc { get; set; } = DateTime.UtcNow;
     public string ShortDescription { get; set; } = string.Empty;
@@ -17,5 +18,13 @@ public class TicketTimeBooking
     public string Status { get; set; } = "Pending";
 
     public string DisplayTime => BookedAtUtc.ToLocalTime().ToString("dd.MM.yyyy HH:mm");
-    public string DisplayMinutes => $"{Minutes:0.##} Min.";
+    public string DisplayMinutes => $"{Minutes:0.##} Min. erfasst → {BookedMinutes:0.##} Min. gebucht";
+    public string StatusText => Status switch
+    {
+        "Succeeded" => "✓ Gebucht",
+        "Pending" => "⏳ Unklar / Pending",
+        _ => "✕ Fehlgeschlagen"
+    };
+    public bool CanCheckStatus => Status == "Pending";
+    public bool CanRetry => Status == "Failed";
 }

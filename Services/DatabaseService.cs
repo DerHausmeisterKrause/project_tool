@@ -47,10 +47,11 @@ CREATE TABLE IF NOT EXISTS schema_version (
             MigrateToV4(conn);
             MigrateToV5(conn);
             MigrateToV6(conn);
+            MigrateToV7(conn);
 
-            if (currentVersion < 6)
+            if (currentVersion < 7)
             {
-                SetVersion(conn, 6);
+                SetVersion(conn, 7);
             }
         }
         catch (Exception ex)
@@ -154,6 +155,29 @@ CREATE INDEX IF NOT EXISTS idx_ticket_time_bookings_task_status
 ON ticket_time_bookings(task_id, status, booked_at_utc DESC);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_ticket_time_bookings_one_pending_per_task
 ON ticket_time_bookings(task_id) WHERE status = 'Pending';");
+    }
+
+    private static void MigrateToV7(SqliteConnection conn)
+    {
+        EnsureColumn(conn, "ticket_time_bookings", "booked_minutes", "REAL NOT NULL DEFAULT 0");
+        Exec(conn, @"UPDATE ticket_time_bookings
+SET booked_minutes = minutes
+WHERE booked_minutes IS NULL OR booked_minutes <= 0;
+
+CREATE TABLE IF NOT EXISTS ticket_time_booking_baselines (
+    task_id TEXT PRIMARY KEY,
+    baseline_seconds INTEGER NOT NULL,
+    created_utc TEXT NOT NULL
+);
+
+INSERT OR IGNORE INTO ticket_time_booking_baselines(task_id, baseline_seconds, created_utc)
+SELECT t.id,
+       MAX(0, t.ticket_seconds_booked
+           - COALESCE(SUM(b.source_seconds), 0)),
+       datetime('now')
+FROM tasks t
+LEFT JOIN ticket_time_bookings b ON b.task_id = t.id
+GROUP BY t.id;");
     }
 
     private static void EnsureColumn(SqliteConnection conn, string table, string column, string definition)

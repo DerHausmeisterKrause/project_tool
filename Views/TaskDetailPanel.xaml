@@ -78,11 +78,23 @@
                                             <Border BorderBrush="{StaticResource BorderBrushColor}" BorderThickness="0,0,0,1" Padding="0,8">
                                                 <StackPanel>
                                                     <TextBlock FontWeight="SemiBold">
-                                                        <Run Text="{Binding DisplayTime}"/><Run Text=" – "/><Run Text="{Binding DisplayMinutes}"/>
+                                                        <Run Text="{Binding DisplayTime}"/>
                                                     </TextBlock>
+                                                    <TextBlock Text="{Binding DisplayMinutes}" Foreground="{StaticResource TextBrush}"/>
                                                     <TextBlock Text="{Binding CostCenter, StringFormat=Kostenstelle: {0}}" Foreground="{StaticResource MutedTextBrush}"/>
                                                     <TextBlock Text="{Binding Order, StringFormat=Auftrag: {0}}" Foreground="{StaticResource MutedTextBrush}"/>
                                                     <TextBlock Text="{Binding ShortDescription}" Foreground="{StaticResource MutedTextBrush}" TextTrimming="CharacterEllipsis"/>
+                                                    <TextBlock Text="{Binding StatusText}" FontWeight="SemiBold" Margin="0,4,0,0"/>
+                                                    <Button Content="Buchungsstatus prüfen" HorizontalAlignment="Left" MinWidth="170" Margin="0,6,0,0"
+                                                            Style="{StaticResource SecondaryButtonStyle}"
+                                                            Visibility="{Binding CanCheckStatus, Converter={StaticResource BooleanToVisibilityConverter}}"
+                                                            Command="{Binding DataContext.CheckTicketTimeBookingCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
+                                                            CommandParameter="{Binding}"/>
+                                                    <Button Content="Erneut buchen" HorizontalAlignment="Left" MinWidth="130" Margin="0,6,0,0"
+                                                            Style="{StaticResource SecondaryButtonStyle}"
+                                                            Visibility="{Binding CanRetry, Converter={StaticResource BooleanToVisibilityConverter}}"
+                                                            Command="{Binding DataContext.RetryTicketTimeBookingCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
+                                                            CommandParameter="{Binding}"/>
                                                 </StackPanel>
                                             </Border>
                                         </DataTemplate>

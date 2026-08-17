@@ -112,7 +112,7 @@ public class TicketSystemService : IDisposable
                 {
                     _tasks.CompleteTicketTimeBooking(pending, reconciledArticleId);
                     _logger.Info($"[ZnunyTimeBooking] ticketId={ticketId} taskId={task.Id} bookingId={pending.BookingId} articleId={reconciledArticleId} action=reconciled");
-                    return new TicketBookingResult(true, false, $"{pending.Minutes:0.##} Min. erfolgreich in OTRS gebucht.");
+                    return new TicketBookingResult(true, false, $"{pending.Minutes:0.##} Min. erfasst, {pending.BookedMinutes:0.##} Min. in OTRS gebucht.");
                 }
 
                 return new TicketBookingResult(false, true,
@@ -120,13 +120,15 @@ public class TicketSystemService : IDisposable
             }
 
             var minutes = decimal.Round(sourceSeconds / 60m, 2, MidpointRounding.AwayFromZero);
-            var timeUnit = decimal.Round(minutes / _settings.Current.TicketSystemTimeUnitMinutesPerUnit, 4, MidpointRounding.AwayFromZero);
+            var bookedMinutes = Math.Ceiling(sourceSeconds / 900m) * 15m;
+            var timeUnit = bookedMinutes;
             booking = new TicketTimeBooking
             {
                 TaskId = task.Id,
                 TicketId = ticketId,
                 TicketNumber = ticketNumber,
                 Minutes = minutes,
+                BookedMinutes = bookedMinutes,
                 SourceSeconds = sourceSeconds,
                 ShortDescription = string.IsNullOrWhiteSpace(shortDescription) ? "Zeitbuchung" : shortDescription.Trim(),
                 CostCenter = costCenter ?? string.Empty,
@@ -146,7 +148,7 @@ public class TicketSystemService : IDisposable
             var articleId = ExtractFirstValueRecursive(response.Body, "ArticleID");
             _tasks.CompleteTicketTimeBooking(booking, articleId);
             _logger.Info($"[ZnunyTimeBooking] ticketId={ticketId} taskId={task.Id} bookingId={booking.BookingId} articleId={articleId} action=completed");
-            return new TicketBookingResult(true, false, $"{minutes:0.##} Min. erfolgreich in OTRS gebucht.");
+            return new TicketBookingResult(true, false, $"{minutes:0.##} Min. erfasst, auf {bookedMinutes:0.##} Min. aufgerundet und erfolgreich in OTRS gebucht.");
         }
         catch (ZnunyApiException ex)
         {
@@ -172,6 +174,70 @@ public class TicketSystemService : IDisposable
             if (serverConfirmed)
                 return new TicketBookingResult(false, true, "Znuny hat die Buchung bestätigt, aber die lokale Bestätigung konnte nicht gespeichert werden. Beim nächsten Klick wird die Booking-ID sicher abgeglichen.");
             return new TicketBookingResult(false, false, $"Zeitbuchung fehlgeschlagen: {ex.Message}");
+        }
+    }
+
+    public async Task<TicketBookingResult> CheckTicketTimeBookingAsync(TaskItem task, TicketTimeBooking booking)
+    {
+        try
+        {
+            var sessionId = await CreateSessionAsync();
+            var ticket = await GetTicketAsync(booking.TicketId, sessionId, HashSessionId(sessionId));
+            var articleId = ticket?.FindArticleIdContaining(BookingMarker(booking.BookingId));
+            if (!string.IsNullOrWhiteSpace(articleId))
+            {
+                _tasks.CompleteTicketTimeBooking(booking, articleId);
+                _logger.Info($"[ZnunyTimeBooking] ticketId={booking.TicketId} taskId={task.Id} bookingId={booking.BookingId} articleId={articleId} action=reconciled-manual");
+                return new TicketBookingResult(true, false, "Buchung wurde in Znuny gefunden und lokal als gebucht bestätigt.");
+            }
+
+            _tasks.FailTicketTimeBooking(booking);
+            return new TicketBookingResult(false, false, "Die Booking-ID wurde in den Ticketartikeln nicht gefunden. Eine erneute Buchung ist nur über den separaten Button möglich.");
+        }
+        catch (Exception ex)
+        {
+            _logger.Error($"[ZnunyTimeBooking] ticketId={booking.TicketId} taskId={task.Id} bookingId={booking.BookingId} action=reconciliation-failed message={ex.Message}");
+            return new TicketBookingResult(false, true, $"Buchungsstatus konnte nicht geprüft werden: {ex.Message}");
+        }
+    }
+
+    public async Task<TicketBookingResult> RetryTicketTimeBookingAsync(TaskItem task, TicketTimeBooking booking)
+    {
+        try
+        {
+            var sessionId = await CreateSessionAsync();
+            var sessionHash = HashSessionId(sessionId);
+            var ticket = await GetTicketAsync(booking.TicketId, sessionId, sessionHash);
+            var existingArticleId = ticket?.FindArticleIdContaining(BookingMarker(booking.BookingId));
+            if (!string.IsNullOrWhiteSpace(existingArticleId))
+            {
+                _tasks.CompleteTicketTimeBooking(booking, existingArticleId);
+                return new TicketBookingResult(true, false, "Buchung war bereits vorhanden und wurde ohne erneutes TicketUpdate übernommen.");
+            }
+
+            _tasks.ResetTicketTimeBookingForRetry(booking);
+            var timeUnit = booking.BookedMinutes;
+            var payload = BuildTicketTimeBookingPayload(booking.TicketId, sessionId, booking, timeUnit);
+            var route = NormalizeRouteValue(_settings.Current.TicketSystemTicketUpdateRoute, "/Ticket/Update");
+            using var request = new HttpRequestMessage(HttpMethod.Post, Combine(_settings.Current.TicketSystemApiUrl, route))
+            {
+                Content = new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json")
+            };
+            var response = await SendZnunyAsync(request, "TicketUpdateTimeBookingRetry", "[ZnunyTicketUpdateResponse]");
+            var articleId = ExtractFirstValueRecursive(response.Body, "ArticleID");
+            _tasks.CompleteTicketTimeBooking(booking, articleId);
+            _logger.Info($"[ZnunyTimeBooking] ticketId={booking.TicketId} taskId={task.Id} bookingId={booking.BookingId} articleId={articleId} action=retried");
+            return new TicketBookingResult(true, false, $"{booking.BookedMinutes:0.##} Min. erfolgreich erneut übertragen.");
+        }
+        catch (ZnunyApiException ex) when ((int)ex.StatusCode < 500)
+        {
+            _tasks.FailTicketTimeBooking(booking);
+            return new TicketBookingResult(false, false, FormatApiError("Erneute Zeitbuchung fehlgeschlagen", ex));
+        }
+        catch (Exception ex)
+        {
+            _logger.Error($"[ZnunyTimeBooking] ticketId={booking.TicketId} taskId={task.Id} bookingId={booking.BookingId} action=retry-pending message={ex.Message}");
+            return new TicketBookingResult(false, true, "Die erneute Übertragung ist unklar und bleibt zur Reconciliation auf Pending. Es erfolgt kein weiterer automatischer Versuch.");
         }
     }
 
