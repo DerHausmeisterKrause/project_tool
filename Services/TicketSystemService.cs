@@ -57,23 +57,17 @@ public class TicketSystemService : IDisposable
         var orderField = _settings.Current.TicketSystemOrderFieldName;
         var costOptions = ParseConfiguredOptions(_settings.Current.TicketSystemCostCenterOptions);
         var orderOptions = ParseConfiguredOptions(_settings.Current.TicketSystemOrderOptions);
-        _logger.Info($"[ZnunyTicketDynamicFields] ticketId={ticket.TicketID} availableFields=[{string.Join(',', ticket.DynamicFieldValues.Keys.OrderBy(name => name, StringComparer.OrdinalIgnoreCase))}] configuredCostCenter='{costField}' configuredOrder='{orderField}'");
-        var informationParts = new List<string>();
-        if (string.IsNullOrWhiteSpace(costField) || string.IsNullOrWhiteSpace(orderField))
-            informationParts.Add("Die internen DynamicField-Namen müssen in den Einstellungen konfiguriert werden.");
-        if (!string.IsNullOrWhiteSpace(costField) && !ticket.DynamicFieldValues.ContainsKey(costField))
-            informationParts.Add($"TicketGet enthält das konfigurierte Kostenstellenfeld '{costField}' nicht.");
-        if (!string.IsNullOrWhiteSpace(orderField) && !ticket.DynamicFieldValues.ContainsKey(orderField))
-            informationParts.Add($"TicketGet enthält das konfigurierte Auftragsfeld '{orderField}' nicht.");
-        if (costOptions.Count == 0 || orderOptions.Count == 0)
-            informationParts.Add("TicketGet liefert keine Optionslisten; Dropdown-Werte werden aus den konfigurierten Key=Anzeigetext-Listen geladen.");
-        var information = string.Join(" ", informationParts);
+        var costCenterValue = ticket.GetDynamicFieldValue(costField);
+        var orderValue = ticket.GetDynamicFieldValue(orderField);
+        _logger.Info($"[ZnunyTicketDynamicFields] ticketId={ticket.TicketID} requestedDynamicFields=true availableFields=[{string.Join(',', ticket.DynamicFieldValues.Keys.OrderBy(name => name, StringComparer.OrdinalIgnoreCase))}] costCenterValue='{costCenterValue}' orderValue='{orderValue}'");
+        var fieldsMissing = !ticket.DynamicFieldValues.ContainsKey(costField) || !ticket.DynamicFieldValues.ContainsKey(orderField);
+        var information = fieldsMissing ? "Kostenstelle/Auftrag konnten nicht aus OTRS geladen werden." : string.Empty;
 
         return new TicketBookingContext(
             ticket.TicketID,
             ticket.TicketNumber,
-            ticket.GetDynamicFieldValue(costField),
-            ticket.GetDynamicFieldValue(orderField),
+            costCenterValue,
+            orderValue,
             costOptions,
             orderOptions,
             information);
@@ -623,10 +617,11 @@ public class TicketSystemService : IDisposable
             query["SessionID"] = sessionId;
         }
         query["AllArticles"] = "1";
+        query["DynamicFields"] = "1";
         var url = Combine(_settings.Current.TicketSystemApiUrl, route) + ToQueryString(query);
         using var request = new HttpRequestMessage(HttpMethod.Get, url);
 
-        _logger.Info($"[ZnunyTicket] method=GET route={route} ticketId={ticketId} auth={_settings.Current.TicketSystemTicketGetAuthMode} sessionHash={sessionHash}");
+        _logger.Info($"[ZnunyTicket] method=GET route={route} ticketId={ticketId} auth={_settings.Current.TicketSystemTicketGetAuthMode} requestedDynamicFields=true allArticles=true sessionHash={sessionHash}");
         var result = await SendZnunyAsync(request, "TicketGet", "[ZnunyTicketResponse]");
         using var doc = JsonDocument.Parse(result.Body);
         ThrowIfApiError(doc.RootElement, "TicketGet");

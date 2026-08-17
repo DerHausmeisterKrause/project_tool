@@ -2,8 +2,9 @@
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              Visibility="{Binding SelectedTask, Converter={StaticResource NullToVisibilityConverter}}"
-             Background="{StaticResource BgBrush}">
-    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto" Background="Transparent">
+             Background="{StaticResource BgBrush}"
+             SizeChanged="TaskDetailPanel_SizeChanged">
+    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Background="Transparent">
         <StackPanel>
             <Border Style="{StaticResource CardStyle}">
                 <StackPanel>
@@ -33,12 +34,16 @@
             </Border>
 
             <Border Style="{StaticResource CardStyle}">
-                <Grid>
+                <Grid x:Name="BookingLayoutGrid">
                     <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="*" MinWidth="260"/>
-                        <ColumnDefinition Width="*" MinWidth="240"/>
+                        <ColumnDefinition x:Name="BookingTimerColumn" Width="1.2*" MinWidth="0"/>
+                        <ColumnDefinition x:Name="BookingHistoryColumn" Width="*" MinWidth="0"/>
                     </Grid.ColumnDefinitions>
-                    <StackPanel Grid.Column="0" Margin="0,0,12,0">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+                    <StackPanel x:Name="BookingTimerPanel" Grid.Column="0" Grid.Row="0" Margin="0,0,12,0">
                         <TextBlock Text="Timer / Buchung" FontSize="13" Foreground="{StaticResource MutedTextBrush}"/>
                         <TextBlock Text="{Binding TimerDisplay}" FontSize="38" FontWeight="Bold" Margin="0,6,0,4" HorizontalAlignment="Center"/>
                         <TextBlock Text="{Binding UnbookedTicketTimeText}" FontWeight="SemiBold" Foreground="#FBBF24" HorizontalAlignment="Center" Margin="0,0,0,10"/>
@@ -61,11 +66,11 @@
                         <TextBlock Text="Auftrag" Foreground="{StaticResource MutedTextBrush}" Margin="0,8,0,2"/>
                         <ComboBox Style="{StaticResource DarkComboBoxStyle}" ItemsSource="{Binding OrderOptions}" SelectedItem="{Binding SelectedOrder}" DisplayMemberPath="DisplayText"/>
                         <TextBlock Text="{Binding TicketBookingInformation}" Foreground="{StaticResource MutedTextBrush}" TextWrapping="Wrap" Margin="0,6,0,0"/>
-                        <Button Content="Im Ticketsystem buchen" MinWidth="210" Margin="0,10,0,0" HorizontalAlignment="Left"
+                        <Button Content="Im Ticketsystem buchen" Margin="0,10,0,0" HorizontalAlignment="Stretch"
                                 Command="{Binding BookTimeInTicketSystemCommand}"/>
                     </StackPanel>
 
-                    <Border Grid.Column="1" Background="#0B1220" BorderBrush="{StaticResource BorderBrushColor}" BorderThickness="1" CornerRadius="8" Padding="10">
+                    <Border x:Name="BookingHistoryPanel" Grid.Column="1" Grid.Row="0" Background="#0B1220" BorderBrush="{StaticResource BorderBrushColor}" BorderThickness="1" CornerRadius="8" Padding="10">
                         <DockPanel>
                             <StackPanel DockPanel.Dock="Top">
                                 <TextBlock Text="Übertragene Zeiten" FontWeight="SemiBold" FontSize="15"/>
@@ -85,12 +90,12 @@
                                                     <TextBlock Text="{Binding Order, StringFormat=Auftrag: {0}}" Foreground="{StaticResource MutedTextBrush}"/>
                                                     <TextBlock Text="{Binding ShortDescription}" Foreground="{StaticResource MutedTextBrush}" TextTrimming="CharacterEllipsis"/>
                                                     <TextBlock Text="{Binding StatusText}" FontWeight="SemiBold" Margin="0,4,0,0"/>
-                                                    <Button Content="Buchungsstatus prüfen" HorizontalAlignment="Left" MinWidth="170" Margin="0,6,0,0"
+                                                    <Button Content="Buchungsstatus prüfen" HorizontalAlignment="Left" Margin="0,6,0,0"
                                                             Style="{StaticResource SecondaryButtonStyle}"
                                                             Visibility="{Binding CanCheckStatus, Converter={StaticResource BooleanToVisibilityConverter}}"
                                                             Command="{Binding DataContext.CheckTicketTimeBookingCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
                                                             CommandParameter="{Binding}"/>
-                                                    <Button Content="Erneut buchen" HorizontalAlignment="Left" MinWidth="130" Margin="0,6,0,0"
+                                                    <Button Content="Erneut buchen" HorizontalAlignment="Left" Margin="0,6,0,0"
                                                             Style="{StaticResource SecondaryButtonStyle}"
                                                             Visibility="{Binding CanRetry, Converter={StaticResource BooleanToVisibilityConverter}}"
                                                             Command="{Binding DataContext.RetryTicketTimeBookingCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
