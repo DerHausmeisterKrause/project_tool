@@ -12,6 +12,7 @@ public class TaskService
     private readonly OutlookInteropService _outlook;
 
     public string LastError { get; private set; } = string.Empty;
+    public event Action? SegmentsChanged;
 
     public TaskService(DatabaseService db, LoggerService logger, OutlookInteropService outlook, SettingsService settings)
     {
@@ -402,6 +403,7 @@ WHERE datetime(start_local) >= datetime($from)
         using var idCmd = conn.CreateCommand();
         idCmd.CommandText = "SELECT last_insert_rowid()";
         segment.Id = Convert.ToInt64(idCmd.ExecuteScalar());
+        SegmentsChanged?.Invoke();
     }
 
     public void UpdateSegment(TaskSegment segment)
@@ -415,7 +417,8 @@ WHERE datetime(start_local) >= datetime($from)
         cmd.Parameters.AddWithValue("$p", (int)(segment.EndLocal - segment.StartLocal).TotalMinutes);
         cmd.Parameters.AddWithValue("$n", segment.Note);
         cmd.Parameters.AddWithValue("$id", segment.Id);
-        cmd.ExecuteNonQuery();
+        if (cmd.ExecuteNonQuery() > 0)
+            SegmentsChanged?.Invoke();
     }
 
     public void DeleteSegment(long segmentId)
@@ -425,7 +428,8 @@ WHERE datetime(start_local) >= datetime($from)
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "DELETE FROM task_segments WHERE id=$id";
         cmd.Parameters.AddWithValue("$id", segmentId);
-        cmd.ExecuteNonQuery();
+        if (cmd.ExecuteNonQuery() > 0)
+            SegmentsChanged?.Invoke();
     }
 
     public bool SyncSegmentOutlook(TaskSegment segment, string title, string description, string ticketUrl)

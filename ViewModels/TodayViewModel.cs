@@ -219,6 +219,7 @@ public class TodayViewModel : ObservableObject
         _settings = settings;
         _germanTime = ServiceLocator.GermanTime;
         _outlookCalendar = outlookCalendar;
+        _tasks.SegmentsChanged += OnSegmentsChanged;
 
         QuickAddCommand = new RelayCommand(QuickAdd);
         SaveCommand = new RelayCommand(SaveTask, () => SelectedTask != null);
@@ -294,6 +295,18 @@ public class TodayViewModel : ObservableObject
     public void Refresh()
     {
         Load();
+    }
+
+    private void OnSegmentsChanged()
+    {
+        var dispatcher = Application.Current?.Dispatcher;
+        if (dispatcher != null && !dispatcher.CheckAccess())
+        {
+            dispatcher.BeginInvoke(new Action(ApplyTaskFilters));
+            return;
+        }
+
+        ApplyTaskFilters();
     }
 
     private void Load()

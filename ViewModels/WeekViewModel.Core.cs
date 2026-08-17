@@ -18,6 +18,8 @@ public class WeekViewModel : ObservableObject
     private readonly SettingsService _settings;
     private readonly OutlookCalendarService _outlookCalendar;
     private readonly GermanTimeService _germanTime;
+    private bool _lastShowInternalTaskSegmentsInCalendar;
+    private bool _lastShowWeekend;
 
     private const int CalendarStartHour = 6;
     private const int CalendarEndHour = 18;
@@ -140,8 +142,11 @@ public class WeekViewModel : ObservableObject
         _settings = settings;
         _outlookCalendar = outlookCalendar;
         _germanTime = ServiceLocator.GermanTime;
+        _lastShowInternalTaskSegmentsInCalendar = _settings.Current.ShowInternalTaskSegmentsInCalendar;
+        _lastShowWeekend = _settings.Current.ShowWeekendInWeekView;
         _timelineHeight = CalendarBodyHeight;
-        _settings.SettingsChanged += UpdateNowIndicator;
+        _settings.SettingsChanged += OnSettingsChanged;
+        _tasks.SegmentsChanged += OnSegmentsChanged;
 
         BuildTimeScale();
 #if DEBUG
@@ -277,6 +282,37 @@ public class WeekViewModel : ObservableObject
         App.Current?.Dispatcher.Invoke(LoadWeek);
     }
 
+    private void OnSegmentsChanged()
+    {
+        if (!_settings.Current.ShowInternalTaskSegmentsInCalendar)
+            return;
+
+        App.Current?.Dispatcher.BeginInvoke(new Action(LoadWeek));
+    }
+
+    private void OnSettingsChanged()
+    {
+        var showInternalSegments = _settings.Current.ShowInternalTaskSegmentsInCalendar;
+        var showWeekend = _settings.Current.ShowWeekendInWeekView;
+        var calendarLayoutChanged = showInternalSegments != _lastShowInternalTaskSegmentsInCalendar || showWeekend != _lastShowWeekend;
+        var weekendChanged = showWeekend != _lastShowWeekend;
+        _lastShowInternalTaskSegmentsInCalendar = showInternalSegments;
+        _lastShowWeekend = showWeekend;
+
+        if (calendarLayoutChanged)
+        {
+            if (weekendChanged)
+            {
+                Raise(nameof(ShowWeekend));
+                Raise(nameof(WeekRangeLabel));
+            }
+            App.Current?.Dispatcher.BeginInvoke(new Action(LoadWeek));
+            return;
+        }
+
+        UpdateNowIndicator();
+    }
+
     private void SetDayType(string type)
     {
         if (SelectedDayGroup == null) return;
@@ -313,9 +349,12 @@ public class WeekViewModel : ObservableObject
         }
 
         var workDays = _workDays.GetWorkDaysInRange(from, toExclusive.AddDays(-1)).ToDictionary(w => w.Day, w => w);
-        var segmentsInWeek = _tasks.GetSegmentsForRange(from, toExclusive)
-            .GroupBy(x => x.Segment.StartLocal.Date)
-            .ToDictionary(g => g.Key, g => g.OrderBy(x => x.Segment.StartLocal).ToList());
+        var showInternalSegments = _settings.Current.ShowInternalTaskSegmentsInCalendar;
+        var segmentsInWeek = showInternalSegments
+            ? _tasks.GetSegmentsForRange(from, toExclusive)
+                .GroupBy(x => x.Segment.StartLocal.Date)
+                .ToDictionary(g => g.Key, g => g.OrderBy(x => x.Segment.StartLocal).ToList())
+            : new Dictionary<DateTime, List<(TaskItem Task, TaskSegment Segment)>>();
 
         for (int i = 0; i < dayCount; i++)
         {
@@ -331,7 +370,7 @@ public class WeekViewModel : ObservableObject
             var overtime = net - target;
 
             var calendarItems = new List<WeekCalendarItem>();
-            if (segmentsInWeek.TryGetValue(day.Date, out var segmentItems))
+            if (showInternalSegments && segmentsInWeek.TryGetValue(day.Date, out var segmentItems))
             {
                 var indexByTask = new Dictionary<Guid, int>();
                 foreach (var pair in segmentItems)
@@ -352,7 +391,7 @@ public class WeekViewModel : ObservableObject
                     });
                 }
             }
-            else
+            else if (showInternalSegments)
             {
                 var fallbackTasks = _tasks.GetAllTasks()
                     .Where(t => t.StartLocal.HasValue && t.StartLocal.Value.Date == day.Date)
