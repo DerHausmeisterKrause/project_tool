@@ -10,6 +10,14 @@ namespace TaskTool.Services;
 
 public class SettingsService
 {
+    [Flags]
+    private enum NormalizationChanges
+    {
+        None = 0,
+        TicketUpdateRoute = 1,
+        InstalledVersion = 2
+    }
+
     private readonly LoggerService _logger;
     private readonly string _path = Path.Combine(AppContext.BaseDirectory, "settings.json");
     public AppSettings Current { get; private set; } = new();
@@ -26,13 +34,19 @@ public class SettingsService
         {
             if (!File.Exists(_path))
             {
-                Normalize(Current);
+                var initialChanges = Normalize(Current);
+                LogMigrations(initialChanges);
                 Save();
                 return;
             }
             var json = File.ReadAllText(_path);
             Current = JsonSerializer.Deserialize<AppSettings>(json) ?? new AppSettings();
-            Normalize(Current);
+            var changes = Normalize(Current);
+            if (changes != NormalizationChanges.None)
+            {
+                LogMigrations(changes);
+                Save();
+            }
         }
         catch (Exception ex)
         {
@@ -42,8 +56,31 @@ public class SettingsService
         }
     }
 
-    private static void Normalize(AppSettings settings)
+    private void LogMigrations(NormalizationChanges changes)
     {
+        if (changes.HasFlag(NormalizationChanges.TicketUpdateRoute))
+            _logger.Info($"[ZnunySettingsMigration] TicketSystemTicketUpdateRoute old='{AppSettings.LegacyTicketSystemTicketUpdateRoute}' new='{AppSettings.DefaultTicketSystemTicketUpdateRoute}'");
+        if (changes.HasFlag(NormalizationChanges.InstalledVersion))
+            _logger.Info($"[SettingsMigration] InstalledVersion missing initializedVersion={AppSettings.InitialInstalledVersion}");
+    }
+
+    private static NormalizationChanges Normalize(AppSettings settings)
+    {
+        var changes = NormalizationChanges.None;
+        var ticketUpdateRouteMigrated = string.Equals(
+            settings.TicketSystemTicketUpdateRoute?.Trim(),
+            AppSettings.LegacyTicketSystemTicketUpdateRoute,
+            StringComparison.OrdinalIgnoreCase);
+        if (ticketUpdateRouteMigrated)
+            changes |= NormalizationChanges.TicketUpdateRoute;
+        if (string.IsNullOrWhiteSpace(settings.InstalledVersion))
+        {
+            settings.InstalledVersion = AppSettings.InitialInstalledVersion;
+            changes |= NormalizationChanges.InstalledVersion;
+        }
+        settings.CurrentTasksSortField = string.Equals(settings.CurrentTasksSortField, "Created", StringComparison.OrdinalIgnoreCase)
+            ? "Created"
+            : "Updated";
         if (settings.FridayTargetMinutes <= 0)
             settings.FridayTargetMinutes = 300;
 
@@ -85,6 +122,16 @@ public class SettingsService
         settings.TicketSystemTicketGetRouteTemplate = NormalizeRoute(settings.TicketSystemTicketGetRouteTemplate, "/Ticket/{TicketID}");
         settings.TicketSystemTicketGetMethod = "GET";
         settings.TicketSystemTicketGetAuthMode = string.Equals(settings.TicketSystemTicketGetAuthMode, "Direct", StringComparison.OrdinalIgnoreCase) ? "Direct" : "Session";
+        settings.TicketSystemTicketUpdateRoute = ticketUpdateRouteMigrated
+            ? AppSettings.DefaultTicketSystemTicketUpdateRoute
+            : NormalizeRoute(settings.TicketSystemTicketUpdateRoute, AppSettings.DefaultTicketSystemTicketUpdateRoute);
+        settings.TicketSystemDynamicFieldOptionsRoute = string.Equals(settings.TicketSystemDynamicFieldOptionsRoute?.Trim(), "/DynamicField/Options", StringComparison.OrdinalIgnoreCase)
+            ? "/Ticket/DynamicField/{FieldName}/Options"
+            : NormalizeRoute(settings.TicketSystemDynamicFieldOptionsRoute, "/Ticket/DynamicField/{FieldName}/Options");
+        settings.TicketSystemCostCenterFieldName = string.IsNullOrWhiteSpace(settings.TicketSystemCostCenterFieldName) ? "KostenstelleID" : settings.TicketSystemCostCenterFieldName.Trim();
+        settings.TicketSystemOrderFieldName = string.IsNullOrWhiteSpace(settings.TicketSystemOrderFieldName) ? "AuftragsID" : settings.TicketSystemOrderFieldName.Trim();
+        settings.TicketSystemCostCenterOptions = settings.TicketSystemCostCenterOptions?.Trim() ?? string.Empty;
+        settings.TicketSystemOrderOptions = settings.TicketSystemOrderOptions?.Trim() ?? string.Empty;
         settings.TicketSystemSyncIntervalMinutes = settings.TicketSystemSyncIntervalMinutes <= 0 ? 15 : Math.Clamp(settings.TicketSystemSyncIntervalMinutes, 1, 1440);
         if (!settings.TicketSystemIncludeOwner && !settings.TicketSystemIncludeResponsible)
             settings.TicketSystemIncludeOwner = true;
@@ -92,6 +139,7 @@ public class SettingsService
             settings.TicketSystemShowClosedTickets = false;
         if (!settings.TicketSystemAutofillCredentials)
             settings.TicketSystemAutoLogin = false;
+        return changes;
     }
 
     private static string NormalizeRoute(string? route, string defaultRoute)
@@ -124,15 +172,22 @@ public class SettingsService
 
     public void Save()
     {
+        TrySave();
+    }
+
+    public bool TrySave()
+    {
         try
         {
             var json = JsonSerializer.Serialize(Current, new JsonSerializerOptions { WriteIndented = true });
             File.WriteAllText(_path, json);
             SettingsChanged?.Invoke();
+            return true;
         }
         catch (Exception ex)
         {
             _logger.Error($"Settings save failed: {ex.Message}");
+            return false;
         }
     }
 

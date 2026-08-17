@@ -36,7 +36,9 @@ public partial class TodayView : UserControl
     {
         Dispatcher.BeginInvoke(new Action(() =>
         {
-            var element = FindTaskElement(CurrentTasksItems, taskId) ?? FindTaskElement(CompletedTasksItems, taskId);
+            var element = FindTaskElement(TodayAgendaItems, taskId)
+                          ?? FindTaskElement(CurrentTasksItems, taskId)
+                          ?? FindTaskElement(CompletedTasksItems, taskId);
             element?.BringIntoView();
         }));
     }
@@ -60,6 +62,11 @@ public partial class TodayView : UserControl
             var child = VisualTreeHelper.GetChild(root, i);
             if (child is FrameworkElement fe && fe.DataContext is TaskItem task && task.Id == taskId)
                 return fe;
+
+            if (child is FrameworkElement agendaElement
+                && agendaElement.DataContext is TodayAgendaItem agendaItem
+                && agendaItem.TaskId == taskId)
+                return agendaElement;
 
             var match = FindTaskElement(child, taskId);
             if (match != null)
