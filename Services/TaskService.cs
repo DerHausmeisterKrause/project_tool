@@ -12,6 +12,7 @@ public class TaskService
     private readonly OutlookInteropService _outlook;
 
     public string LastError { get; private set; } = string.Empty;
+    public event Action? SegmentsChanged;
 
     public TaskService(DatabaseService db, LoggerService logger, OutlookInteropService outlook, SettingsService settings)
     {
@@ -225,13 +226,28 @@ VALUES ($id,$title,$desc,$url,$start,$end,$status,$priority,$tags,$entry,$ticket
         return elapsed > TimeSpan.Zero ? elapsed : TimeSpan.Zero;
     }
 
+    public int GetTicketMinutesForDay(DateTime day)
+    {
+        return GetTicketMinutesForRange(day.Date, day.Date.AddDays(1));
+    }
+
     public int GetMonthTicketMinutes(DateTime month)
+    {
+        var monthStart = new DateTime(month.Year, month.Month, 1);
+        return GetTicketMinutesForRange(monthStart, monthStart.AddMonths(1));
+    }
+
+    private int GetTicketMinutesForRange(DateTime fromInclusive, DateTime toExclusive)
     {
         using var conn = new SqliteConnection(_db.ConnectionString);
         conn.Open();
         using var cmd = conn.CreateCommand();
-        cmd.CommandText = "SELECT COALESCE(SUM(ticket_minutes_booked),0) FROM tasks WHERE strftime('%Y-%m', COALESCE(start_local, created_utc)) = $m";
-        cmd.Parameters.AddWithValue("$m", month.ToString("yyyy-MM"));
+        cmd.CommandText = @"SELECT COALESCE(SUM(ticket_minutes_booked), 0)
+FROM tasks
+WHERE datetime(COALESCE(start_local, created_utc)) >= datetime($from)
+  AND datetime(COALESCE(start_local, created_utc)) < datetime($to)";
+        cmd.Parameters.AddWithValue("$from", fromInclusive.ToString("s"));
+        cmd.Parameters.AddWithValue("$to", toExclusive.ToString("s"));
         return Convert.ToInt32(cmd.ExecuteScalar());
     }
 
@@ -309,6 +325,29 @@ ORDER BY ticket_minutes_booked DESC, title ASC LIMIT $max";
         return result;
     }
 
+    public HashSet<Guid> GetTaskIdsWithSegmentsForRange(DateTime fromInclusive, DateTime toExclusive)
+    {
+        var taskIds = new HashSet<Guid>();
+        using var conn = new SqliteConnection(_db.ConnectionString);
+        conn.Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = @"SELECT DISTINCT task_id
+FROM task_segments
+WHERE datetime(start_local) >= datetime($from)
+  AND datetime(start_local) < datetime($to)";
+        cmd.Parameters.AddWithValue("$from", fromInclusive.ToString("s"));
+        cmd.Parameters.AddWithValue("$to", toExclusive.ToString("s"));
+
+        using var reader = cmd.ExecuteReader();
+        while (reader.Read())
+        {
+            if (Guid.TryParse(reader["task_id"]?.ToString(), out var taskId))
+                taskIds.Add(taskId);
+        }
+
+        return taskIds;
+    }
+
     public bool TestOutlookConnection()
     {
         LastError = string.Empty;
@@ -364,6 +403,7 @@ ORDER BY ticket_minutes_booked DESC, title ASC LIMIT $max";
         using var idCmd = conn.CreateCommand();
         idCmd.CommandText = "SELECT last_insert_rowid()";
         segment.Id = Convert.ToInt64(idCmd.ExecuteScalar());
+        SegmentsChanged?.Invoke();
     }
 
     public void UpdateSegment(TaskSegment segment)
@@ -377,7 +417,8 @@ ORDER BY ticket_minutes_booked DESC, title ASC LIMIT $max";
         cmd.Parameters.AddWithValue("$p", (int)(segment.EndLocal - segment.StartLocal).TotalMinutes);
         cmd.Parameters.AddWithValue("$n", segment.Note);
         cmd.Parameters.AddWithValue("$id", segment.Id);
-        cmd.ExecuteNonQuery();
+        if (cmd.ExecuteNonQuery() > 0)
+            SegmentsChanged?.Invoke();
     }
 
     public void DeleteSegment(long segmentId)
@@ -387,7 +428,8 @@ ORDER BY ticket_minutes_booked DESC, title ASC LIMIT $max";
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "DELETE FROM task_segments WHERE id=$id";
         cmd.Parameters.AddWithValue("$id", segmentId);
-        cmd.ExecuteNonQuery();
+        if (cmd.ExecuteNonQuery() > 0)
+            SegmentsChanged?.Invoke();
     }
 
     public bool SyncSegmentOutlook(TaskSegment segment, string title, string description, string ticketUrl)

@@ -23,6 +23,7 @@ public class SettingsViewModel : ObservableObject
     public bool OutlookTeamsButtonEnabled { get => _settings.Current.OutlookTeamsButtonEnabled; set { _settings.Current.OutlookTeamsButtonEnabled = value; Save(); } }
     public bool OutlookInterpretAllDayAsMarkers { get => _settings.Current.OutlookInterpretAllDayAsMarkers; set { _settings.Current.OutlookInterpretAllDayAsMarkers = value; Save(); } }
     public bool ShowWeekendInWeekView { get => _settings.Current.ShowWeekendInWeekView; set { _settings.Current.ShowWeekendInWeekView = value; Save(); } }
+    public bool ShowInternalTaskSegmentsInCalendar { get => _settings.Current.ShowInternalTaskSegmentsInCalendar; set { _settings.Current.ShowInternalTaskSegmentsInCalendar = value; Save(); } }
     public string CalendarTimeZoneId { get => _settings.Current.CalendarTimeZoneId; set { _settings.Current.CalendarTimeZoneId = value; Save(); } }
     public string OutlookCalendarSyncMode { get => _settings.Current.OutlookCalendarSyncMode; set { _settings.Current.OutlookCalendarSyncMode = value; Save(); } }
     public int OutlookCalendarSyncIntervalMinutes { get => _settings.Current.OutlookCalendarSyncIntervalMinutes; set { _settings.Current.OutlookCalendarSyncIntervalMinutes = value; Save(); } }
