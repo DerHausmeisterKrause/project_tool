@@ -305,6 +305,13 @@ public class TodayViewModel : ObservableObject
 
     public void Refresh()
     {
+        var dispatcher = Application.Current?.Dispatcher;
+        if (dispatcher != null && !dispatcher.CheckAccess())
+        {
+            dispatcher.BeginInvoke(new Action(Load));
+            return;
+        }
+
         Load();
     }
 
