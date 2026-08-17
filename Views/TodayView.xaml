@@ -176,7 +176,89 @@
                          Visibility="{Binding ShowCompletedTaskList, Converter={StaticResource BooleanToVisibilityConverter}}"/>
 
                 <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto" Background="Transparent"
-                              Visibility="{Binding ShowActiveTaskList, Converter={StaticResource BooleanToVisibilityConverter}}">
+                              Visibility="{Binding ShowTodayAgenda, Converter={StaticResource BooleanToVisibilityConverter}}">
+                    <ItemsControl x:Name="TodayAgendaItems" ItemsSource="{Binding TodayAgendaItems}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Border Padding="12,9" Margin="0,0,0,8">
+                                    <Border.Style>
+                                        <Style TargetType="Border" BasedOn="{StaticResource CardStyle}">
+                                            <Setter Property="BorderBrush" Value="{StaticResource BorderBrushColor}"/>
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding IsOutlook}" Value="True">
+                                                    <Setter Property="Background" Value="#173126"/>
+                                                    <Setter Property="BorderBrush" Value="#4ADE80"/>
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </Border.Style>
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="110"/>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+
+                                        <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                                            <Border HorizontalAlignment="Left" Padding="7,2" CornerRadius="8">
+                                                <Border.Style>
+                                                    <Style TargetType="Border">
+                                                        <Setter Property="Background" Value="#1D4ED8"/>
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding IsOutlook}" Value="True">
+                                                                <Setter Property="Background" Value="#15803D"/>
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </Border.Style>
+                                                <TextBlock Text="{Binding TypeLabel}" FontSize="10" FontWeight="SemiBold" Foreground="#F8FAFC"/>
+                                            </Border>
+                                            <TextBlock Text="{Binding TimeLabel}" Margin="0,5,8,0" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource TextBrush}"/>
+                                        </StackPanel>
+
+                                        <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="4,0,12,0">
+                                            <TextBlock Text="{Binding Title}" FontSize="16" FontWeight="SemiBold" TextWrapping="Wrap"/>
+                                            <TextBlock Text="{Binding Location}" Margin="0,3,0,0" FontSize="11" Foreground="{StaticResource MutedTextBrush}"
+                                                       TextTrimming="CharacterEllipsis" Visibility="{Binding Location, Converter={StaticResource StringEmptyToVisibilityConverter}}"/>
+                                            <WrapPanel Margin="0,4,0,0" Visibility="{Binding IsTask, Converter={StaticResource BooleanToVisibilityConverter}}">
+                                                <Border Style="{StaticResource BadgeStyle}"><TextBlock Text="{Binding Task.Status}"/></Border>
+                                                <TextBlock VerticalAlignment="Center" Text="{Binding Task.TicketMinutesBooked, StringFormat=Ticket: {0} min}"/>
+                                                <Button Content="Ticket öffnen" Style="{StaticResource LinkButtonStyle}"
+                                                        Visibility="{Binding Task.TicketUrl, Converter={StaticResource StringEmptyToVisibilityConverter}}"
+                                                        Command="{Binding DataContext.OpenTicketUrlCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
+                                                        CommandParameter="{Binding Task.TicketUrl}"/>
+                                            </WrapPanel>
+                                        </StackPanel>
+
+                                        <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center"
+                                                    Visibility="{Binding IsTask, Converter={StaticResource BooleanToVisibilityConverter}}">
+                                            <Button Content="▶" Width="36" Height="36" Padding="0" Command="{Binding DataContext.StartTaskCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}" CommandParameter="{Binding Task}"/>
+                                            <Button Content="■" Width="36" Height="36" Padding="0" Style="{StaticResource SecondaryButtonStyle}" Command="{Binding DataContext.StopTaskCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}" CommandParameter="{Binding Task}"/>
+                                            <Button Content="✓" Width="36" Height="36" Padding="0" Style="{StaticResource SuccessButtonStyle}" Command="{Binding DataContext.DoneTaskCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}" CommandParameter="{Binding Task}"/>
+                                        </StackPanel>
+
+                                        <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center"
+                                                    Visibility="{Binding IsOutlook, Converter={StaticResource BooleanToVisibilityConverter}}">
+                                            <Button Content="In Outlook öffnen" Width="130" Style="{StaticResource SecondaryButtonStyle}"
+                                                    Command="{Binding DataContext.OpenAgendaOutlookEventCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
+                                                    CommandParameter="{Binding OutlookEvent}"/>
+                                            <Button Content="Teams öffnen" Width="105" Style="{StaticResource SecondaryButtonStyle}"
+                                                    Visibility="{Binding HasTeamsLink, Converter={StaticResource BooleanToVisibilityConverter}}"
+                                                    Command="{Binding DataContext.OpenAgendaTeamsCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
+                                                    CommandParameter="{Binding OutlookEvent.OnlineMeetingJoinUrl}"/>
+                                        </StackPanel>
+                                    </Grid>
+                                    <Border.InputBindings>
+                                        <MouseBinding Gesture="LeftClick" Command="{Binding DataContext.SelectTaskCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}" CommandParameter="{Binding Task}"/>
+                                    </Border.InputBindings>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </ScrollViewer>
+
+                <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto" Background="Transparent"
+                              Visibility="{Binding ShowCurrentTaskList, Converter={StaticResource BooleanToVisibilityConverter}}">
                     <ItemsControl x:Name="CurrentTasksItems" ItemsSource="{Binding DisplayedTasks}">
                         <ItemsControl.ItemTemplate>
                             <DataTemplate>

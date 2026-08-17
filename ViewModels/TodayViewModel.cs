@@ -17,6 +17,7 @@ public class TodayViewModel : ObservableObject
     private readonly GermanTimeService _germanTime;
     private readonly DispatcherTimer _clock;
     private readonly OutlookCalendarService _outlookCalendar;
+    private DateTime _agendaDate;
 
     public string Title => "Heute";
     // Existing timer and Dynamic Island consumers use this as the complete active-task collection.
@@ -25,6 +26,7 @@ public class TodayViewModel : ObservableObject
     private readonly ObservableCollection<TaskItem> _currentTasksWithoutToday = new();
     public ObservableCollection<TaskItem> DisplayedTasks { get; } = new();
     public ObservableCollection<TaskItem> CompletedTasks { get; } = new();
+    public ObservableCollection<TodayAgendaItem> TodayAgendaItems { get; } = new();
     public ObservableCollection<BreakEditRow> BreakRows { get; } = new();
     public ObservableCollection<TaskSegment> Segments { get; } = new();
     public ObservableCollection<string> TimeOptions { get; } = new(Enumerable.Range(0, 96).Select(i => TimeSpan.FromMinutes(i * 15).ToString(@"hh\:mm")));
@@ -76,6 +78,8 @@ public class TodayViewModel : ObservableObject
             {
                 RefreshDisplayedTasks();
                 Raise(nameof(ShowActiveTaskList));
+                Raise(nameof(ShowTodayAgenda));
+                Raise(nameof(ShowCurrentTaskList));
                 Raise(nameof(ShowCompletedTaskList));
                 Raise(nameof(ActiveTaskListHeading));
             }
@@ -83,6 +87,8 @@ public class TodayViewModel : ObservableObject
     }
 
     public bool ShowActiveTaskList => SelectedTaskScope != TodayTaskScope.Completed;
+    public bool ShowTodayAgenda => SelectedTaskScope == TodayTaskScope.Today;
+    public bool ShowCurrentTaskList => SelectedTaskScope == TodayTaskScope.Current;
     public bool ShowCompletedTaskList => SelectedTaskScope == TodayTaskScope.Completed;
     public string ActiveTaskListHeading => SelectedTaskScope == TodayTaskScope.Today ? "Heute:" : "Aktuelle Aufgaben:";
 
@@ -199,6 +205,8 @@ public class TodayViewModel : ObservableObject
     public RelayCommand<TaskItem> StopTaskCommand { get; }
     public RelayCommand<TaskItem> DoneTaskCommand { get; }
     public RelayCommand<string> OpenTicketUrlCommand { get; }
+    public RelayCommand<OutlookCalendarEvent> OpenAgendaOutlookEventCommand { get; }
+    public RelayCommand<string> OpenAgendaTeamsCommand { get; }
     public RelayCommand<TaskSegment> SaveSegmentCommand { get; }
     public RelayCommand<TaskSegment> DeleteSegmentCommand { get; }
     public RelayCommand<TaskSegment> DeleteSegmentOutlookCommand { get; }
@@ -220,6 +228,7 @@ public class TodayViewModel : ObservableObject
         _germanTime = ServiceLocator.GermanTime;
         _outlookCalendar = outlookCalendar;
         _tasks.SegmentsChanged += OnSegmentsChanged;
+        _outlookCalendar.EventsUpdated += OnOutlookEventsUpdated;
 
         QuickAddCommand = new RelayCommand(QuickAdd);
         SaveCommand = new RelayCommand(SaveTask, () => SelectedTask != null);
@@ -253,12 +262,14 @@ public class TodayViewModel : ObservableObject
         StopTaskCommand = new RelayCommand<TaskItem>(task => OnCardTaskAction(task, _tasks.StopTimer));
         DoneTaskCommand = new RelayCommand<TaskItem>(task => OnCardTaskAction(task, _tasks.MarkDone));
         OpenTicketUrlCommand = new RelayCommand<string>(OpenTicketUrl, url => !string.IsNullOrWhiteSpace(url));
+        OpenAgendaOutlookEventCommand = new RelayCommand<OutlookCalendarEvent>(OpenAgendaOutlookEvent, outlookEvent => outlookEvent != null);
+        OpenAgendaTeamsCommand = new RelayCommand<string>(OpenAgendaTeams, url => !string.IsNullOrWhiteSpace(url));
         SaveSegmentCommand = new RelayCommand<TaskSegment>(SaveSegment, seg => seg != null && seg.IsValid);
         DeleteSegmentCommand = new RelayCommand<TaskSegment>(DeleteSegment, seg => seg != null);
         DeleteSegmentOutlookCommand = new RelayCommand<TaskSegment>(DeleteSegmentOutlook, seg => seg != null && !string.IsNullOrWhiteSpace(seg.OutlookEntryId));
 
         _clock = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
-        _clock.Tick += (_, _) => UpdateTimerDisplay();
+        _clock.Tick += (_, _) => OnClockTick();
         _clock.Start();
 
         SelectedTaskScope = TodayTaskScope.Today;
@@ -307,6 +318,18 @@ public class TodayViewModel : ObservableObject
         }
 
         ApplyTaskFilters();
+    }
+
+    private void OnOutlookEventsUpdated()
+    {
+        var dispatcher = Application.Current?.Dispatcher;
+        if (dispatcher != null && !dispatcher.CheckAccess())
+        {
+            dispatcher.BeginInvoke(new Action(RefreshTodayAgenda));
+            return;
+        }
+
+        RefreshTodayAgenda();
     }
 
     private void Load()
@@ -383,6 +406,71 @@ public class TodayViewModel : ObservableObject
         foreach (var t in done) CompletedTasks.Add(t);
 
         RefreshDisplayedTasks();
+        RefreshTodayAgenda();
+    }
+
+    private void RefreshTodayAgenda()
+    {
+        var localToday = _germanTime.GetLocalNow(_settings.Current.CalendarTimeZoneId).Date;
+        _agendaDate = localToday;
+        var tomorrow = localToday.AddDays(1);
+        var segments = _tasks.GetSegmentsForRange(localToday, tomorrow);
+        var visibleTodayTasks = TodayTasks.ToDictionary(task => task.Id);
+        var mirroredOutlookEntryIds = segments
+            .Select(pair => pair.Segment.OutlookEntryId)
+            .Where(entryId => !string.IsNullOrWhiteSpace(entryId))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        var agenda = new List<TodayAgendaItem>();
+        foreach (var (task, segment) in segments)
+        {
+            if (task.Status == TaskStatus.Done || !visibleTodayTasks.TryGetValue(task.Id, out var visibleTask))
+                continue;
+
+            agenda.Add(new TodayAgendaItem
+            {
+                Start = segment.StartLocal,
+                End = segment.EndLocal,
+                Title = visibleTask.Title,
+                Task = visibleTask,
+                Segment = segment
+            });
+        }
+
+        foreach (var outlookEvent in _outlookCalendar.GetEvents(localToday, tomorrow))
+        {
+            if (outlookEvent.IsCancelled || IsMirroredTaskSegment(outlookEvent, mirroredOutlookEntryIds))
+                continue;
+
+            if (outlookEvent.IsAllDay
+                && _settings.Current.OutlookInterpretAllDayAsMarkers
+                && OutlookAllDayMarkerMapper.TryMapAllDayMarker(outlookEvent, out _) != null)
+                continue;
+
+            agenda.Add(new TodayAgendaItem
+            {
+                Start = outlookEvent.StartLocal,
+                End = outlookEvent.EndLocal,
+                Title = outlookEvent.Subject,
+                Location = outlookEvent.Location,
+                OutlookEvent = outlookEvent,
+                IsAllDay = outlookEvent.IsAllDay
+            });
+        }
+
+        TodayAgendaItems.Clear();
+        foreach (var item in agenda
+                     .OrderBy(item => item.IsAllDay ? 0 : 1)
+                     .ThenBy(item => item.Start)
+                     .ThenBy(item => item.IsTask ? 0 : 1)
+                     .ThenBy(item => item.Title, StringComparer.CurrentCultureIgnoreCase))
+            TodayAgendaItems.Add(item);
+    }
+
+    private static bool IsMirroredTaskSegment(OutlookCalendarEvent outlookEvent, HashSet<string> mirroredOutlookEntryIds)
+    {
+        return mirroredOutlookEntryIds.Contains(outlookEvent.EntryId)
+               || mirroredOutlookEntryIds.Contains(outlookEvent.Id);
     }
 
     private void RefreshDisplayedTasks()
@@ -653,6 +741,22 @@ public class TodayViewModel : ObservableObject
         ServiceLocator.MainViewModel.NavigateToTicketSystem(url);
     }
 
+    private void OpenAgendaOutlookEvent(OutlookCalendarEvent? outlookEvent)
+    {
+        if (outlookEvent == null || string.IsNullOrWhiteSpace(outlookEvent.Id))
+            return;
+
+        var opened = ServiceLocator.Outlook.OpenCalendarEvent(outlookEvent.Id);
+        if (!opened.ok)
+            StatusMessage = $"Outlook-Termin konnte nicht geöffnet werden: {opened.error}";
+    }
+
+    private void OpenAgendaTeams(string? url)
+    {
+        if (!UrlLauncher.TryOpen(url, out var error))
+            StatusMessage = $"Teams-Link konnte nicht geöffnet werden: {error}";
+    }
+
     private void SaveManualDay()
     {
         try
@@ -693,6 +797,17 @@ public class TodayViewModel : ObservableObject
         var runningPart = _tasks.GetOpenSessionDuration(SelectedTask.Id);
         var total = booked + runningPart;
         TimerDisplay = $"{(int)total.TotalHours:00}:{total.Minutes:00}:{total.Seconds:00}";
+    }
+
+    private void OnClockTick()
+    {
+        UpdateTimerDisplay();
+        var localToday = _germanTime.GetLocalNow(_settings.Current.CalendarTimeZoneId).Date;
+        if (localToday == _agendaDate)
+            return;
+
+        ApplyTaskFilters();
+        _ = _outlookCalendar.TriggerSyncAsync(localToday, localToday.AddDays(1), "today-agenda-day-change");
     }
 
 
