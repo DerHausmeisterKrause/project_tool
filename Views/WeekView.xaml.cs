@@ -10,16 +10,19 @@ public partial class WeekView : UserControl
     public WeekView()
     {
         InitializeComponent();
-        Loaded += (_, _) => RefreshNowIndicator();
-        SizeChanged += (_, _) => RefreshNowIndicator();
+        Loaded += (_, _) => RefreshCalendarLayout();
+        SizeChanged += (_, _) => RefreshCalendarLayout();
     }
 
-    private void CalendarScrollViewer_ScrollChanged(object sender, ScrollChangedEventArgs e) => RefreshNowIndicator();
+    private void CalendarScrollViewer_ScrollChanged(object sender, ScrollChangedEventArgs e) => RefreshCalendarLayout();
 
-    private void RefreshNowIndicator()
+    private void RefreshCalendarLayout()
     {
         if (DataContext is WeekViewModel vm)
+        {
+            vm.UpdateCalendarViewport(CalendarScrollViewer.ViewportWidth);
             vm.UpdateTimelineMetrics(DaySegmentColumns.ActualHeight);
+        }
     }
 
     private void DayColumn_PreviewMouseDown(object sender, MouseButtonEventArgs e)

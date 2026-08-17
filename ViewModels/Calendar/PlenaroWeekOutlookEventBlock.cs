@@ -19,5 +19,6 @@ public class PlenaroWeekOutlookEventBlock
     public bool ShowLocation { get; set; }
     public bool ShowActions { get; set; }
     public bool HasTeamsLink => !string.IsNullOrWhiteSpace(TeamsJoinUrl);
+    public bool ShowTeamsAction => ShowActions && HasTeamsLink;
     public string TooltipText { get; set; } = string.Empty;
 }
