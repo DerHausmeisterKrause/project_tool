@@ -23,6 +23,7 @@ public class SettingsViewModel : ObservableObject
     public bool OutlookTeamsButtonEnabled { get => _settings.Current.OutlookTeamsButtonEnabled; set { _settings.Current.OutlookTeamsButtonEnabled = value; Save(); } }
     public bool OutlookInterpretAllDayAsMarkers { get => _settings.Current.OutlookInterpretAllDayAsMarkers; set { _settings.Current.OutlookInterpretAllDayAsMarkers = value; Save(); } }
     public bool ShowWeekendInWeekView { get => _settings.Current.ShowWeekendInWeekView; set { _settings.Current.ShowWeekendInWeekView = value; Save(); } }
+    public bool ShowInternalTaskSegmentsInCalendar { get => _settings.Current.ShowInternalTaskSegmentsInCalendar; set { _settings.Current.ShowInternalTaskSegmentsInCalendar = value; Save(); } }
     public string CalendarTimeZoneId { get => _settings.Current.CalendarTimeZoneId; set { _settings.Current.CalendarTimeZoneId = value; Save(); } }
     public string OutlookCalendarSyncMode { get => _settings.Current.OutlookCalendarSyncMode; set { _settings.Current.OutlookCalendarSyncMode = value; Save(); } }
     public int OutlookCalendarSyncIntervalMinutes { get => _settings.Current.OutlookCalendarSyncIntervalMinutes; set { _settings.Current.OutlookCalendarSyncIntervalMinutes = value; Save(); } }
@@ -51,6 +52,12 @@ public class SettingsViewModel : ObservableObject
     public string TicketSystemTicketGetRouteTemplate { get => _settings.Current.TicketSystemTicketGetRouteTemplate; set { _settings.Current.TicketSystemTicketGetRouteTemplate = value; Save(); } }
     public string TicketSystemTicketGetMethod { get => _settings.Current.TicketSystemTicketGetMethod; set { _settings.Current.TicketSystemTicketGetMethod = value; Save(); } }
     public string TicketSystemTicketGetAuthMode { get => _settings.Current.TicketSystemTicketGetAuthMode; set { _settings.Current.TicketSystemTicketGetAuthMode = value; Save(); } }
+    public string TicketSystemTicketUpdateRoute { get => _settings.Current.TicketSystemTicketUpdateRoute; set { _settings.Current.TicketSystemTicketUpdateRoute = value; Save(); } }
+    public string TicketSystemDynamicFieldOptionsRoute { get => _settings.Current.TicketSystemDynamicFieldOptionsRoute; set { _settings.Current.TicketSystemDynamicFieldOptionsRoute = value; Save(); } }
+    public string TicketSystemCostCenterFieldName { get => _settings.Current.TicketSystemCostCenterFieldName; set { _settings.Current.TicketSystemCostCenterFieldName = value; Save(); } }
+    public string TicketSystemOrderFieldName { get => _settings.Current.TicketSystemOrderFieldName; set { _settings.Current.TicketSystemOrderFieldName = value; Save(); } }
+    public string TicketSystemCostCenterOptions { get => _settings.Current.TicketSystemCostCenterOptions; set { _settings.Current.TicketSystemCostCenterOptions = value; Save(); } }
+    public string TicketSystemOrderOptions { get => _settings.Current.TicketSystemOrderOptions; set { _settings.Current.TicketSystemOrderOptions = value; Save(); } }
     public int TicketSystemSyncIntervalMinutes { get => _settings.Current.TicketSystemSyncIntervalMinutes; set { _settings.Current.TicketSystemSyncIntervalMinutes = value; Save(); } }
     public bool TicketSystemOnlyOpenTickets { get => _settings.Current.TicketSystemOnlyOpenTickets; set { _settings.Current.TicketSystemOnlyOpenTickets = value; Save(); } }
     public bool TicketSystemShowClosedTickets { get => _settings.Current.TicketSystemShowClosedTickets; set { _settings.Current.TicketSystemShowClosedTickets = value; Save(); } }
