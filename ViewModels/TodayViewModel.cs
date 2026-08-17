@@ -946,6 +946,17 @@ public class TodayViewModel : ObservableObject
         _ = _outlookCalendar.TriggerSyncAsync(localToday, localToday.AddDays(1), "today-agenda-day-change");
     }
 
+    private void OnClockTick()
+    {
+        UpdateTimerDisplay();
+        var localToday = _germanTime.GetLocalNow(_settings.Current.CalendarTimeZoneId).Date;
+        if (localToday == _agendaDate)
+            return;
+
+        ApplyTaskFilters();
+        _ = _outlookCalendar.TriggerSyncAsync(localToday, localToday.AddDays(1), "today-agenda-day-change");
+    }
+
 
     public bool NavigateToTask(Guid taskId)
     {
