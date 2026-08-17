@@ -34,8 +34,8 @@ public class SettingsService
         {
             if (!File.Exists(_path))
             {
-                var changes = Normalize(Current);
-                LogMigrations(changes);
+                var initialChanges = Normalize(Current);
+                LogMigrations(initialChanges);
                 Save();
                 return;
             }
