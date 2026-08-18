@@ -531,7 +531,7 @@ public class TodayViewModel : ObservableObject
             todayTaskIds = _tasks.GetTaskIdsWithSegmentsForRange(localToday, localToday.AddDays(1));
         }
 
-        var active = all.Where(t => t.Status != TaskStatus.Done).ToList();
+        var active = all.Where(t => t.Status != TaskStatus.Done && t.IsOperationallyVisible).ToList();
         if (!string.IsNullOrWhiteSpace(TaskSearchText))
         {
             var q = TaskSearchText.Trim();

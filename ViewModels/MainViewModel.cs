@@ -77,8 +77,9 @@ public class MainViewModel : ObservableObject
     {
         _logger = logger;
         TodayViewModel = new TodayViewModel(taskService, workDayService, settingsService, outlookCalendar, ticketSystem, homeOffice);
-        ticketSystem.TasksChanged += TodayViewModel.Refresh;
         _weekViewModel = new WeekViewModel(taskService, workDayService, settingsService, outlookCalendar, homeOffice);
+        ticketSystem.TasksChanged += TodayViewModel.Refresh;
+        ticketSystem.TasksChanged += _weekViewModel.Refresh;
         _ticketSystemViewModel = new TicketSystemViewModel(settingsService);
         var reports = new ReportsViewModel(taskService);
         SettingsViewModel = new SettingsViewModel(settingsService, notifications, outlookCalendar, taskService, ticketSystem, updates);

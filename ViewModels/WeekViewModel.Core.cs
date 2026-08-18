@@ -392,6 +392,7 @@ public class WeekViewModel : ObservableObject
         var showInternalSegments = _settings.Current.ShowInternalTaskSegmentsInCalendar;
         var segmentsInWeek = showInternalSegments
             ? _tasks.GetSegmentsForRange(from, toExclusive)
+                .Where(x => x.Task.IsOperationallyVisible)
                 .GroupBy(x => x.Segment.StartLocal.Date)
                 .ToDictionary(g => g.Key, g => g.OrderBy(x => x.Segment.StartLocal).ToList())
             : new Dictionary<DateTime, List<(TaskItem Task, TaskSegment Segment)>>();

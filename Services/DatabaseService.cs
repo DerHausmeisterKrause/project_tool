@@ -51,10 +51,11 @@ CREATE TABLE IF NOT EXISTS schema_version (
             MigrateToV8(conn);
             MigrateToV9(conn);
             MigrateToV10(conn);
+            MigrateToV11(conn);
 
-            if (currentVersion < 10)
+            if (currentVersion < 11)
             {
-                SetVersion(conn, 10);
+                SetVersion(conn, 11);
             }
         }
         catch (Exception ex)
@@ -208,6 +209,11 @@ CREATE TABLE IF NOT EXISTS ticket_assignment_sync_state (
     initialized INTEGER NOT NULL DEFAULT 0,
     updated_utc TEXT NOT NULL
 );");
+    }
+
+    private static void MigrateToV11(SqliteConnection conn)
+    {
+        EnsureColumn(conn, "tasks", "is_znuny_assigned", "INTEGER NOT NULL DEFAULT 1");
     }
 
     private static void EnsureColumn(SqliteConnection conn, string table, string column, string definition)

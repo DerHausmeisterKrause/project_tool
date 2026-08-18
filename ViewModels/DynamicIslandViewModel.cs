@@ -207,7 +207,7 @@ public class DynamicIslandViewModel : ObservableObject
 
         var now = DateTime.Now;
         var next = ServiceLocator.Tasks.GetSegmentsForRange(now, now.AddDays(2))
-            .Where(x => x.Segment.StartLocal > now)
+            .Where(x => x.Task.IsOperationallyVisible && x.Segment.StartLocal > now)
             .OrderBy(x => x.Segment.StartLocal)
             .FirstOrDefault();
 

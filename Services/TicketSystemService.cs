@@ -386,6 +386,7 @@ public class TicketSystemService : IDisposable
             var removedAssignmentCount = previousAssignmentSnapshot.Initialized
                 ? previousAssignmentSnapshot.TicketIds.Except(currentAssignedIds, StringComparer.OrdinalIgnoreCase).Count()
                 : 0;
+            _logger.Info($"[ZnunyAssignmentState] previous={previousAssignmentSnapshot.TicketIds.Count} current={currentAssignedIds.Count} new={newlyAssignedIds.Count} removed={removedAssignmentCount}");
             var notificationCandidates = new Dictionary<string, (Guid TaskId, string TicketNumber, string TicketTitle)>(StringComparer.OrdinalIgnoreCase);
             var assignedTicketsFullyProcessed = true;
             var existingGroups = _tasks.GetAllTasks()
@@ -429,8 +430,11 @@ public class TicketSystemService : IDisposable
                     continue;
                 }
 
+                var isCurrentlyAssigned = currentAssignedIds.Contains(ticket.TicketID);
                 if (existing.TryGetValue(ticket.TicketID, out var task))
                 {
+                    if (!isCurrentlyAssigned && task.Status == TaskStatus.Running)
+                        _tasks.StopTimer(task);
                     var metadataChanged = MapTicketToTask(ticket, task);
                     if (ticket.IsClosed)
                     {
@@ -462,6 +466,13 @@ public class TicketSystemService : IDisposable
                         hasTaskChanges = true;
                         _logger.Info($"[ZnunyTaskUpdated] ticketId={ticket.TicketID} ticketNumber='{ticket.TicketNumber}' taskId={task.Id}");
                     }
+
+                    if (task.IsZnunyAssigned != isCurrentlyAssigned)
+                    {
+                        _tasks.SetZnunyAssigned(task, isCurrentlyAssigned);
+                        hasTaskChanges = true;
+                        _logger.Info($"[ZnunyAssignmentState] ticketId={ticket.TicketID} taskId={task.Id} assigned={isCurrentlyAssigned.ToString().ToLowerInvariant()} action={(isCurrentlyAssigned ? "show" : "hide")}");
+                    }
                 }
                 else
                 {
@@ -473,6 +484,7 @@ public class TicketSystemService : IDisposable
 
                     task = new TaskItem();
                     MapTicketToTask(ticket, task);
+                    task.IsZnunyAssigned = true;
                     task.Status = ticket.IsClosed ? TaskStatus.Done : TaskStatus.Planned;
                     _tasks.CreateTask(task);
                     created++;
@@ -481,15 +493,30 @@ public class TicketSystemService : IDisposable
                 }
 
                 if (!ticket.IsClosed && newlyAssignedIds.Contains(ticket.TicketID))
+                {
                     notificationCandidates[ticket.TicketID] = (task.Id, ticket.TicketNumber, ticket.Title);
+                    _logger.Info($"[ZnunyNotificationCandidate] ticketId={ticket.TicketID} ticketNumber='{ticket.TicketNumber}' taskId={task.Id}");
+                }
+            }
+
+            foreach (var noLongerAssigned in existing.Where(item => !currentAssignedIds.Contains(item.Key)))
+            {
+                var task = noLongerAssigned.Value;
+                if (task.Status == TaskStatus.Running)
+                    _tasks.StopTimer(task);
+                if (!task.IsZnunyAssigned) continue;
+                _tasks.SetZnunyAssigned(task, false);
+                hasTaskChanges = true;
+                _logger.Info($"[ZnunyAssignmentState] ticketId={noLongerAssigned.Key} taskId={task.Id} assigned=false action=hide");
             }
 
             if (!assignedTicketsFullyProcessed)
                 throw new InvalidOperationException("Mindestens ein aktuell zugewiesenes Ticket konnte nicht vollständig verarbeitet werden; der Assignment-Snapshot bleibt unverändert.");
 
-            _assignmentSnapshots.Replace(assignmentContextKey, currentAssignedIds);
             if (!previousAssignmentSnapshot.Initialized)
             {
+                _assignmentSnapshots.Replace(assignmentContextKey, currentAssignedIds);
+                _logger.Info($"[ZnunyAssignmentSnapshot] committed=true contextHash={assignmentContextHash} current={currentAssignedIds.Count}");
                 _logger.Info($"[ZnunyAssignmentNotifications] action=initialize-baseline contextHash={assignmentContextHash} current={currentAssignedIds.Count} notifications=0");
             }
             else
@@ -500,26 +527,36 @@ public class TicketSystemService : IDisposable
                     : 0;
                 _logger.Info($"[ZnunyAssignmentNotifications] contextHash={assignmentContextHash} previous={previousAssignmentSnapshot.TicketIds.Count} current={currentAssignedIds.Count} newlyAssigned={newlyAssignedIds.Count} removed={removedAssignmentCount} notifications={notificationCount}");
 
-                try
+                if (notificationsEnabled && notificationCandidates.Count > 0)
                 {
-                    if (notificationsEnabled && notificationCandidates.Count > MaxIndividualAssignmentNotifications)
+                    IReadOnlyList<TicketNotificationPayload> payloads;
+                    if (notificationCandidates.Count > MaxIndividualAssignmentNotifications)
                     {
-                        _notifications.ShowNewTicketSummary(notificationCandidates.Count);
+                        payloads = new[]
+                        {
+                            new TicketNotificationPayload(Guid.Empty, $"Du hast {notificationCandidates.Count} neue Tickets\nÖffne Plenaro, um die neuen Aufgaben anzusehen.")
+                        };
                         _logger.Info($"[ZnunyAssignmentNotifications] newlyAssigned={notificationCandidates.Count} mode=summary individualNotifications=0");
                     }
-                    else if (notificationsEnabled)
+                    else
                     {
-                        foreach (var candidate in notificationCandidates.OrderBy(item => item.Key, StringComparer.OrdinalIgnoreCase))
-                        {
-                            _notifications.ShowNewTicketNotification(candidate.Value.TaskId, candidate.Value.TicketNumber, candidate.Value.TicketTitle);
-                            _logger.Info($"[ZnunyNewAssignment] ticketId={candidate.Key} ticketNumber='{candidate.Value.TicketNumber}' taskId={candidate.Value.TaskId} action=notify");
-                        }
+                        payloads = notificationCandidates
+                            .OrderBy(item => item.Key, StringComparer.OrdinalIgnoreCase)
+                            .Select(candidate => new TicketNotificationPayload(
+                                candidate.Value.TaskId,
+                                $"Du hast ein neues Ticket\n{candidate.Value.TicketNumber} · {candidate.Value.TicketTitle}"))
+                            .ToList();
                     }
+
+                    if (!await _notifications.EnqueueTicketNotificationsAsync(payloads))
+                        throw new InvalidOperationException("Die Ticket-Benachrichtigungen wurden nicht von der Dynamic-Island-Queue angenommen; der Assignment-Snapshot bleibt unverändert.");
+
+                    foreach (var candidate in notificationCandidates.OrderBy(item => item.Key, StringComparer.OrdinalIgnoreCase))
+                        _logger.Info($"[ZnunyNewAssignment] ticketId={candidate.Key} ticketNumber='{candidate.Value.TicketNumber}' taskId={candidate.Value.TaskId} action=notify");
                 }
-                catch (Exception ex)
-                {
-                    _logger.Error($"[ZnunyAssignmentNotifications] action=dispatch-failed errorCode={ex.HResult:X8} message={ex.Message}");
-                }
+
+                _assignmentSnapshots.Replace(assignmentContextKey, currentAssignedIds);
+                _logger.Info($"[ZnunyAssignmentSnapshot] committed=true contextHash={assignmentContextHash} current={currentAssignedIds.Count}");
             }
 
             _logger.Info($"[ZnunySyncFinished] created={created} updated={updated} skipped={skipped} totalTickets={ticketIds.Count}");
