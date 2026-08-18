@@ -415,6 +415,7 @@ public class TodayViewModel : ObservableObject
         NewTaskCandidates.Clear();
         foreach (var ticket in _ticketSystem.CurrentCandidateTickets)
             NewTaskCandidates.Add(ticket);
+        ServiceLocator.Logger.Info($"[ZnunyCandidatesUI] serviceCount={_ticketSystem.CurrentCandidateTickets.Count} viewModelCount={NewTaskCandidates.Count}");
         Raise(nameof(CandidateTabTitle));
         Raise(nameof(ShowCandidateHint));
         Raise(nameof(CandidateHint));

@@ -2,9 +2,9 @@ namespace TaskTool.Models;
 
 public class AppSettings
 {
-    // One-time bootstrap for settings files created before persistent update version tracking.
-    // This is not the current application version and must not be bumped for future releases.
-    public const string InitialInstalledVersion = "2.0.2";
+    // Bootstrap/delivery version for fresh settings created by this distribution.
+    // Existing non-empty InstalledVersion values remain authoritative until a successful update.
+    public const string InitialInstalledVersion = "2.1.0";
     public const string DefaultTicketSystemTicketUpdateRoute = "/Ticket/{TicketID}/Update";
     public const string LegacyTicketSystemTicketUpdateRoute = "/Ticket/Update";
     public bool DynamicIslandEnabled { get; set; } = true;

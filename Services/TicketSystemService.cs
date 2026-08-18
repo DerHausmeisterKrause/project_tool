@@ -751,19 +751,20 @@ public class TicketSystemService : IDisposable
         string reason)
     {
         var keywords = ParseCandidateKeywords(_settings.Current.TicketSystemCandidateKeywords);
+        var candidateUserId = _settings.Current.TicketSystemCandidateUserId;
+        _logger.Info($"[ZnunyCandidates] action=refresh-start reason={reason} candidateUserId={candidateUserId} parsedKeywords=[{string.Join(',', keywords.Select(keyword => $"'{LogValue(keyword)}'"))}]");
         if (keywords.Count == 0)
         {
             PublishCandidateTickets(Array.Empty<ZnunyCandidateTicket>(), string.Empty);
-            _logger.Info($"[ZnunyCandidates] action=refresh reason={reason} candidateUserId={_settings.Current.TicketSystemCandidateUserId} keywords=0 matched=0");
+            _logger.Info($"[ZnunyCandidates] action=refresh reason={reason} candidateUserId={candidateUserId} sourceUnique=0 excludedOwnAssigned=0 ticketGetFailed=0 closed=0 noKeywordMatch=0 matched=0 keywords=0");
             return;
         }
 
-        var candidateUserId = _settings.Current.TicketSystemCandidateUserId;
         var ownerIds = await SearchTicketsAsync("Owner", candidateUserId, _settings.Current.TicketSystemTicketSearchRoute,
             _settings.Current.TicketSystemTicketSearchMethod, sessionId, sessionHash, onlyOpenOverride: true);
         var responsibleIds = await SearchTicketsAsync("Responsible", candidateUserId, _settings.Current.TicketSystemTicketSearchRoute,
             _settings.Current.TicketSystemTicketSearchMethod, sessionId, sessionHash, onlyOpenOverride: true);
-        var sourceIds = ownerIds.Concat(responsibleIds).Distinct(StringComparer.OrdinalIgnoreCase).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var allSourceIds = ownerIds.Concat(responsibleIds).Distinct(StringComparer.OrdinalIgnoreCase).ToHashSet(StringComparer.OrdinalIgnoreCase);
 
         var ownOwnerIds = await SearchTicketsAsync("Owner", _settings.Current.TicketSystemAgentId,
             _settings.Current.TicketSystemTicketSearchRoute, _settings.Current.TicketSystemTicketSearchMethod,
@@ -773,19 +774,46 @@ public class TicketSystemService : IDisposable
             sessionId, sessionHash, onlyOpenOverride: true);
         var ownAssignedIds = ownOwnerIds.Concat(ownResponsibleIds).ToHashSet(StringComparer.OrdinalIgnoreCase);
 
-        var excluded = sourceIds.RemoveWhere(ownAssignedIds.Contains);
+        var ownAssignedSourceIds = allSourceIds.Where(ownAssignedIds.Contains).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var candidateIds = allSourceIds.Except(ownAssignedIds, StringComparer.OrdinalIgnoreCase).ToHashSet(StringComparer.OrdinalIgnoreCase);
         var matches = new List<ZnunyCandidateTicket>();
-        foreach (var ticketId in sourceIds)
+        var ticketGetFailed = 0;
+        var closed = 0;
+        var noKeywordMatch = 0;
+        foreach (var ticketId in allSourceIds.OrderBy(id => id, StringComparer.OrdinalIgnoreCase))
         {
             var ticket = await GetTicketAsync(ticketId, sessionId, sessionHash);
-            if (ticket == null || ticket.IsClosed)
+            if (ticket == null)
+            {
+                ticketGetFailed++;
+                _logger.Info($"[ZnunyCandidateEvaluation] ticketId={ticketId} isOwnAssigned={ownAssignedSourceIds.Contains(ticketId).ToString().ToLowerInvariant()} result=ticket-get-failed");
+                continue;
+            }
+
+            var isOwnAssigned = ownAssignedSourceIds.Contains(ticketId);
+            if (isOwnAssigned)
+            {
+                LogCandidateEvaluation(ticket, true, string.Empty, string.Empty, "excluded-own-assigned");
+                continue;
+            }
+
+            if (!candidateIds.Contains(ticketId))
                 continue;
 
-            var matchedKeyword = keywords.FirstOrDefault(keyword =>
-                ticket.Title.Contains(keyword, StringComparison.OrdinalIgnoreCase)
-                || ticket.ContentText.Contains(keyword, StringComparison.OrdinalIgnoreCase));
-            if (matchedKeyword == null)
+            if (ticket.IsClosed)
+            {
+                closed++;
+                LogCandidateEvaluation(ticket, false, string.Empty, string.Empty, "closed");
                 continue;
+            }
+
+            var match = FindCandidateMatch(ticket, keywords);
+            if (match.Keyword.Length == 0)
+            {
+                noKeywordMatch++;
+                LogCandidateEvaluation(ticket, false, string.Empty, string.Empty, "no-keyword-match");
+                continue;
+            }
 
             matches.Add(new ZnunyCandidateTicket
             {
@@ -797,27 +825,51 @@ public class TicketSystemService : IDisposable
                 Responsible = ticket.Responsible,
                 State = ticket.State,
                 WebUrl = ticket.WebUrl,
-                MatchedKeyword = matchedKeyword
+                MatchedKeyword = match.Keyword
             });
-            _logger.Info($"[ZnunyCandidateMatch] ticketId={ticket.TicketID} ticketNumber='{ticket.TicketNumber}' keyword='{matchedKeyword}'");
+            LogCandidateEvaluation(ticket, false, match.Keyword, match.Source, "matched");
         }
 
         PublishCandidateTickets(matches.OrderByDescending(ticket => ticket.TicketNumber, StringComparer.OrdinalIgnoreCase).ToList(), string.Empty);
-        _logger.Info($"[ZnunyCandidates] action=refresh reason={reason} candidateUserId={candidateUserId} ownerTickets={ownerIds.Count} responsibleTickets={responsibleIds.Count} uniqueSourceTickets={sourceIds.Count + excluded} ownAssignedExcluded={excluded} keywords={keywords.Count} matched={matches.Count}");
+        _logger.Info($"[ZnunyCandidates] action=refresh reason={reason} candidateUserId={candidateUserId} ownerTickets={ownerIds.Count} responsibleTickets={responsibleIds.Count} sourceUnique={allSourceIds.Count} excludedOwnAssigned={ownAssignedSourceIds.Count} ticketGetFailed={ticketGetFailed} closed={closed} noKeywordMatch={noKeywordMatch} matched={matches.Count} keywords={keywords.Count}");
     }
 
     private void PublishCandidateTickets(IReadOnlyList<ZnunyCandidateTicket> tickets, string error)
     {
         _candidateTickets = tickets;
         CandidateTicketsError = error;
+        _logger.Info($"[ZnunyCandidatesPublish] serviceCount={tickets.Count}");
         CandidateTicketsChanged?.Invoke();
     }
 
     private static IReadOnlyList<string> ParseCandidateKeywords(string? value)
         => (value ?? string.Empty)
-            .Split(new[] { ',', ';', '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Split(new[] { ',', ';', '\r', '\n', '\t' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
+
+    private static (string Keyword, string Source) FindCandidateMatch(ZnunyTicket ticket, IReadOnlyList<string> keywords)
+    {
+        foreach (var keyword in keywords)
+        {
+            if (ticket.Title.Contains(keyword, StringComparison.OrdinalIgnoreCase))
+                return (keyword, "Title");
+            if (ticket.ArticleSubjects.Contains(keyword, StringComparison.OrdinalIgnoreCase))
+                return (keyword, "ArticleSubject");
+            if (ticket.ContentText.Contains(keyword, StringComparison.OrdinalIgnoreCase))
+                return (keyword, "ArticleBody");
+        }
+
+        return (string.Empty, string.Empty);
+    }
+
+    private void LogCandidateEvaluation(ZnunyTicket ticket, bool isOwnAssigned, string matchedKeyword, string matchedIn, string result)
+    {
+        var matchDetails = matchedKeyword.Length == 0
+            ? string.Empty
+            : $" matchedKeyword='{LogValue(matchedKeyword)}' matchedIn='{matchedIn}'";
+        _logger.Info($"[ZnunyCandidateEvaluation] ticketId={ticket.TicketID} ticketNumber='{LogValue(ticket.TicketNumber)}' title='{LogValue(ticket.Title)}' owner='{LogValue(ticket.Owner)}' responsible='{LogValue(ticket.Responsible)}' state='{LogValue(ticket.State)}' contentLength={ticket.CandidateSearchText.Length} isOwnAssigned={isOwnAssigned.ToString().ToLowerInvariant()}{matchDetails} result={result}");
+    }
 
     private static string CreateDescriptionPreview(string text)
     {
@@ -1614,7 +1666,9 @@ public class TicketSystemService : IDisposable
         public string DynamicFields { get; init; } = string.Empty;
         public IReadOnlyDictionary<string, string> DynamicFieldValues { get; init; } = new Dictionary<string, string>();
         public string FirstArticleBody { get; init; } = string.Empty;
+        public string ArticleSubjects { get; init; } = string.Empty;
         public string ContentText { get; init; } = string.Empty;
+        public string CandidateSearchText { get; init; } = string.Empty;
         public string FirstArticleId { get; init; } = string.Empty;
         public string FirstArticleSenderType { get; init; } = string.Empty;
         public string FirstArticleCreated { get; init; } = string.Empty;
@@ -1652,11 +1706,18 @@ public class TicketSystemService : IDisposable
                 .OrderBy(article => article.CreatedSort)
                 .ThenBy(article => article.ArticleId, StringComparer.OrdinalIgnoreCase)
                 .FirstOrDefault();
+            var articleSubjects = string.Join("\n", articles
+                .Where(article => !article.IsSystemArticle && !string.IsNullOrWhiteSpace(article.Subject))
+                .Select(article => article.Subject));
+            var articleBodies = string.Join("\n\n", articles
+                .Where(article => !article.IsSystemArticle && !string.IsNullOrWhiteSpace(article.Body))
+                .Select(article => article.Body));
+            var title = FirstString(item, "Title");
             return new ZnunyTicket
             {
                 TicketID = id,
                 TicketNumber = number,
-                Title = FirstString(item, "Title"),
+                Title = title,
                 Queue = FirstString(item, "Queue"),
                 State = FirstString(item, "State"),
                 StateType = FirstString(item, "StateType"),
@@ -1679,9 +1740,9 @@ public class TicketSystemService : IDisposable
                 Articles = articles,
                 ArticleCount = articles.Count,
                 FirstArticleBody = selectedArticle?.Body ?? string.Empty,
-                ContentText = string.Join("\n\n", articles
-                    .Where(article => !article.IsSystemArticle && !string.IsNullOrWhiteSpace(article.Body))
-                    .Select(article => article.Body)),
+                ArticleSubjects = articleSubjects,
+                ContentText = articleBodies,
+                CandidateSearchText = string.Join("\n", new[] { title, articleSubjects, articleBodies }.Where(value => !string.IsNullOrWhiteSpace(value))),
                 FirstArticleId = selectedArticle?.ArticleId ?? string.Empty,
                 FirstArticleSenderType = selectedArticle?.SenderType ?? string.Empty,
                 FirstArticleCreated = selectedArticle?.Created ?? string.Empty
@@ -1749,6 +1810,7 @@ public class TicketSystemService : IDisposable
                         FirstString(element, "ArticleID"),
                         FirstString(element, "SenderType", "SenderTypeID"),
                         FirstString(element, "CreateTime", "Created"),
+                        NormalizeArticleText(FirstString(element, "Subject"), string.Empty),
                         NormalizeArticleBody(rawBody, contentType),
                         FirstString(element, "CommunicationChannel", "ArticleType", "ArticleTypeID"));
                 })
@@ -1756,24 +1818,28 @@ public class TicketSystemService : IDisposable
         }
 
         private static string NormalizeArticleBody(string body, string contentType)
+            => NormalizeArticleText(body, contentType, 5000);
+
+        private static string NormalizeArticleText(string value, string contentType, int maximumLength = 1000)
         {
-            if (string.IsNullOrWhiteSpace(body)) return string.Empty;
-            var text = body;
+            if (string.IsNullOrWhiteSpace(value)) return string.Empty;
+            var text = value;
             if (contentType.Contains("html", StringComparison.OrdinalIgnoreCase) || Regex.IsMatch(text, "<[^>]+>"))
             {
                 text = Regex.Replace(text, "<(br|/p|/div|/li|/tr|/h[1-6])[^>]*>", "\n", RegexOptions.IgnoreCase);
                 text = Regex.Replace(text, "<li[^>]*>", "- ", RegexOptions.IgnoreCase);
                 text = Regex.Replace(text, "<[^>]+>", string.Empty);
-                text = WebUtility.HtmlDecode(text);
             }
+
+            text = WebUtility.HtmlDecode(text);
 
             text = text.Replace("\r\n", "\n", StringComparison.Ordinal).Replace('\r', '\n');
             text = Regex.Replace(text, "[ \t]+\n", "\n");
             text = Regex.Replace(text, "\n{3,}", "\n\n").Trim();
-            return text.Length <= 5000 ? text : text[..5000].TrimEnd() + "\n[…]";
+            return text.Length <= maximumLength ? text : text[..maximumLength].TrimEnd() + "\n[…]";
         }
 
-        private sealed record ZnunyArticle(string ArticleId, string SenderType, string Created, string Body, string Channel)
+        private sealed record ZnunyArticle(string ArticleId, string SenderType, string Created, string Subject, string Body, string Channel)
         {
             public DateTime CreatedSort => DateTime.TryParse(Created, CultureInfo.InvariantCulture, DateTimeStyles.AssumeLocal, out var parsed)
                 ? parsed
