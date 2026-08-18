@@ -158,6 +158,8 @@
                                      IsChecked="{Binding SelectedTaskScope, Converter={StaticResource EqualityConverter}, ConverterParameter=Today}" Command="{Binding ShowTodayTasksCommand}"/>
                         <RadioButton GroupName="TaskScope" Content="Aktuelle Aufgaben" MinWidth="165" Style="{StaticResource TaskFilterMiddleSegmentStyle}"
                                      IsChecked="{Binding SelectedTaskScope, Converter={StaticResource EqualityConverter}, ConverterParameter=Current}" Command="{Binding ShowCurrentTasksCommand}"/>
+                        <RadioButton GroupName="TaskScope" Content="{Binding CandidateTabTitle}" MinWidth="165" Style="{StaticResource TaskFilterMiddleSegmentStyle}"
+                                     IsChecked="{Binding SelectedTaskScope, Converter={StaticResource EqualityConverter}, ConverterParameter=CandidateTickets}" Command="{Binding ShowNewTasksCommand}"/>
                         <RadioButton GroupName="TaskScope" Content="Erledigte Aufgaben" MinWidth="165" Style="{StaticResource TaskFilterRightSegmentStyle}"
                                      IsChecked="{Binding SelectedTaskScope, Converter={StaticResource EqualityConverter}, ConverterParameter=Completed}" Command="{Binding ShowCompletedTasksCommand}"/>
                     </StackPanel>
@@ -190,6 +192,12 @@
 
                 <TextBox Grid.Row="1" Text="{Binding CompletedTaskSearchText, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,10"
                          Visibility="{Binding ShowCompletedTaskList, Converter={StaticResource BooleanToVisibilityConverter}}"/>
+
+                <Grid Grid.Row="1" Visibility="{Binding ShowCandidateTickets, Converter={StaticResource BooleanToVisibilityConverter}}">
+                    <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                    <TextBlock Text="Neue Aufgaben:" FontSize="16" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                    <Button Grid.Column="1" Content="Aktualisieren" Width="120" Style="{StaticResource SecondaryButtonStyle}" Command="{Binding RefreshCandidateTicketsCommand}"/>
+                </Grid>
 
                 <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto" Background="Transparent"
                               Visibility="{Binding ShowTodayAgenda, Converter={StaticResource BooleanToVisibilityConverter}}">
@@ -350,6 +358,38 @@
                             </DataTemplate>
                         </ItemsControl.ItemTemplate>
                     </ItemsControl>
+                </ScrollViewer>
+
+                <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto" Background="Transparent"
+                              Visibility="{Binding ShowCandidateTickets, Converter={StaticResource BooleanToVisibilityConverter}}">
+                    <StackPanel>
+                        <TextBlock Text="{Binding CandidateHint}" Foreground="{StaticResource MutedTextBrush}" TextWrapping="Wrap" Margin="4,8"
+                                   Visibility="{Binding ShowCandidateHint, Converter={StaticResource BooleanToVisibilityConverter}}"/>
+                        <ItemsControl ItemsSource="{Binding NewTaskCandidates}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Border Style="{StaticResource CardStyle}">
+                                        <Grid>
+                                            <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                                            <StackPanel Margin="0,0,16,0">
+                                                <TextBlock Text="{Binding TicketNumber}" Foreground="{StaticResource AccentBrush}" FontWeight="SemiBold"/>
+                                                <TextBlock Text="{Binding Title}" FontSize="18" FontWeight="Bold" TextWrapping="Wrap" Margin="0,3,0,5"/>
+                                                <TextBlock Text="{Binding DescriptionPreview}" Foreground="{StaticResource MutedTextBrush}" TextWrapping="Wrap" MaxHeight="64"/>
+                                                <WrapPanel Margin="0,8,0,0">
+                                                    <TextBlock Text="Besitzer: " FontWeight="SemiBold"/><TextBlock Text="{Binding Owner}" Margin="0,0,16,0"/>
+                                                    <TextBlock Text="Verantwortlicher: " FontWeight="SemiBold"/><TextBlock Text="{Binding Responsible}"/>
+                                                </WrapPanel>
+                                                <TextBlock Text="{Binding MatchedKeyword, StringFormat=Treffer: {0}}" Foreground="{StaticResource MutedTextBrush}" Margin="0,4,0,0"/>
+                                            </StackPanel>
+                                            <Button Grid.Column="1" Content="Ticket öffnen" Width="125" VerticalAlignment="Center" Style="{StaticResource SecondaryButtonStyle}"
+                                                    Command="{Binding DataContext.OpenTicketUrlCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
+                                                    CommandParameter="{Binding WebUrl}"/>
+                                        </Grid>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
                 </ScrollViewer>
             </Grid>
         </Border>

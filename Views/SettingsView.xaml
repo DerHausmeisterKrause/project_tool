@@ -116,6 +116,12 @@
                         <TextBlock Text="Znuny Agenten-ID" Foreground="{StaticResource MutedTextBrush}"/>
                         <TextBox Text="{Binding TicketSystemAgentId, UpdateSourceTrigger=PropertyChanged}" Width="120"/>
                         <TextBlock Text="Interne numerische Agenten-ID für Owner- und Responsible-Suche. Sie kann in Znuny unter Admin → Agenten bzw. in der URL des geöffneten Agenten gefunden werden." Foreground="{StaticResource MutedTextBrush}" TextWrapping="Wrap" Margin="0,0,0,8"/>
+                        <TextBlock Text="Neue Aufgaben / Ticket-Vorschläge" FontSize="16" FontWeight="SemiBold" Margin="0,8,0,6"/>
+                        <TextBlock Text="Quell-Benutzer-ID" Foreground="{StaticResource MutedTextBrush}"/>
+                        <TextBox Text="{Binding TicketSystemCandidateUserId, UpdateSourceTrigger=LostFocus}" Width="120"/>
+                        <TextBlock Text="Standard: OTRS, Admin (UserID 1). Besitzer und Verantwortlicher werden berücksichtigt." Foreground="{StaticResource MutedTextBrush}" TextWrapping="Wrap"/>
+                        <TextBlock Text="Schlüsselwörter (Zeile, Komma oder Semikolon als Trennzeichen)" Foreground="{StaticResource MutedTextBrush}" Margin="0,6,0,0"/>
+                        <TextBox Text="{Binding TicketSystemCandidateKeywords, UpdateSourceTrigger=LostFocus}" AcceptsReturn="True" Width="560" Height="90" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto"/>
                         <TextBlock Text="TicketSearch Route" Foreground="{StaticResource MutedTextBrush}"/>
                         <TextBox Text="{Binding TicketSystemTicketSearchRoute, UpdateSourceTrigger=PropertyChanged}" Width="220"/>
                         <TextBlock Text="TicketSearch HTTP-Methode" Foreground="{StaticResource MutedTextBrush}"/>

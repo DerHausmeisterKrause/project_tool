@@ -24,9 +24,15 @@ public class TicketSystemService : IDisposable
     private IReadOnlyDictionary<string, IReadOnlyList<TicketFieldOption>> _dynamicFieldOptionsCache = new Dictionary<string, IReadOnlyList<TicketFieldOption>>(StringComparer.OrdinalIgnoreCase);
     private DateTime _dynamicFieldOptionsCacheExpiresUtc;
     private bool _dynamicFieldOptionsCacheValid;
+    private IReadOnlyList<ZnunyCandidateTicket> _candidateTickets = Array.Empty<ZnunyCandidateTicket>();
+    private int _lastCandidateUserId;
+    private string _lastCandidateKeywords = string.Empty;
 
     public string LastError { get; private set; } = string.Empty;
     public event Action? TasksChanged;
+    public event Action? CandidateTicketsChanged;
+    public IReadOnlyList<ZnunyCandidateTicket> CurrentCandidateTickets => _candidateTickets;
+    public string CandidateTicketsError { get; private set; } = string.Empty;
 
     private const int MaxIndividualAssignmentNotifications = 5;
 
@@ -38,6 +44,8 @@ public class TicketSystemService : IDisposable
         _notifications = notifications;
         _logger = logger;
         _timer = new System.Threading.Timer(async _ => await SyncAssignedTicketsAsync("timer"), null, Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
+        _lastCandidateUserId = _settings.Current.TicketSystemCandidateUserId;
+        _lastCandidateKeywords = _settings.Current.TicketSystemCandidateKeywords;
         HandleSettingsChanged();
     }
 
@@ -45,10 +53,46 @@ public class TicketSystemService : IDisposable
     {
         var interval = Math.Clamp(_settings.Current.TicketSystemSyncIntervalMinutes, 1, 1440);
         _timer.Change(TimeSpan.FromMinutes(interval), TimeSpan.FromMinutes(interval));
+        var candidateSettingsChanged = _lastCandidateUserId != _settings.Current.TicketSystemCandidateUserId
+            || !string.Equals(_lastCandidateKeywords, _settings.Current.TicketSystemCandidateKeywords, StringComparison.Ordinal);
+        _lastCandidateUserId = _settings.Current.TicketSystemCandidateUserId;
+        _lastCandidateKeywords = _settings.Current.TicketSystemCandidateKeywords;
+        if (candidateSettingsChanged)
+            _ = RefreshCandidateTicketsAsync("settings");
     }
 
     public Task<(int created, int updated, int skipped)> ImportAssignedOpenTicketsAsync()
         => SyncAssignedTicketsAsync("manual");
+
+    public async Task<bool> RefreshCandidateTicketsAsync(string reason = "manual")
+    {
+        if (!await _syncGate.WaitAsync(0))
+        {
+            _logger.Info($"[ZnunyCandidates] action=refresh-skipped reason={reason} activeSync=true");
+            return false;
+        }
+
+        try
+        {
+            var configError = ValidateConfiguration(requireAgentId: true);
+            if (!string.IsNullOrWhiteSpace(configError))
+                throw new InvalidOperationException(configError);
+            var sessionId = await CreateSessionAsync();
+            await RefreshCandidateTicketsCoreAsync(sessionId, HashSessionId(sessionId), reason);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            CandidateTicketsError = "Neue Aufgaben konnten nicht aktualisiert werden.";
+            _logger.Error($"[ZnunyCandidates] action=refresh-failed reason={reason} message={ex.Message}");
+            CandidateTicketsChanged?.Invoke();
+            return false;
+        }
+        finally
+        {
+            _syncGate.Release();
+        }
+    }
 
     public async Task<TicketBookingContext> GetTicketBookingContextAsync(TaskItem task)
     {
@@ -559,6 +603,17 @@ public class TicketSystemService : IDisposable
                 _logger.Info($"[ZnunyAssignmentSnapshot] committed=true contextHash={assignmentContextHash} current={currentAssignedIds.Count}");
             }
 
+            try
+            {
+                await RefreshCandidateTicketsCoreAsync(sessionId, sessionHash, reason);
+            }
+            catch (Exception ex)
+            {
+                CandidateTicketsError = "Neue Aufgaben konnten nicht aktualisiert werden.";
+                _logger.Error($"[ZnunyCandidates] action=refresh-failed reason={reason} message={ex.Message}");
+                CandidateTicketsChanged?.Invoke();
+            }
+
             _logger.Info($"[ZnunySyncFinished] created={created} updated={updated} skipped={skipped} totalTickets={ticketIds.Count}");
             return (created, updated, skipped);
         }
@@ -688,6 +743,86 @@ public class TicketSystemService : IDisposable
             .ToList();
 
         return (ownerIds, responsibleIds, uniqueIds);
+    }
+
+    private async Task RefreshCandidateTicketsCoreAsync(
+        string sessionId,
+        string sessionHash,
+        string reason)
+    {
+        var keywords = ParseCandidateKeywords(_settings.Current.TicketSystemCandidateKeywords);
+        if (keywords.Count == 0)
+        {
+            PublishCandidateTickets(Array.Empty<ZnunyCandidateTicket>(), string.Empty);
+            _logger.Info($"[ZnunyCandidates] action=refresh reason={reason} candidateUserId={_settings.Current.TicketSystemCandidateUserId} keywords=0 matched=0");
+            return;
+        }
+
+        var candidateUserId = _settings.Current.TicketSystemCandidateUserId;
+        var ownerIds = await SearchTicketsAsync("Owner", candidateUserId, _settings.Current.TicketSystemTicketSearchRoute,
+            _settings.Current.TicketSystemTicketSearchMethod, sessionId, sessionHash, onlyOpenOverride: true);
+        var responsibleIds = await SearchTicketsAsync("Responsible", candidateUserId, _settings.Current.TicketSystemTicketSearchRoute,
+            _settings.Current.TicketSystemTicketSearchMethod, sessionId, sessionHash, onlyOpenOverride: true);
+        var sourceIds = ownerIds.Concat(responsibleIds).Distinct(StringComparer.OrdinalIgnoreCase).ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        var ownOwnerIds = await SearchTicketsAsync("Owner", _settings.Current.TicketSystemAgentId,
+            _settings.Current.TicketSystemTicketSearchRoute, _settings.Current.TicketSystemTicketSearchMethod,
+            sessionId, sessionHash, onlyOpenOverride: true);
+        var ownResponsibleIds = await SearchTicketsAsync("Responsible", _settings.Current.TicketSystemAgentId,
+            _settings.Current.TicketSystemTicketSearchRoute, _settings.Current.TicketSystemTicketSearchMethod,
+            sessionId, sessionHash, onlyOpenOverride: true);
+        var ownAssignedIds = ownOwnerIds.Concat(ownResponsibleIds).ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        var excluded = sourceIds.RemoveWhere(ownAssignedIds.Contains);
+        var matches = new List<ZnunyCandidateTicket>();
+        foreach (var ticketId in sourceIds)
+        {
+            var ticket = await GetTicketAsync(ticketId, sessionId, sessionHash);
+            if (ticket == null || ticket.IsClosed)
+                continue;
+
+            var matchedKeyword = keywords.FirstOrDefault(keyword =>
+                ticket.Title.Contains(keyword, StringComparison.OrdinalIgnoreCase)
+                || ticket.ContentText.Contains(keyword, StringComparison.OrdinalIgnoreCase));
+            if (matchedKeyword == null)
+                continue;
+
+            matches.Add(new ZnunyCandidateTicket
+            {
+                TicketId = ticket.TicketID,
+                TicketNumber = ticket.TicketNumber,
+                Title = ticket.Title,
+                DescriptionPreview = CreateDescriptionPreview(ticket.ContentText),
+                Owner = ticket.Owner,
+                Responsible = ticket.Responsible,
+                State = ticket.State,
+                WebUrl = ticket.WebUrl,
+                MatchedKeyword = matchedKeyword
+            });
+            _logger.Info($"[ZnunyCandidateMatch] ticketId={ticket.TicketID} ticketNumber='{ticket.TicketNumber}' keyword='{matchedKeyword}'");
+        }
+
+        PublishCandidateTickets(matches.OrderByDescending(ticket => ticket.TicketNumber, StringComparer.OrdinalIgnoreCase).ToList(), string.Empty);
+        _logger.Info($"[ZnunyCandidates] action=refresh reason={reason} candidateUserId={candidateUserId} ownerTickets={ownerIds.Count} responsibleTickets={responsibleIds.Count} uniqueSourceTickets={sourceIds.Count + excluded} ownAssignedExcluded={excluded} keywords={keywords.Count} matched={matches.Count}");
+    }
+
+    private void PublishCandidateTickets(IReadOnlyList<ZnunyCandidateTicket> tickets, string error)
+    {
+        _candidateTickets = tickets;
+        CandidateTicketsError = error;
+        CandidateTicketsChanged?.Invoke();
+    }
+
+    private static IReadOnlyList<string> ParseCandidateKeywords(string? value)
+        => (value ?? string.Empty)
+            .Split(new[] { ',', ';', '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+    private static string CreateDescriptionPreview(string text)
+    {
+        var compact = Regex.Replace(text ?? string.Empty, @"\s+", " ").Trim();
+        return compact.Length <= 280 ? compact : compact[..277] + "…";
     }
 
     private async Task<List<string>> SearchRoleTicketIdsWithOpenCompatibilityAsync(string role, int userId, string sessionId, string sessionHash)
@@ -1479,6 +1614,7 @@ public class TicketSystemService : IDisposable
         public string DynamicFields { get; init; } = string.Empty;
         public IReadOnlyDictionary<string, string> DynamicFieldValues { get; init; } = new Dictionary<string, string>();
         public string FirstArticleBody { get; init; } = string.Empty;
+        public string ContentText { get; init; } = string.Empty;
         public string FirstArticleId { get; init; } = string.Empty;
         public string FirstArticleSenderType { get; init; } = string.Empty;
         public string FirstArticleCreated { get; init; } = string.Empty;
@@ -1543,6 +1679,9 @@ public class TicketSystemService : IDisposable
                 Articles = articles,
                 ArticleCount = articles.Count,
                 FirstArticleBody = selectedArticle?.Body ?? string.Empty,
+                ContentText = string.Join("\n\n", articles
+                    .Where(article => !article.IsSystemArticle && !string.IsNullOrWhiteSpace(article.Body))
+                    .Select(article => article.Body)),
                 FirstArticleId = selectedArticle?.ArticleId ?? string.Empty,
                 FirstArticleSenderType = selectedArticle?.SenderType ?? string.Empty,
                 FirstArticleCreated = selectedArticle?.Created ?? string.Empty

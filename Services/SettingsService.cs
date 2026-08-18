@@ -127,6 +127,8 @@ public class SettingsService
         settings.TicketSystemPasswordEncrypted ??= string.Empty;
         settings.TicketSystemPassword ??= string.Empty;
         settings.TicketSystemAgentId = Math.Max(0, settings.TicketSystemAgentId);
+        settings.TicketSystemCandidateUserId = Math.Max(1, settings.TicketSystemCandidateUserId);
+        settings.TicketSystemCandidateKeywords = settings.TicketSystemCandidateKeywords?.Trim() ?? string.Empty;
         settings.TicketSystemTicketSearchRoute = NormalizeRoute(settings.TicketSystemTicketSearchRoute, "/Ticket");
         settings.TicketSystemTicketSearchMethod = string.Equals(settings.TicketSystemTicketSearchMethod, "POST", StringComparison.OrdinalIgnoreCase) ? "POST" : "GET";
         settings.TicketSystemTicketSearchAuthMode = string.Equals(settings.TicketSystemTicketSearchAuthMode, "Direct", StringComparison.OrdinalIgnoreCase) ? "Direct" : "Session";

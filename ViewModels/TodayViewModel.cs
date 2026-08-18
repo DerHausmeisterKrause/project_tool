@@ -31,6 +31,7 @@ public class TodayViewModel : ObservableObject
     public ObservableCollection<TaskItem> DisplayedTasks { get; } = new();
     public ObservableCollection<TaskItem> CompletedTasks { get; } = new();
     public ObservableCollection<TodayAgendaItem> TodayAgendaItems { get; } = new();
+    public ObservableCollection<ZnunyCandidateTicket> NewTaskCandidates { get; } = new();
     public ObservableCollection<BreakEditRow> BreakRows { get; } = new();
     public ObservableCollection<TaskSegment> Segments { get; } = new();
     public ObservableCollection<TicketTimeBooking> TicketTimeBookings { get; } = new();
@@ -93,15 +94,26 @@ public class TodayViewModel : ObservableObject
                 Raise(nameof(ShowTodayAgenda));
                 Raise(nameof(ShowCurrentTaskList));
                 Raise(nameof(ShowCompletedTaskList));
+                Raise(nameof(ShowCandidateTickets));
+                Raise(nameof(ShowCandidateHint));
+                Raise(nameof(CandidateHint));
                 Raise(nameof(ActiveTaskListHeading));
             }
         }
     }
 
-    public bool ShowActiveTaskList => SelectedTaskScope != TodayTaskScope.Completed;
+    public bool ShowActiveTaskList => SelectedTaskScope is TodayTaskScope.Today or TodayTaskScope.Current;
     public bool ShowTodayAgenda => SelectedTaskScope == TodayTaskScope.Today;
     public bool ShowCurrentTaskList => SelectedTaskScope == TodayTaskScope.Current;
     public bool ShowCompletedTaskList => SelectedTaskScope == TodayTaskScope.Completed;
+    public bool ShowCandidateTickets => SelectedTaskScope == TodayTaskScope.CandidateTickets;
+    public string CandidateTabTitle => $"Neue Aufgaben ({NewTaskCandidates.Count})";
+    public bool ShowCandidateHint => ShowCandidateTickets && NewTaskCandidates.Count == 0;
+    public string CandidateHint => !string.IsNullOrWhiteSpace(_ticketSystem.CandidateTicketsError)
+        ? _ticketSystem.CandidateTicketsError
+        : string.IsNullOrWhiteSpace(_settings.Current.TicketSystemCandidateKeywords)
+            ? "Keine Schlüsselwörter konfiguriert. Bitte in den Einstellungen mindestens ein Schlüsselwort hinterlegen."
+            : "Keine passenden neuen Aufgaben gefunden.";
     public string ActiveTaskListHeading => SelectedTaskScope == TodayTaskScope.Today ? "Heute:" : "Aktuelle Aufgaben:";
 
     public string SelectedCurrentTaskSortField
@@ -288,7 +300,9 @@ public class TodayViewModel : ObservableObject
     public RelayCommand AddSegmentCommand { get; }
     public RelayCommand ShowTodayTasksCommand { get; }
     public RelayCommand ShowCurrentTasksCommand { get; }
+    public RelayCommand ShowNewTasksCommand { get; }
     public RelayCommand ShowCompletedTasksCommand { get; }
+    public RelayCommand RefreshCandidateTicketsCommand { get; }
 
     public RelayCommand<TaskItem> SelectTaskCommand { get; }
     public RelayCommand<TaskItem> StartTaskCommand { get; }
@@ -321,6 +335,7 @@ public class TodayViewModel : ObservableObject
         _germanTime = ServiceLocator.GermanTime;
         _outlookCalendar = outlookCalendar;
         _ticketSystem = ticketSystem;
+        _ticketSystem.CandidateTicketsChanged += OnCandidateTicketsChanged;
         _homeOffice = homeOffice;
         _homeOffice.Changed += Refresh;
         _tasks.SegmentsChanged += OnSegmentsChanged;
@@ -358,7 +373,9 @@ public class TodayViewModel : ObservableObject
         AddSegmentCommand = new RelayCommand(AddSegment, () => CanSaveNewSegment);
         ShowTodayTasksCommand = new RelayCommand(() => SelectedTaskScope = TodayTaskScope.Today);
         ShowCurrentTasksCommand = new RelayCommand(() => SelectedTaskScope = TodayTaskScope.Current);
+        ShowNewTasksCommand = new RelayCommand(() => SelectedTaskScope = TodayTaskScope.CandidateTickets);
         ShowCompletedTasksCommand = new RelayCommand(() => SelectedTaskScope = TodayTaskScope.Completed);
+        RefreshCandidateTicketsCommand = new RelayCommand(async () => await _ticketSystem.RefreshCandidateTicketsAsync());
 
         SelectTaskCommand = new RelayCommand<TaskItem>(task => SelectedTask = task, task => task != null);
         StartTaskCommand = new RelayCommand<TaskItem>(StartTaskFromCard);
@@ -377,7 +394,30 @@ public class TodayViewModel : ObservableObject
         _clock.Start();
 
         SelectedTaskScope = TodayTaskScope.Today;
+        UpdateCandidateTickets();
         Load();
+    }
+
+    private void OnCandidateTicketsChanged()
+    {
+        var dispatcher = Application.Current?.Dispatcher;
+        if (dispatcher != null && !dispatcher.CheckAccess())
+        {
+            dispatcher.BeginInvoke(new Action(UpdateCandidateTickets));
+            return;
+        }
+
+        UpdateCandidateTickets();
+    }
+
+    private void UpdateCandidateTickets()
+    {
+        NewTaskCandidates.Clear();
+        foreach (var ticket in _ticketSystem.CurrentCandidateTickets)
+            NewTaskCandidates.Add(ticket);
+        Raise(nameof(CandidateTabTitle));
+        Raise(nameof(ShowCandidateHint));
+        Raise(nameof(CandidateHint));
     }
 
     private void RaiseSegmentEditorState()
@@ -1254,6 +1294,7 @@ public enum TodayTaskScope
 {
     Today,
     Current,
+    CandidateTickets,
     Completed
 }
 
