@@ -280,6 +280,8 @@ public class DynamicIslandViewModel : ObservableObject
         ActivateMainWindow();
         if (ActiveNotification.TaskId != Guid.Empty)
             ServiceLocator.MainViewModel.NavigateToTodayAndOpenTask(ActiveNotification.TaskId);
+        else if (ActiveNotification.Kind == ReminderKind.Ticket)
+            ServiceLocator.MainViewModel.NavigateToTodayCurrentTasks();
 
         ShiftNotifications();
     }
