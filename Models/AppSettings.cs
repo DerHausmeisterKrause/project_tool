@@ -2,7 +2,21 @@ namespace TaskTool.Models;
 
 public class AppSettings
 {
+    // Bootstrap/delivery version for fresh settings created by this distribution.
+    // Existing non-empty InstalledVersion values remain authoritative until a successful update.
+    public const string InitialInstalledVersion = "2.1.0";
+    public const string DefaultTicketSystemTicketUpdateRoute = "/Ticket/{TicketID}/Update";
+    public const string LegacyTicketSystemTicketUpdateRoute = "/Ticket/Update";
     public bool DynamicIslandEnabled { get; set; } = true;
+    public bool CheckForUpdatesOnStartup { get; set; } = true;
+    public bool AutoInstallUpdatesOnStartup { get; set; } = true;
+    public string InstalledVersion { get; set; } = string.Empty;
+    public string CurrentTasksSortField { get; set; } = "Updated";
+    public bool CurrentTasksSortDescending { get; set; } = true;
+    public bool HidePastTodayItems { get; set; } = true;
+    public int DefaultSegmentDurationMinutes { get; set; } = 30;
+    public string HomeOfficeMailRecipient1 { get; set; } = string.Empty;
+    public string HomeOfficeMailRecipient2 { get; set; } = string.Empty;
     public string DynamicIslandDockPosition { get; set; } = "TopCenter";
 
     public bool OutlookSyncEnabled { get; set; } = true;
@@ -17,6 +31,7 @@ public class AppSettings
     public int OutlookCalendarRangeFutureDays { get; set; } = 14;
     public bool OutlookInterpretAllDayAsMarkers { get; set; } = true;
     public bool ShowWeekendInWeekView { get; set; } = false;
+    public bool ShowInternalTaskSegmentsInCalendar { get; set; } = false;
     public string CalendarTimeZoneId { get; set; } = "Europe/Berlin";
     public int ReminderLeadMinutes { get; set; } = 2;
     public string DateTimeFormat { get; set; } = "yyyy-MM-dd HH:mm";
@@ -27,17 +42,26 @@ public class AppSettings
     public string TicketSystemPasswordEncrypted { get; set; } = string.Empty;
     public string TicketSystemPassword { get; set; } = string.Empty;
     public int TicketSystemAgentId { get; set; } = 0;
+    public int TicketSystemCandidateUserId { get; set; } = 1;
+    public string TicketSystemCandidateKeywords { get; set; } = string.Empty;
     public string TicketSystemTicketSearchRoute { get; set; } = "/Ticket";
     public string TicketSystemTicketSearchMethod { get; set; } = "GET";
     public string TicketSystemTicketSearchAuthMode { get; set; } = "Session";
     public string TicketSystemTicketGetRouteTemplate { get; set; } = "/Ticket/{TicketID}";
     public string TicketSystemTicketGetMethod { get; set; } = "GET";
     public string TicketSystemTicketGetAuthMode { get; set; } = "Session";
+    public string TicketSystemTicketUpdateRoute { get; set; } = DefaultTicketSystemTicketUpdateRoute;
+    public string TicketSystemDynamicFieldOptionsRoute { get; set; } = "/Ticket/DynamicField/{FieldName}/Options";
+    public string TicketSystemCostCenterFieldName { get; set; } = "KostenstelleID";
+    public string TicketSystemOrderFieldName { get; set; } = "AuftragsID";
+    public string TicketSystemCostCenterOptions { get; set; } = string.Empty;
+    public string TicketSystemOrderOptions { get; set; } = string.Empty;
     public int TicketSystemSyncIntervalMinutes { get; set; } = 15;
     public bool TicketSystemOnlyOpenTickets { get; set; } = true;
     public bool TicketSystemShowClosedTickets { get; set; } = false;
     public bool TicketSystemIncludeOwner { get; set; } = true;
     public bool TicketSystemIncludeResponsible { get; set; } = true;
+    public bool NotifyOnNewAssignedTickets { get; set; } = true;
     public bool TicketSystemAutofillCredentials { get; set; } = false;
     public bool TicketSystemAutoLogin { get; set; } = false;
 

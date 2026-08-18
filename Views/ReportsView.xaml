@@ -5,26 +5,17 @@
     <Grid Background="{StaticResource BgBrush}" HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
         <ScrollViewer VerticalScrollBarVisibility="Auto" Background="Transparent">
             <StackPanel>
-                <UniformGrid Columns="4" Margin="0,0,0,12">
-                    <Border Style="{StaticResource CardStyle}"><StackPanel><TextBlock Text="Ticket Monat" Foreground="{StaticResource MutedTextBrush}"/><TextBlock Text="{Binding MonthSummary}" FontSize="26" FontWeight="Bold"/></StackPanel></Border>
-                    <Border Style="{StaticResource CardStyle}"><StackPanel><TextBlock Text="Netto Monat" Foreground="{StaticResource MutedTextBrush}"/><TextBlock Text="{Binding NetMonthSummary}" FontSize="26" FontWeight="Bold"/></StackPanel></Border>
-                    <Border Style="{StaticResource CardStyle}"><StackPanel><TextBlock Text="Soll Monat" Foreground="{StaticResource MutedTextBrush}"/><TextBlock Text="{Binding SollMonthSummary}" FontSize="26" FontWeight="Bold"/></StackPanel></Border>
-                    <Border Style="{StaticResource CardStyle}"><StackPanel><TextBlock Text="Überstunden Monat" Foreground="{StaticResource MutedTextBrush}"/><TextBlock Text="{Binding OvertimeMonthSummary}" FontSize="26" FontWeight="Bold"/></StackPanel></Border>
+                <UniformGrid Columns="2" Margin="0,0,0,12">
+                    <Border Style="{StaticResource CardStyle}"><StackPanel><TextBlock Text="Ticket-/Aufgabenzeit heute" Foreground="{StaticResource MutedTextBrush}"/><TextBlock Text="{Binding TicketMinutesToday, StringFormat={}{0:N0} Min.}" FontSize="26" FontWeight="Bold"/></StackPanel></Border>
+                    <Border Style="{StaticResource CardStyle}"><StackPanel><TextBlock Text="Ticket-/Aufgabenzeit Monat" Foreground="{StaticResource MutedTextBrush}"/><TextBlock Text="{Binding TicketMinutesCurrentMonth, StringFormat={}{0:N0} Min.}" FontSize="26" FontWeight="Bold"/></StackPanel></Border>
                 </UniformGrid>
 
                 <Border Style="{StaticResource CardStyle}">
                     <StackPanel>
-                        <DockPanel LastChildFill="False">
-                            <TextBlock Text="Monatsübersicht" FontSize="14" Foreground="{StaticResource MutedTextBrush}" />
-                            <Button Content="Refresh" Width="90" Style="{StaticResource SecondaryButtonStyle}" Command="{Binding RefreshCommand}" />
+                        <DockPanel Margin="0,0,0,8">
+                            <TextBlock Text="Top Tasks diesen Monat" FontSize="16" FontWeight="SemiBold"/>
+                            <Button Content="Aktualisieren" Width="110" HorizontalAlignment="Right" Style="{StaticResource SecondaryButtonStyle}" Command="{Binding RefreshCommand}"/>
                         </DockPanel>
-                        <ItemsControl ItemsSource="{Binding Breakdown}"><ItemsControl.ItemTemplate><DataTemplate><TextBlock Text="{Binding}" Margin="0,0,0,6"/></DataTemplate></ItemsControl.ItemTemplate></ItemsControl>
-                    </StackPanel>
-                </Border>
-
-                <Border Style="{StaticResource CardStyle}">
-                    <StackPanel>
-                        <TextBlock Text="Top Tasks diesen Monat" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8"/>
                         <ItemsControl ItemsSource="{Binding TopTasks}">
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate>

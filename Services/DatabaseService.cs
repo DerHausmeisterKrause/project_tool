@@ -46,10 +46,16 @@ CREATE TABLE IF NOT EXISTS schema_version (
             MigrateToV3(conn);
             MigrateToV4(conn);
             MigrateToV5(conn);
+            MigrateToV6(conn);
+            MigrateToV7(conn);
+            MigrateToV8(conn);
+            MigrateToV9(conn);
+            MigrateToV10(conn);
+            MigrateToV11(conn);
 
-            if (currentVersion < 5)
+            if (currentVersion < 11)
             {
-                SetVersion(conn, 5);
+                SetVersion(conn, 11);
             }
         }
         catch (Exception ex)
@@ -74,6 +80,7 @@ CREATE TABLE IF NOT EXISTS tasks (
     outlook_entry_id TEXT,
     ticket_minutes_booked INTEGER NOT NULL DEFAULT 0,
     ticket_seconds_booked INTEGER NOT NULL DEFAULT 0,
+    is_pinned INTEGER NOT NULL DEFAULT 0,
     created_utc TEXT NOT NULL,
     updated_utc TEXT NOT NULL
 );
@@ -89,7 +96,8 @@ CREATE TABLE IF NOT EXISTS time_logs (
 CREATE TABLE IF NOT EXISTS work_days (
     day TEXT PRIMARY KEY,
     come_local TEXT NULL,
-    go_local TEXT NULL
+    go_local TEXT NULL,
+    homeoffice_outlook_entry_id TEXT NULL
 );
 
 CREATE TABLE IF NOT EXISTS breaks (
@@ -130,6 +138,82 @@ CREATE TABLE IF NOT EXISTS breaks (
     {
         EnsureColumn(conn, "tasks", "ticket_seconds_booked", "INTEGER NOT NULL DEFAULT 0");
         Exec(conn, "UPDATE tasks SET ticket_seconds_booked = CASE WHEN ticket_seconds_booked IS NULL OR ticket_seconds_booked <= 0 THEN ticket_minutes_booked * 60 ELSE ticket_seconds_booked END;");
+    }
+
+    private static void MigrateToV6(SqliteConnection conn)
+    {
+        Exec(conn, @"CREATE TABLE IF NOT EXISTS ticket_time_bookings (
+    id TEXT PRIMARY KEY,
+    task_id TEXT NOT NULL,
+    ticket_id TEXT NOT NULL,
+    ticket_number TEXT NOT NULL,
+    booking_id TEXT NOT NULL UNIQUE,
+    article_id TEXT NOT NULL DEFAULT '',
+    minutes REAL NOT NULL,
+    source_seconds INTEGER NOT NULL,
+    booked_at_utc TEXT NOT NULL,
+    short_description TEXT NOT NULL DEFAULT '',
+    cost_center TEXT NOT NULL DEFAULT '',
+    order_value TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL DEFAULT 'Pending'
+);
+CREATE INDEX IF NOT EXISTS idx_ticket_time_bookings_task_status
+ON ticket_time_bookings(task_id, status, booked_at_utc DESC);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_ticket_time_bookings_one_pending_per_task
+ON ticket_time_bookings(task_id) WHERE status = 'Pending';");
+    }
+
+    private static void MigrateToV7(SqliteConnection conn)
+    {
+        EnsureColumn(conn, "ticket_time_bookings", "booked_minutes", "REAL NOT NULL DEFAULT 0");
+        Exec(conn, @"UPDATE ticket_time_bookings
+SET booked_minutes = minutes
+WHERE booked_minutes IS NULL OR booked_minutes <= 0;
+
+CREATE TABLE IF NOT EXISTS ticket_time_booking_baselines (
+    task_id TEXT PRIMARY KEY,
+    baseline_seconds INTEGER NOT NULL,
+    created_utc TEXT NOT NULL
+);
+
+INSERT OR IGNORE INTO ticket_time_booking_baselines(task_id, baseline_seconds, created_utc)
+SELECT t.id,
+       MAX(0, t.ticket_seconds_booked
+           - COALESCE(SUM(b.source_seconds), 0)),
+       datetime('now')
+FROM tasks t
+LEFT JOIN ticket_time_bookings b ON b.task_id = t.id
+GROUP BY t.id;");
+    }
+
+    private static void MigrateToV8(SqliteConnection conn)
+    {
+        EnsureColumn(conn, "tasks", "is_pinned", "INTEGER NOT NULL DEFAULT 0");
+    }
+
+    private static void MigrateToV9(SqliteConnection conn)
+    {
+        EnsureColumn(conn, "work_days", "homeoffice_outlook_entry_id", "TEXT NULL");
+    }
+
+    private static void MigrateToV10(SqliteConnection conn)
+    {
+        Exec(conn, @"CREATE TABLE IF NOT EXISTS ticket_assignment_snapshot (
+    context_key TEXT NOT NULL,
+    ticket_id TEXT NOT NULL,
+    last_seen_utc TEXT NOT NULL,
+    PRIMARY KEY (context_key, ticket_id)
+);
+CREATE TABLE IF NOT EXISTS ticket_assignment_sync_state (
+    context_key TEXT PRIMARY KEY,
+    initialized INTEGER NOT NULL DEFAULT 0,
+    updated_utc TEXT NOT NULL
+);");
+    }
+
+    private static void MigrateToV11(SqliteConnection conn)
+    {
+        EnsureColumn(conn, "tasks", "is_znuny_assigned", "INTEGER NOT NULL DEFAULT 1");
     }
 
     private static void EnsureColumn(SqliteConnection conn, string table, string column, string definition)
