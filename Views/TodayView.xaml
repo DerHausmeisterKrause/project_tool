@@ -363,6 +363,8 @@
                 <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto" Background="Transparent"
                               Visibility="{Binding ShowCandidateTickets, Converter={StaticResource BooleanToVisibilityConverter}}">
                     <StackPanel>
+                        <TextBlock Text="{Binding CandidateStatus}" Foreground="{StaticResource AccentBrush}" Margin="4,8"
+                                   Visibility="{Binding ShowCandidateStatus, Converter={StaticResource BooleanToVisibilityConverter}}"/>
                         <TextBlock Text="{Binding CandidateHint}" Foreground="{StaticResource MutedTextBrush}" TextWrapping="Wrap" Margin="4,8"
                                    Visibility="{Binding ShowCandidateHint, Converter={StaticResource BooleanToVisibilityConverter}}"/>
                         <ItemsControl ItemsSource="{Binding NewTaskCandidates}">
