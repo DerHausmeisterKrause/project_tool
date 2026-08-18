@@ -118,13 +118,29 @@ public partial class DynamicIslandWindow : Window
         };
     }
 
-    public void EnqueueNotification(Guid taskId, string text, ReminderKind kind)
+    public bool EnqueueNotification(Guid taskId, string text, ReminderKind kind)
     {
-        if (_isClosing || Dispatcher.HasShutdownStarted || !IsLoaded || DataContext is not DynamicIslandViewModel vm)
-            return;
+        return EnqueueNotifications(new[] { new TicketNotificationPayload(taskId, text) }, kind);
+    }
 
-        vm.EnqueueNotification(taskId, text, kind);
+    public bool EnqueueNotifications(IReadOnlyList<TicketNotificationPayload> notifications, ReminderKind kind)
+    {
+        if (_isClosing || Dispatcher.HasShutdownStarted)
+        {
+            Log($"[DynamicIslandNotification] kind={kind} accepted=false reason='WindowClosingOrDispatcherShutdown'");
+            return false;
+        }
+        if (!IsLoaded || DataContext is not DynamicIslandViewModel vm)
+        {
+            Log($"[DynamicIslandNotification] kind={kind} accepted=false reason='WindowNotLoadedOrViewModelUnavailable'");
+            return false;
+        }
+
+        foreach (var notification in notifications)
+            vm.EnqueueNotification(notification.TaskId, notification.Text, kind);
         SetState(InteractionState.Expanded, "Notification Enqueued");
+        Log($"[DynamicIslandNotification] kind={kind} batchCount={notifications.Count} accepted=true");
+        return true;
     }
 
     private void IslandRoot_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)

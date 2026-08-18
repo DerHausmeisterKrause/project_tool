@@ -8,4 +8,5 @@ public class WorkDayRecord
     public string DayType { get; set; } = "Normal"; // Normal, AM, UL
     public bool IsBr { get; set; }
     public bool IsHo { get; set; }
+    public string HomeOfficeOutlookEntryId { get; set; } = string.Empty;
 }
