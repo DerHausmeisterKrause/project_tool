@@ -122,6 +122,8 @@
                         <TextBlock Text="Standard: OTRS, Admin (UserID 1). Besitzer und Verantwortlicher werden berücksichtigt." Foreground="{StaticResource MutedTextBrush}" TextWrapping="Wrap"/>
                         <TextBlock Text="Schlüsselwörter (Zeile, Komma oder Semikolon als Trennzeichen)" Foreground="{StaticResource MutedTextBrush}" Margin="0,6,0,0"/>
                         <TextBox Text="{Binding TicketSystemCandidateKeywords, UpdateSourceTrigger=LostFocus}" AcceptsReturn="True" Width="560" Height="90" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto"/>
+                        <TextBlock Text="Candidate-Suchmodus" Foreground="{StaticResource MutedTextBrush}" Margin="0,6,0,0"/>
+                        <ComboBox Width="160" Style="{StaticResource DarkComboBoxStyle}" ItemsSource="{Binding TicketSystemCandidateSearchModes}" SelectedItem="{Binding TicketSystemCandidateSearchMode}"/>
                         <TextBlock Text="TicketSearch Route" Foreground="{StaticResource MutedTextBrush}"/>
                         <TextBox Text="{Binding TicketSystemTicketSearchRoute, UpdateSourceTrigger=PropertyChanged}" Width="220"/>
                         <TextBlock Text="TicketSearch HTTP-Methode" Foreground="{StaticResource MutedTextBrush}"/>

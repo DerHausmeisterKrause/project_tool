@@ -70,6 +70,7 @@ public class SettingsViewModel : ObservableObject
     public int TicketSystemAgentId { get => _settings.Current.TicketSystemAgentId; set { _settings.Current.TicketSystemAgentId = value; Save(); } }
     public int TicketSystemCandidateUserId { get => _settings.Current.TicketSystemCandidateUserId; set { _settings.Current.TicketSystemCandidateUserId = value; Save(); } }
     public string TicketSystemCandidateKeywords { get => _settings.Current.TicketSystemCandidateKeywords; set { _settings.Current.TicketSystemCandidateKeywords = value; Save(); } }
+    public string TicketSystemCandidateSearchMode { get => _settings.Current.TicketSystemCandidateSearchMode; set { _settings.Current.TicketSystemCandidateSearchMode = value; Save(); } }
     public string TicketSystemTicketSearchRoute { get => _settings.Current.TicketSystemTicketSearchRoute; set { _settings.Current.TicketSystemTicketSearchRoute = value; Save(); } }
     public string TicketSystemTicketSearchMethod { get => _settings.Current.TicketSystemTicketSearchMethod; set { _settings.Current.TicketSystemTicketSearchMethod = value; Save(); } }
     public string TicketSystemTicketSearchAuthMode { get => _settings.Current.TicketSystemTicketSearchAuthMode; set { _settings.Current.TicketSystemTicketSearchAuthMode = value; Save(); } }
@@ -130,6 +131,7 @@ public class SettingsViewModel : ObservableObject
     public List<string> TicketSystemSearchMethods { get; } = new() { "POST", "GET" };
     public List<string> TicketSystemAuthModes { get; } = new() { "Session", "Direct" };
     public List<string> TicketSystemTicketGetAuthModes { get; } = new() { "Session", "Direct" };
+    public List<string> TicketSystemCandidateSearchModes { get; } = new() { "Auto", "ServerFilter", "LocalFilter" };
     public List<int> SegmentDurationOptions { get; } = new() { 15, 30, 45, 60, 90, 120, 180, 240 };
 
     public RelayCommand TestReminderCommand { get; }
