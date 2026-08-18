@@ -17,6 +17,7 @@ public static class ServiceLocator
     public static AppVersionService AppVersion { get; private set; } = null!;
     public static UpdateService Updates { get; private set; } = null!;
     public static HomeOfficeService HomeOffice { get; private set; } = null!;
+    public static TicketAssignmentSnapshotService TicketAssignmentSnapshots { get; private set; } = null!;
     public static MainViewModel MainViewModel { get; private set; } = null!;
 
     public static void Initialize()
@@ -30,9 +31,10 @@ public static class ServiceLocator
         Database.Initialize();
         Outlook = new OutlookInteropService(Logger, Settings);
         Tasks = new TaskService(Database, Logger, Outlook, Settings);
+        TicketAssignmentSnapshots = new TicketAssignmentSnapshotService(Database);
         WorkDays = new WorkDayService(Database, Logger);
-        TicketSystem = new TicketSystemService(Settings, Tasks, Logger);
         Notifications = new NotificationService(Logger, Settings, Tasks);
+        TicketSystem = new TicketSystemService(Settings, Tasks, TicketAssignmentSnapshots, Notifications, Logger);
         OutlookCalendar = new OutlookCalendarService(Logger, Settings, Outlook);
         HomeOffice = new HomeOfficeService(WorkDays, Settings, Outlook, OutlookCalendar, Logger);
         MainViewModel = new MainViewModel(Tasks, WorkDays, Settings, Notifications, OutlookCalendar, TicketSystem, Updates, HomeOffice, Logger);

@@ -150,6 +150,7 @@
                         <CheckBox Content="Geschlossene Tickets anzeigen / übernehmen" IsChecked="{Binding TicketSystemShowClosedTickets}" Margin="0,0,0,4"/>
                         <CheckBox Content="Tickets berücksichtigen, bei denen ich Owner bin" IsChecked="{Binding TicketSystemIncludeOwner}" Margin="0,0,0,4"/>
                         <CheckBox Content="Tickets berücksichtigen, bei denen ich Responsible bin" IsChecked="{Binding TicketSystemIncludeResponsible}" Margin="0,0,0,8"/>
+                        <CheckBox Content="Bei neu zugewiesenen Tickets benachrichtigen" IsChecked="{Binding NotifyOnNewAssignedTickets}" Margin="0,0,0,8"/>
                         <CheckBox Content="Anmeldedaten im Ticketsystem automatisch ausfüllen" IsChecked="{Binding TicketSystemAutofillCredentials}" Margin="0,0,0,4"/>
                         <CheckBox Content="Automatisch anmelden" IsChecked="{Binding TicketSystemAutoLogin}" Margin="0,0,0,8"/>
                         <TextBlock Text="Autofill wird ausschließlich auf der exakt konfigurierten HTTPS-Domain ausgeführt. Das Passwort bleibt verschlüsselt gespeichert und wird nicht protokolliert."

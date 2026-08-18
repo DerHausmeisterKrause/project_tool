@@ -14,6 +14,8 @@ public class TicketSystemService : IDisposable
 {
     private readonly SettingsService _settings;
     private readonly TaskService _tasks;
+    private readonly TicketAssignmentSnapshotService _assignmentSnapshots;
+    private readonly NotificationService _notifications;
     private readonly LoggerService _logger;
     private readonly HttpClient _client = new() { Timeout = TimeSpan.FromSeconds(45) };
     private readonly SemaphoreSlim _syncGate = new(1, 1);
@@ -26,10 +28,14 @@ public class TicketSystemService : IDisposable
     public string LastError { get; private set; } = string.Empty;
     public event Action? TasksChanged;
 
-    public TicketSystemService(SettingsService settings, TaskService tasks, LoggerService logger)
+    private const int MaxIndividualAssignmentNotifications = 5;
+
+    public TicketSystemService(SettingsService settings, TaskService tasks, TicketAssignmentSnapshotService assignmentSnapshots, NotificationService notifications, LoggerService logger)
     {
         _settings = settings;
         _tasks = tasks;
+        _assignmentSnapshots = assignmentSnapshots;
+        _notifications = notifications;
         _logger = logger;
         _timer = new System.Threading.Timer(async _ => await SyncAssignedTicketsAsync("timer"), null, Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
         HandleSettingsChanged();
@@ -370,6 +376,18 @@ public class TicketSystemService : IDisposable
                 sessionHash,
                 _settings.Current.TicketSystemIncludeOwner,
                 _settings.Current.TicketSystemIncludeResponsible);
+            var assignmentContextKey = BuildAssignmentContextKey(userId);
+            var assignmentContextHash = assignmentContextKey[..12];
+            var previousAssignmentSnapshot = _assignmentSnapshots.Load(assignmentContextKey);
+            var currentAssignedIds = uniqueTicketIds.ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var newlyAssignedIds = previousAssignmentSnapshot.Initialized
+                ? currentAssignedIds.Except(previousAssignmentSnapshot.TicketIds, StringComparer.OrdinalIgnoreCase).ToHashSet(StringComparer.OrdinalIgnoreCase)
+                : new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var removedAssignmentCount = previousAssignmentSnapshot.Initialized
+                ? previousAssignmentSnapshot.TicketIds.Except(currentAssignedIds, StringComparer.OrdinalIgnoreCase).Count()
+                : 0;
+            var notificationCandidates = new Dictionary<string, (Guid TaskId, string TicketNumber, string TicketTitle)>(StringComparer.OrdinalIgnoreCase);
+            var assignedTicketsFullyProcessed = true;
             var existingGroups = _tasks.GetAllTasks()
                 .Where(t => !string.IsNullOrWhiteSpace(ExtractZnunyTicketIdFromTask(t)))
                 .GroupBy(ExtractZnunyTicketIdFromTask, StringComparer.OrdinalIgnoreCase)
@@ -401,6 +419,7 @@ public class TicketSystemService : IDisposable
                 if (ticket == null)
                 {
                     skipped++;
+                    if (currentAssignedIds.Contains(ticketId)) assignedTicketsFullyProcessed = false;
                     continue;
                 }
 
@@ -460,6 +479,47 @@ public class TicketSystemService : IDisposable
                     hasTaskChanges = true;
                     _logger.Info($"[ZnunyTaskCreated] ticketId={ticket.TicketID} ticketNumber='{ticket.TicketNumber}' taskId={task.Id}");
                 }
+
+                if (!ticket.IsClosed && newlyAssignedIds.Contains(ticket.TicketID))
+                    notificationCandidates[ticket.TicketID] = (task.Id, ticket.TicketNumber, ticket.Title);
+            }
+
+            if (!assignedTicketsFullyProcessed)
+                throw new InvalidOperationException("Mindestens ein aktuell zugewiesenes Ticket konnte nicht vollständig verarbeitet werden; der Assignment-Snapshot bleibt unverändert.");
+
+            _assignmentSnapshots.Replace(assignmentContextKey, currentAssignedIds);
+            if (!previousAssignmentSnapshot.Initialized)
+            {
+                _logger.Info($"[ZnunyAssignmentNotifications] action=initialize-baseline contextHash={assignmentContextHash} current={currentAssignedIds.Count} notifications=0");
+            }
+            else
+            {
+                var notificationsEnabled = _settings.Current.NotifyOnNewAssignedTickets;
+                var notificationCount = notificationsEnabled
+                    ? notificationCandidates.Count > MaxIndividualAssignmentNotifications ? 1 : notificationCandidates.Count
+                    : 0;
+                _logger.Info($"[ZnunyAssignmentNotifications] contextHash={assignmentContextHash} previous={previousAssignmentSnapshot.TicketIds.Count} current={currentAssignedIds.Count} newlyAssigned={newlyAssignedIds.Count} removed={removedAssignmentCount} notifications={notificationCount}");
+
+                try
+                {
+                    if (notificationsEnabled && notificationCandidates.Count > MaxIndividualAssignmentNotifications)
+                    {
+                        _notifications.ShowNewTicketSummary(notificationCandidates.Count);
+                        _logger.Info($"[ZnunyAssignmentNotifications] newlyAssigned={notificationCandidates.Count} mode=summary individualNotifications=0");
+                    }
+                    else if (notificationsEnabled)
+                    {
+                        foreach (var candidate in notificationCandidates.OrderBy(item => item.Key, StringComparer.OrdinalIgnoreCase))
+                        {
+                            _notifications.ShowNewTicketNotification(candidate.Value.TaskId, candidate.Value.TicketNumber, candidate.Value.TicketTitle);
+                            _logger.Info($"[ZnunyNewAssignment] ticketId={candidate.Key} ticketNumber='{candidate.Value.TicketNumber}' taskId={candidate.Value.TaskId} action=notify");
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.Error($"[ZnunyAssignmentNotifications] action=dispatch-failed errorCode={ex.HResult:X8} message={ex.Message}");
+                }
             }
 
             _logger.Info($"[ZnunySyncFinished] created={created} updated={updated} skipped={skipped} totalTickets={ticketIds.Count}");
@@ -483,6 +543,17 @@ public class TicketSystemService : IDisposable
             if (hasTaskChanges)
                 NotifyTasksChanged();
         }
+    }
+
+    private string BuildAssignmentContextKey(int agentId)
+    {
+        var apiUrl = (_settings.Current.TicketSystemApiUrl ?? string.Empty).Trim().TrimEnd('/').ToLowerInvariant();
+        var context = string.Join("|",
+            apiUrl,
+            agentId.ToString(CultureInfo.InvariantCulture),
+            _settings.Current.TicketSystemIncludeOwner ? "owner:1" : "owner:0",
+            _settings.Current.TicketSystemIncludeResponsible ? "responsible:1" : "responsible:0");
+        return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(context))).ToLowerInvariant();
     }
 
     private string ValidateConfiguration(bool requireAgentId)

@@ -56,6 +56,12 @@ public class MainViewModel : ObservableObject
         FocusQuickAddRequested?.Invoke();
     }
 
+    public void NavigateToTodayCurrentTasks()
+    {
+        SelectedView = TodayViewModel;
+        TodayViewModel.SelectedTaskScope = TodayTaskScope.Current;
+    }
+
     public void NavigateToTicketSystem(string url)
     {
         if (!Uri.TryCreate(url, UriKind.Absolute, out var uri))

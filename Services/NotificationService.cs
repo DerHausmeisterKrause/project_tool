@@ -11,7 +11,8 @@ namespace TaskTool.Services;
 public enum ReminderKind
 {
     Lead,
-    Start
+    Start,
+    Ticket
 }
 
 public class NotificationService : IDisposable
@@ -136,6 +137,18 @@ public class NotificationService : IDisposable
         }
     }
 
+    public void ShowNewTicketNotification(Guid taskId, string ticketNumber, string ticketTitle)
+    {
+        var text = $"Du hast ein neues Ticket\n{ticketNumber} · {ticketTitle}";
+        ShowNotification(taskId, text, ReminderKind.Ticket);
+    }
+
+    public void ShowNewTicketSummary(int ticketCount)
+    {
+        var text = $"Du hast {ticketCount} neue Tickets\nÖffne Plenaro, um die neuen Aufgaben anzusehen.";
+        ShowNotification(Guid.Empty, text, ReminderKind.Ticket);
+    }
+
     private void CheckReminders()
     {
         try
@@ -204,7 +217,7 @@ public class NotificationService : IDisposable
             }
 
             var overlay = new ReminderWindow(text, kind, taskId);
-            overlay.NotificationClicked += (_, id) => ActivateMainWindowAndOpenTask(id);
+            overlay.NotificationClicked += (_, id) => ActivateMainWindowAndOpenTask(id, kind);
             overlay.Show();
         }, DispatcherPriority.Background);
     }
@@ -218,7 +231,7 @@ public class NotificationService : IDisposable
         _firedKeys.Clear();
     }
 
-    private static void ActivateMainWindowAndOpenTask(Guid taskId)
+    private static void ActivateMainWindowAndOpenTask(Guid taskId, ReminderKind kind)
     {
         var mainWindow = Application.Current.MainWindow;
         if (mainWindow == null)
@@ -235,5 +248,7 @@ public class NotificationService : IDisposable
 
         if (taskId != Guid.Empty)
             ServiceLocator.MainViewModel.NavigateToTodayAndOpenTask(taskId);
+        else if (kind == ReminderKind.Ticket)
+            ServiceLocator.MainViewModel.NavigateToTodayCurrentTasks();
     }
 }

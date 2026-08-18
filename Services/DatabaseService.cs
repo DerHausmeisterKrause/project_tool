@@ -50,10 +50,11 @@ CREATE TABLE IF NOT EXISTS schema_version (
             MigrateToV7(conn);
             MigrateToV8(conn);
             MigrateToV9(conn);
+            MigrateToV10(conn);
 
-            if (currentVersion < 9)
+            if (currentVersion < 10)
             {
-                SetVersion(conn, 9);
+                SetVersion(conn, 10);
             }
         }
         catch (Exception ex)
@@ -192,6 +193,21 @@ GROUP BY t.id;");
     private static void MigrateToV9(SqliteConnection conn)
     {
         EnsureColumn(conn, "work_days", "homeoffice_outlook_entry_id", "TEXT NULL");
+    }
+
+    private static void MigrateToV10(SqliteConnection conn)
+    {
+        Exec(conn, @"CREATE TABLE IF NOT EXISTS ticket_assignment_snapshot (
+    context_key TEXT NOT NULL,
+    ticket_id TEXT NOT NULL,
+    last_seen_utc TEXT NOT NULL,
+    PRIMARY KEY (context_key, ticket_id)
+);
+CREATE TABLE IF NOT EXISTS ticket_assignment_sync_state (
+    context_key TEXT PRIMARY KEY,
+    initialized INTEGER NOT NULL DEFAULT 0,
+    updated_utc TEXT NOT NULL
+);");
     }
 
     private static void EnsureColumn(SqliteConnection conn, string table, string column, string definition)

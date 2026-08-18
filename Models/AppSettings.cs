@@ -59,6 +59,7 @@ public class AppSettings
     public bool TicketSystemShowClosedTickets { get; set; } = false;
     public bool TicketSystemIncludeOwner { get; set; } = true;
     public bool TicketSystemIncludeResponsible { get; set; } = true;
+    public bool NotifyOnNewAssignedTickets { get; set; } = true;
     public bool TicketSystemAutofillCredentials { get; set; } = false;
     public bool TicketSystemAutoLogin { get; set; } = false;
 
