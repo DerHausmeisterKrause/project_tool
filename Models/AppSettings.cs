@@ -44,7 +44,6 @@ public class AppSettings
     public int TicketSystemAgentId { get; set; } = 0;
     public int TicketSystemCandidateUserId { get; set; } = 1;
     public string TicketSystemCandidateKeywords { get; set; } = string.Empty;
-    public string TicketSystemCandidateSearchMode { get; set; } = "Auto";
     public string TicketSystemTicketSearchRoute { get; set; } = "/Ticket";
     public string TicketSystemTicketSearchMethod { get; set; } = "GET";
     public string TicketSystemTicketSearchAuthMode { get; set; } = "Session";
