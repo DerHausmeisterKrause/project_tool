@@ -11,8 +11,11 @@ namespace TaskTool.Services;
 public enum ReminderKind
 {
     Lead,
-    Start
+    Start,
+    Ticket
 }
+
+public sealed record TicketNotificationPayload(Guid TaskId, string Text);
 
 public class NotificationService : IDisposable
 {
@@ -136,6 +139,68 @@ public class NotificationService : IDisposable
         }
     }
 
+    public async Task<bool> EnqueueTicketNotificationsAsync(IReadOnlyList<TicketNotificationPayload> notifications)
+    {
+        if (notifications.Count == 0) return true;
+        _logger.Info($"[NotificationService] kind=Ticket batchCount={notifications.Count} dispatch=start");
+        var application = Application.Current;
+        if (application == null || application.Dispatcher.HasShutdownStarted)
+        {
+            _logger.Error("[DynamicIslandNotification] kind=Ticket accepted=false reason='ApplicationDispatcherUnavailable'");
+            return false;
+        }
+
+        try
+        {
+            var operation = application.Dispatcher.InvokeAsync(async () =>
+            {
+                if (_isShuttingDown || application.Dispatcher.HasShutdownStarted)
+                    return false;
+                if (!_settings.Current.DynamicIslandEnabled)
+                {
+                    _logger.Error("[DynamicIslandNotification] kind=Ticket accepted=false reason='DynamicIslandDisabled'");
+                    return false;
+                }
+
+                EnsureIslandWindow();
+                var window = _islandWindow;
+                if (window == null)
+                    return false;
+                if (!window.IsLoaded && !await WaitUntilLoadedAsync(window))
+                {
+                    _logger.Error("[DynamicIslandNotification] kind=Ticket accepted=false reason='WindowLoadTimeout'");
+                    return false;
+                }
+
+                return window.EnqueueNotifications(notifications, ReminderKind.Ticket);
+            }, DispatcherPriority.Background);
+            return await await operation.Task;
+        }
+        catch (Exception ex)
+        {
+            _logger.Error($"[DynamicIslandNotification] kind=Ticket accepted=false reason='{ex.Message}'");
+            return false;
+        }
+    }
+
+    private static async Task<bool> WaitUntilLoadedAsync(Window window)
+    {
+        if (window.IsLoaded) return true;
+        var completion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        RoutedEventHandler? loaded = null;
+        loaded = (_, _) => completion.TrySetResult(true);
+        window.Loaded += loaded;
+        try
+        {
+            var completed = await Task.WhenAny(completion.Task, Task.Delay(TimeSpan.FromSeconds(5)));
+            return completed == completion.Task && await completion.Task;
+        }
+        finally
+        {
+            window.Loaded -= loaded;
+        }
+    }
+
     private void CheckReminders()
     {
         try
@@ -146,7 +211,7 @@ public class NotificationService : IDisposable
             var from = now.AddHours(-1);
             var to = now.AddDays(2);
             var segments = _tasks.GetSegmentsForRange(from, to)
-                .Where(x => x.Segment.StartLocal > now.AddHours(-1))
+                .Where(x => x.Task.IsOperationallyVisible && x.Segment.StartLocal > now.AddHours(-1))
                 .ToList();
 
             foreach (var (task, segment) in segments)
@@ -199,12 +264,13 @@ public class NotificationService : IDisposable
             {
                 EnsureIslandWindow();
                 _logger.Info($"[NotificationService] Notification -> Island Kind={kind} TaskId={taskId}");
-                _islandWindow?.EnqueueNotification(taskId, text, kind);
+                var accepted = _islandWindow?.EnqueueNotification(taskId, text, kind) == true;
+                _logger.Info($"[DynamicIslandNotification] kind={kind} taskId={taskId} accepted={accepted.ToString().ToLowerInvariant()}");
                 return;
             }
 
             var overlay = new ReminderWindow(text, kind, taskId);
-            overlay.NotificationClicked += (_, id) => ActivateMainWindowAndOpenTask(id);
+            overlay.NotificationClicked += (_, id) => ActivateMainWindowAndOpenTask(id, kind);
             overlay.Show();
         }, DispatcherPriority.Background);
     }
@@ -218,7 +284,7 @@ public class NotificationService : IDisposable
         _firedKeys.Clear();
     }
 
-    private static void ActivateMainWindowAndOpenTask(Guid taskId)
+    private static void ActivateMainWindowAndOpenTask(Guid taskId, ReminderKind kind)
     {
         var mainWindow = Application.Current.MainWindow;
         if (mainWindow == null)
@@ -235,5 +301,7 @@ public class NotificationService : IDisposable
 
         if (taskId != Guid.Empty)
             ServiceLocator.MainViewModel.NavigateToTodayAndOpenTask(taskId);
+        else if (kind == ReminderKind.Ticket)
+            ServiceLocator.MainViewModel.NavigateToTodayCurrentTasks();
     }
 }

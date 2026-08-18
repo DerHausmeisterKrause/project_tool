@@ -14,6 +14,10 @@ public class TaskItem
     public string OutlookEntryId { get; set; } = string.Empty;
     public int TicketMinutesBooked { get; set; }
     public long TicketSecondsBooked { get; set; }
+    public bool IsPinned { get; set; }
+    public bool IsZnunyAssigned { get; set; } = true;
+    public bool IsZnunyTask => (Tags ?? string.Empty).Contains("ZnunyTicketID:", StringComparison.OrdinalIgnoreCase);
+    public bool IsOperationallyVisible => !IsZnunyTask || IsZnunyAssigned;
     public DateTime CreatedUtc { get; set; } = DateTime.UtcNow;
     public DateTime UpdatedUtc { get; set; } = DateTime.UtcNow;
 }

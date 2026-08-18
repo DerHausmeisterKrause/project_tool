@@ -14,15 +14,32 @@ public class TodayViewModel : ObservableObject
     private readonly TaskService _tasks;
     private readonly WorkDayService _workDays;
     private readonly SettingsService _settings;
+    private readonly GermanTimeService _germanTime;
     private readonly DispatcherTimer _clock;
     private readonly OutlookCalendarService _outlookCalendar;
+    private readonly TicketSystemService _ticketSystem;
+    private readonly HomeOfficeService _homeOffice;
+    private DateTime _agendaDate;
+    private DateTime _lastTodayVisibilityRefreshMinute;
+    private bool _lastHidePastTodayItems;
 
     public string Title => "Heute";
+    // Existing timer and Dynamic Island consumers use this as the complete active-task collection.
     public ObservableCollection<TaskItem> CurrentTasks { get; } = new();
+    public ObservableCollection<TaskItem> TodayTasks { get; } = new();
+    private readonly ObservableCollection<TaskItem> _currentTasksWithoutToday = new();
+    public ObservableCollection<TaskItem> DisplayedTasks { get; } = new();
     public ObservableCollection<TaskItem> CompletedTasks { get; } = new();
+    public ObservableCollection<TodayAgendaItem> TodayAgendaItems { get; } = new();
+    public ObservableCollection<ZnunyCandidateTicket> NewTaskCandidates { get; } = new();
     public ObservableCollection<BreakEditRow> BreakRows { get; } = new();
     public ObservableCollection<TaskSegment> Segments { get; } = new();
+    public ObservableCollection<TicketTimeBooking> TicketTimeBookings { get; } = new();
+    public ObservableCollection<TicketFieldOption> CostCenterOptions { get; } = new();
+    public ObservableCollection<TicketFieldOption> OrderOptions { get; } = new();
     public ObservableCollection<string> TimeOptions { get; } = new(Enumerable.Range(0, 96).Select(i => TimeSpan.FromMinutes(i * 15).ToString(@"hh\:mm")));
+    public IReadOnlyList<string> CurrentTaskSortFields { get; } = new[] { "Zuletzt bearbeitet", "Erstellungsdatum" };
+    public IReadOnlyList<string> CurrentTaskSortDirections { get; } = new[] { "Neueste zuerst", "Älteste zuerst" };
 
     public event Action<Guid>? TaskBringIntoViewRequested;
 
@@ -36,8 +53,11 @@ public class TodayViewModel : ObservableObject
             {
                 LoadSegments();
                 Raise(nameof(IsTaskSelected));
+                Raise(nameof(HasZnunyTicket));
                 RaiseCommandStates();
                 UpdateTimerDisplay();
+                LoadTicketBookingHistory();
+                _ = LoadTicketBookingContextAsync(value);
             }
         }
     }
@@ -61,22 +81,70 @@ public class TodayViewModel : ObservableObject
         set { if (Set(ref _completedTaskSearchText, value)) ApplyTaskFilters(); }
     }
 
-    private bool _showCompletedTasks;
-    public bool ShowCompletedTasks
+    private TodayTaskScope _selectedTaskScope = TodayTaskScope.Today;
+    public TodayTaskScope SelectedTaskScope
     {
-        get => _showCompletedTasks;
+        get => _selectedTaskScope;
         set
         {
-            if (Set(ref _showCompletedTasks, value))
+            if (Set(ref _selectedTaskScope, value))
             {
-                Raise(nameof(ShowCurrentTasks));
+                RefreshDisplayedTasks();
+                Raise(nameof(ShowActiveTaskList));
+                Raise(nameof(ShowTodayAgenda));
+                Raise(nameof(ShowCurrentTaskList));
                 Raise(nameof(ShowCompletedTaskList));
+                Raise(nameof(ShowCandidateTickets));
+                Raise(nameof(ShowCandidateHint));
+                Raise(nameof(CandidateHint));
+                Raise(nameof(ActiveTaskListHeading));
             }
         }
     }
 
-    public bool ShowCurrentTasks => !ShowCompletedTasks;
-    public bool ShowCompletedTaskList => ShowCompletedTasks;
+    public bool ShowActiveTaskList => SelectedTaskScope is TodayTaskScope.Today or TodayTaskScope.Current;
+    public bool ShowTodayAgenda => SelectedTaskScope == TodayTaskScope.Today;
+    public bool ShowCurrentTaskList => SelectedTaskScope == TodayTaskScope.Current;
+    public bool ShowCompletedTaskList => SelectedTaskScope == TodayTaskScope.Completed;
+    public bool ShowCandidateTickets => SelectedTaskScope == TodayTaskScope.CandidateTickets;
+    public string CandidateTabTitle => $"Neue Aufgaben ({NewTaskCandidates.Count})";
+    public bool ShowCandidateHint => ShowCandidateTickets && NewTaskCandidates.Count == 0;
+    public string CandidateHint => !string.IsNullOrWhiteSpace(_ticketSystem.CandidateTicketsError)
+        ? _ticketSystem.CandidateTicketsError
+        : string.IsNullOrWhiteSpace(_settings.Current.TicketSystemCandidateKeywords)
+            ? "Keine Schlüsselwörter konfiguriert. Bitte in den Einstellungen mindestens ein Schlüsselwort hinterlegen."
+            : "Keine passenden neuen Aufgaben gefunden.";
+    public string ActiveTaskListHeading => SelectedTaskScope == TodayTaskScope.Today ? "Heute:" : "Aktuelle Aufgaben:";
+
+    public string SelectedCurrentTaskSortField
+    {
+        get => string.Equals(_settings.Current.CurrentTasksSortField, "Created", StringComparison.OrdinalIgnoreCase)
+            ? "Erstellungsdatum"
+            : "Zuletzt bearbeitet";
+        set
+        {
+            var field = string.Equals(value, "Erstellungsdatum", StringComparison.Ordinal) ? "Created" : "Updated";
+            if (string.Equals(_settings.Current.CurrentTasksSortField, field, StringComparison.Ordinal)) return;
+            _settings.Current.CurrentTasksSortField = field;
+            _settings.Save();
+            Raise();
+            RefreshDisplayedTasks();
+        }
+    }
+
+    public string SelectedCurrentTaskSortDirection
+    {
+        get => _settings.Current.CurrentTasksSortDescending ? "Neueste zuerst" : "Älteste zuerst";
+        set
+        {
+            var descending = !string.Equals(value, "Älteste zuerst", StringComparison.Ordinal);
+            if (_settings.Current.CurrentTasksSortDescending == descending) return;
+            _settings.Current.CurrentTasksSortDescending = descending;
+            _settings.Save();
+            Raise();
+            RefreshDisplayedTasks();
+        }
+    }
 
     private string _statusMessage = string.Empty;
     public string StatusMessage { get => _statusMessage; set => Set(ref _statusMessage, value); }
@@ -84,8 +152,11 @@ public class TodayViewModel : ObservableObject
     private string _workDaySummary = string.Empty;
     public string WorkDaySummary { get => _workDaySummary; set => Set(ref _workDaySummary, value); }
 
-    private string _todayTotals = string.Empty;
-    public string TodayTotals { get => _todayTotals; set => Set(ref _todayTotals, value); }
+    private int _ticketMinutesToday;
+    public int TicketMinutesToday { get => _ticketMinutesToday; set => Set(ref _ticketMinutesToday, value); }
+
+    private int _ticketMinutesCurrentMonth;
+    public int TicketMinutesCurrentMonth { get => _ticketMinutesCurrentMonth; set => Set(ref _ticketMinutesCurrentMonth, value); }
 
     private string _comeTimeText = string.Empty;
     public string ComeTimeText { get => _comeTimeText; set => Set(ref _comeTimeText, value); }
@@ -96,6 +167,41 @@ public class TodayViewModel : ObservableObject
     private string _timerDisplay = "00:00:00";
     public string TimerDisplay { get => _timerDisplay; set => Set(ref _timerDisplay, value); }
 
+    private TicketFieldOption? _selectedCostCenter;
+    public TicketFieldOption? SelectedCostCenter { get => _selectedCostCenter; set => Set(ref _selectedCostCenter, value); }
+
+    private TicketFieldOption? _selectedOrder;
+    public TicketFieldOption? SelectedOrder { get => _selectedOrder; set => Set(ref _selectedOrder, value); }
+
+    private string _ticketBookingInformation = string.Empty;
+    public string TicketBookingInformation { get => _ticketBookingInformation; set => Set(ref _ticketBookingInformation, value); }
+
+    private bool _isTicketBooking;
+    public bool IsTicketBooking
+    {
+        get => _isTicketBooking;
+        set
+        {
+            if (Set(ref _isTicketBooking, value))
+            {
+                BookTimeInTicketSystemCommand.RaiseCanExecuteChanged();
+                RefreshTicketFieldOptionsCommand.RaiseCanExecuteChanged();
+                CheckTicketTimeBookingCommand.RaiseCanExecuteChanged();
+                RetryTicketTimeBookingCommand.RaiseCanExecuteChanged();
+            }
+        }
+    }
+
+    private long _successfullyTransferredSeconds;
+    private long _ticketTimeBookingBaselineSeconds;
+    private decimal _successfullyBookedMinutes;
+    private bool _hasUnresolvedTicketTimeBooking;
+    public long UnbookedTicketSeconds => Math.Max(0, (SelectedTask?.TicketSecondsBooked ?? 0) + (long)(SelectedTask == null ? TimeSpan.Zero : _tasks.GetOpenSessionDuration(SelectedTask.Id)).TotalSeconds - _ticketTimeBookingBaselineSeconds - _successfullyTransferredSeconds);
+    public long SuccessfullyTransferredSeconds => _successfullyTransferredSeconds;
+    public string UnbookedTicketTimeText => $"Noch nicht gebucht: {UnbookedTicketSeconds / 60m:0.##} Min.";
+    public string TransferredTicketTimeText => $"Insgesamt über TaskTool in OTRS gebucht: {_successfullyBookedMinutes:0.##} Min.";
+    public bool HasZnunyTicket => SelectedTask?.Tags.Contains("ZnunyTicketID:", StringComparison.OrdinalIgnoreCase) == true;
+
     private DateTime? _newSegmentDate = DateTime.Today;
     public DateTime? NewSegmentDate
     {
@@ -104,6 +210,7 @@ public class TodayViewModel : ObservableObject
     }
 
     private string _newSegmentStartTime = "09:00";
+    private bool _newSegmentEndTimeManuallyEdited;
     public string NewSegmentStartTime
     {
         get => _newSegmentStartTime;
@@ -111,8 +218,8 @@ public class TodayViewModel : ObservableObject
         {
             if (Set(ref _newSegmentStartTime, value))
             {
-                if (string.IsNullOrWhiteSpace(NewSegmentEndTime) && TimeSpan.TryParse(value, out var start))
-                    NewSegmentEndTime = start.Add(TimeSpan.FromMinutes(30)).ToString(@"hh\:mm");
+                if (!_newSegmentEndTimeManuallyEdited)
+                    SetAutomaticNewSegmentEndTime(value);
                 RaiseSegmentEditorState();
             }
         }
@@ -122,7 +229,14 @@ public class TodayViewModel : ObservableObject
     public string NewSegmentEndTime
     {
         get => _newSegmentEndTime;
-        set { if (Set(ref _newSegmentEndTime, value)) RaiseSegmentEditorState(); }
+        set
+        {
+            if (Set(ref _newSegmentEndTime, value))
+            {
+                _newSegmentEndTimeManuallyEdited = true;
+                RaiseSegmentEditorState();
+            }
+        }
     }
 
     private string _newSegmentNote = string.Empty;
@@ -168,6 +282,10 @@ public class TodayViewModel : ObservableObject
     public RelayCommand Subtract15Command { get; }
     public RelayCommand Subtract30Command { get; }
     public RelayCommand Subtract60Command { get; }
+    public RelayCommand BookTimeInTicketSystemCommand { get; }
+    public RelayCommand RefreshTicketFieldOptionsCommand { get; }
+    public RelayCommand<TicketTimeBooking> CheckTicketTimeBookingCommand { get; }
+    public RelayCommand<TicketTimeBooking> RetryTicketTimeBookingCommand { get; }
     public RelayCommand ComeCommand { get; }
     public RelayCommand GoCommand { get; }
     public RelayCommand BreakStartCommand { get; }
@@ -175,18 +293,25 @@ public class TodayViewModel : ObservableObject
     public RelayCommand ManualSaveCommand { get; }
     public RelayCommand AddBreakRowCommand { get; }
     public RelayCommand SaveMarkersCommand { get; }
+    public RelayCommand ToggleHomeOfficeCommand { get; }
     public RelayCommand SetDayTypeNormalCommand { get; }
     public RelayCommand SetDayTypeAmCommand { get; }
     public RelayCommand SetDayTypeUlCommand { get; }
     public RelayCommand AddSegmentCommand { get; }
+    public RelayCommand ShowTodayTasksCommand { get; }
     public RelayCommand ShowCurrentTasksCommand { get; }
+    public RelayCommand ShowNewTasksCommand { get; }
     public RelayCommand ShowCompletedTasksCommand { get; }
+    public RelayCommand RefreshCandidateTicketsCommand { get; }
 
     public RelayCommand<TaskItem> SelectTaskCommand { get; }
     public RelayCommand<TaskItem> StartTaskCommand { get; }
     public RelayCommand<TaskItem> StopTaskCommand { get; }
     public RelayCommand<TaskItem> DoneTaskCommand { get; }
+    public RelayCommand<TaskItem> TogglePinTaskCommand { get; }
     public RelayCommand<string> OpenTicketUrlCommand { get; }
+    public RelayCommand<OutlookCalendarEvent> OpenAgendaOutlookEventCommand { get; }
+    public RelayCommand<string> OpenAgendaTeamsCommand { get; }
     public RelayCommand<TaskSegment> SaveSegmentCommand { get; }
     public RelayCommand<TaskSegment> DeleteSegmentCommand { get; }
     public RelayCommand<TaskSegment> DeleteSegmentOutlookCommand { get; }
@@ -199,13 +324,24 @@ public class TodayViewModel : ObservableObject
 
     private bool _isHo;
     public bool IsHo { get => _isHo; set => Set(ref _isHo, value); }
+    private bool _isHomeOfficeOperationRunning;
 
-    public TodayViewModel(TaskService tasks, WorkDayService workDays, SettingsService settings, OutlookCalendarService outlookCalendar)
+    public TodayViewModel(TaskService tasks, WorkDayService workDays, SettingsService settings, OutlookCalendarService outlookCalendar, TicketSystemService ticketSystem, HomeOfficeService homeOffice)
     {
         _tasks = tasks;
         _workDays = workDays;
         _settings = settings;
+        SetAutomaticNewSegmentEndTime(NewSegmentStartTime);
+        _germanTime = ServiceLocator.GermanTime;
         _outlookCalendar = outlookCalendar;
+        _ticketSystem = ticketSystem;
+        _ticketSystem.CandidateTicketsChanged += OnCandidateTicketsChanged;
+        _homeOffice = homeOffice;
+        _homeOffice.Changed += Refresh;
+        _tasks.SegmentsChanged += OnSegmentsChanged;
+        _outlookCalendar.EventsUpdated += OnOutlookEventsUpdated;
+        _lastHidePastTodayItems = _settings.Current.HidePastTodayItems;
+        _settings.SettingsChanged += OnSettingsChanged;
 
         QuickAddCommand = new RelayCommand(QuickAdd);
         SaveCommand = new RelayCommand(SaveTask, () => SelectedTask != null);
@@ -219,6 +355,10 @@ public class TodayViewModel : ObservableObject
         Subtract15Command = new RelayCommand(() => AdjustBookedMinutes(-15), () => SelectedTask != null);
         Subtract30Command = new RelayCommand(() => AdjustBookedMinutes(-30), () => SelectedTask != null);
         Subtract60Command = new RelayCommand(() => AdjustBookedMinutes(-60), () => SelectedTask != null);
+        BookTimeInTicketSystemCommand = new RelayCommand(async () => await BookTimeInTicketSystemAsync(), () => HasZnunyTicket && !IsTicketBooking && !_hasUnresolvedTicketTimeBooking && UnbookedTicketSeconds > 0);
+        RefreshTicketFieldOptionsCommand = new RelayCommand(async () => await RefreshTicketFieldOptionsAsync(), () => HasZnunyTicket && !IsTicketBooking);
+        CheckTicketTimeBookingCommand = new RelayCommand<TicketTimeBooking>(async booking => await CheckTicketTimeBookingAsync(booking), booking => booking?.CanCheckStatus == true && !IsTicketBooking);
+        RetryTicketTimeBookingCommand = new RelayCommand<TicketTimeBooking>(async booking => await RetryTicketTimeBookingAsync(booking), booking => booking?.CanRetry == true && !IsTicketBooking);
         ComeCommand = new RelayCommand(() => { _workDays.SetCome(DateTime.Now); Load(); });
         GoCommand = new RelayCommand(() => { _workDays.SetGo(DateTime.Now); Load(); });
         BreakStartCommand = new RelayCommand(() => { _workDays.StartBreak(DateTime.Today.ToString("yyyy-MM-dd")); Load(); });
@@ -226,28 +366,58 @@ public class TodayViewModel : ObservableObject
         ManualSaveCommand = new RelayCommand(SaveManualDay);
         AddBreakRowCommand = new RelayCommand(() => BreakRows.Add(new BreakEditRow()));
         SaveMarkersCommand = new RelayCommand(SaveMarkers);
+        ToggleHomeOfficeCommand = new RelayCommand(async () => await ToggleHomeOfficeAsync(), () => !_isHomeOfficeOperationRunning);
         SetDayTypeNormalCommand = new RelayCommand(() => SetDayType("Normal"));
         SetDayTypeAmCommand = new RelayCommand(() => SetDayType("AM"));
         SetDayTypeUlCommand = new RelayCommand(() => SetDayType("UL"));
         AddSegmentCommand = new RelayCommand(AddSegment, () => CanSaveNewSegment);
-        ShowCurrentTasksCommand = new RelayCommand(() => ShowCompletedTasks = false);
-        ShowCompletedTasksCommand = new RelayCommand(() => ShowCompletedTasks = true);
+        ShowTodayTasksCommand = new RelayCommand(() => SelectedTaskScope = TodayTaskScope.Today);
+        ShowCurrentTasksCommand = new RelayCommand(() => SelectedTaskScope = TodayTaskScope.Current);
+        ShowNewTasksCommand = new RelayCommand(() => SelectedTaskScope = TodayTaskScope.CandidateTickets);
+        ShowCompletedTasksCommand = new RelayCommand(() => SelectedTaskScope = TodayTaskScope.Completed);
+        RefreshCandidateTicketsCommand = new RelayCommand(async () => await _ticketSystem.RefreshCandidateTicketsAsync());
 
         SelectTaskCommand = new RelayCommand<TaskItem>(task => SelectedTask = task, task => task != null);
         StartTaskCommand = new RelayCommand<TaskItem>(StartTaskFromCard);
         StopTaskCommand = new RelayCommand<TaskItem>(task => OnCardTaskAction(task, _tasks.StopTimer));
         DoneTaskCommand = new RelayCommand<TaskItem>(task => OnCardTaskAction(task, _tasks.MarkDone));
+        TogglePinTaskCommand = new RelayCommand<TaskItem>(TogglePinTask, task => task != null);
         OpenTicketUrlCommand = new RelayCommand<string>(OpenTicketUrl, url => !string.IsNullOrWhiteSpace(url));
+        OpenAgendaOutlookEventCommand = new RelayCommand<OutlookCalendarEvent>(OpenAgendaOutlookEvent, outlookEvent => outlookEvent != null);
+        OpenAgendaTeamsCommand = new RelayCommand<string>(OpenAgendaTeams, url => !string.IsNullOrWhiteSpace(url));
         SaveSegmentCommand = new RelayCommand<TaskSegment>(SaveSegment, seg => seg != null && seg.IsValid);
         DeleteSegmentCommand = new RelayCommand<TaskSegment>(DeleteSegment, seg => seg != null);
         DeleteSegmentOutlookCommand = new RelayCommand<TaskSegment>(DeleteSegmentOutlook, seg => seg != null && !string.IsNullOrWhiteSpace(seg.OutlookEntryId));
 
         _clock = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
-        _clock.Tick += (_, _) => UpdateTimerDisplay();
+        _clock.Tick += (_, _) => OnClockTick();
         _clock.Start();
 
-        ShowCompletedTasks = false;
+        SelectedTaskScope = TodayTaskScope.Today;
+        UpdateCandidateTickets();
         Load();
+    }
+
+    private void OnCandidateTicketsChanged()
+    {
+        var dispatcher = Application.Current?.Dispatcher;
+        if (dispatcher != null && !dispatcher.CheckAccess())
+        {
+            dispatcher.BeginInvoke(new Action(UpdateCandidateTickets));
+            return;
+        }
+
+        UpdateCandidateTickets();
+    }
+
+    private void UpdateCandidateTickets()
+    {
+        NewTaskCandidates.Clear();
+        foreach (var ticket in _ticketSystem.CurrentCandidateTickets)
+            NewTaskCandidates.Add(ticket);
+        Raise(nameof(CandidateTabTitle));
+        Raise(nameof(ShowCandidateHint));
+        Raise(nameof(CandidateHint));
     }
 
     private void RaiseSegmentEditorState()
@@ -256,6 +426,19 @@ public class TodayViewModel : ObservableObject
         Raise(nameof(CanSaveNewSegment));
         EvaluateNewSegmentConflict();
         AddSegmentCommand.RaiseCanExecuteChanged();
+    }
+
+    private void SetAutomaticNewSegmentEndTime(string startTime)
+    {
+        var endTime = string.Empty;
+        if (TimeSpan.TryParse(startTime, out var start))
+        {
+            var calculatedEnd = start.Add(TimeSpan.FromMinutes(_settings.Current.DefaultSegmentDurationMinutes));
+            if (calculatedEnd < TimeSpan.FromDays(1))
+                endTime = calculatedEnd.ToString(@"hh\:mm");
+        }
+
+        Set(ref _newSegmentEndTime, endTime, nameof(NewSegmentEndTime));
     }
 
     private void RaiseCommandStates()
@@ -271,6 +454,8 @@ public class TodayViewModel : ObservableObject
         Subtract15Command.RaiseCanExecuteChanged();
         Subtract30Command.RaiseCanExecuteChanged();
         Subtract60Command.RaiseCanExecuteChanged();
+        BookTimeInTicketSystemCommand.RaiseCanExecuteChanged();
+        RefreshTicketFieldOptionsCommand.RaiseCanExecuteChanged();
         AddSegmentCommand.RaiseCanExecuteChanged();
         SaveSegmentCommand.RaiseCanExecuteChanged();
         DeleteSegmentCommand.RaiseCanExecuteChanged();
@@ -279,7 +464,56 @@ public class TodayViewModel : ObservableObject
 
     public void Refresh()
     {
+        var dispatcher = Application.Current?.Dispatcher;
+        if (dispatcher != null && !dispatcher.CheckAccess())
+        {
+            dispatcher.BeginInvoke(new Action(Load));
+            return;
+        }
+
         Load();
+    }
+
+    private void OnSegmentsChanged()
+    {
+        var dispatcher = Application.Current?.Dispatcher;
+        if (dispatcher != null && !dispatcher.CheckAccess())
+        {
+            dispatcher.BeginInvoke(new Action(ApplyTaskFilters));
+            return;
+        }
+
+        ApplyTaskFilters();
+    }
+
+    private void OnOutlookEventsUpdated()
+    {
+        var dispatcher = Application.Current?.Dispatcher;
+        if (dispatcher != null && !dispatcher.CheckAccess())
+        {
+            dispatcher.BeginInvoke(new Action(() => RefreshTodayAgenda()));
+            return;
+        }
+
+        RefreshTodayAgenda();
+    }
+
+    private void OnSettingsChanged()
+    {
+        var hidePastTodayItems = _settings.Current.HidePastTodayItems;
+        if (hidePastTodayItems == _lastHidePastTodayItems)
+            return;
+
+        _lastHidePastTodayItems = hidePastTodayItems;
+        _lastTodayVisibilityRefreshMinute = default;
+        var dispatcher = Application.Current?.Dispatcher;
+        if (dispatcher != null && !dispatcher.CheckAccess())
+        {
+            dispatcher.BeginInvoke(new Action(ApplyTaskFilters));
+            return;
+        }
+
+        ApplyTaskFilters();
     }
 
     private void Load()
@@ -288,8 +522,8 @@ public class TodayViewModel : ObservableObject
         ApplyTaskFilters();
 
         SelectedTask = selectedId.HasValue
-            ? CurrentTasks.Concat(CompletedTasks).FirstOrDefault(t => t.Id == selectedId.Value)
-            : CurrentTasks.FirstOrDefault();
+            ? TodayTasks.Concat(CurrentTasks).Concat(CompletedTasks).FirstOrDefault(t => t.Id == selectedId.Value)
+            : DisplayedTasks.FirstOrDefault() ?? CurrentTasks.FirstOrDefault();
 
         var day = DateTime.Today.ToString("yyyy-MM-dd");
         var wd = _workDays.GetOrCreateDay(day);
@@ -307,15 +541,9 @@ public class TodayViewModel : ObservableObject
         ComeTimeText = wd.ComeLocal?.ToString("HH:mm") ?? string.Empty;
         GoTimeText = wd.GoLocal?.ToString("HH:mm") ?? string.Empty;
 
-        var presence = (wd.ComeLocal.HasValue && wd.GoLocal.HasValue) ? wd.GoLocal.Value - wd.ComeLocal.Value : TimeSpan.Zero;
-        var pause = breaks.Where(b => b.EndLocal.HasValue).Aggregate(TimeSpan.Zero, (acc, b) => acc + (b.EndLocal!.Value - b.StartLocal));
-        var net = presence - pause;
-        var target = (wd.DayType == "UL" || wd.DayType == "AM") ? 0 : _settings.Current.GetTargetMinutes(DateTime.Today.DayOfWeek);
-        var overtime = (int)net.TotalMinutes - target;
-        var monthOvertime = CalculateMonthOvertime();
-
         WorkDaySummary = $"Kommen: {Fmt(wd.ComeLocal)}   Gehen: {Fmt(wd.GoLocal)}   Typ: {wd.DayType}";
-        TodayTotals = $"Soll: {FmtMin(target)} | Ist: {FmtMin((int)net.TotalMinutes)} | Ü heute: {FmtMin(overtime)} | Ü Monat: {FmtMin(monthOvertime)}";
+        TicketMinutesToday = _tasks.GetTicketMinutesForDay(DateTime.Today);
+        TicketMinutesCurrentMonth = _tasks.GetMonthTicketMinutes(DateTime.Today);
         StatusMessage = _tasks.LastError;
         RaiseSegmentEditorState();
         RaiseCommandStates();
@@ -325,8 +553,25 @@ public class TodayViewModel : ObservableObject
     private void ApplyTaskFilters()
     {
         var all = _tasks.GetAllTasks();
+        var now = _germanTime.GetLocalNow(_settings.Current.CalendarTimeZoneId).DateTime;
+        var localToday = now.Date;
+        var hidePastTodayItems = _settings.Current.HidePastTodayItems;
+        List<(TaskItem Task, TaskSegment Segment)>? todaySegments = null;
+        HashSet<Guid> todayTaskIds;
+        if (hidePastTodayItems)
+        {
+            todaySegments = _tasks.GetSegmentsForRange(localToday, localToday.AddDays(1));
+            todayTaskIds = todaySegments
+                .Where(pair => pair.Segment.EndLocal > now)
+                .Select(pair => pair.Task.Id)
+                .ToHashSet();
+        }
+        else
+        {
+            todayTaskIds = _tasks.GetTaskIdsWithSegmentsForRange(localToday, localToday.AddDays(1));
+        }
 
-        var active = all.Where(t => t.Status != TaskStatus.Done).ToList();
+        var active = all.Where(t => t.Status != TaskStatus.Done && t.IsOperationallyVisible).ToList();
         if (!string.IsNullOrWhiteSpace(TaskSearchText))
         {
             var q = TaskSearchText.Trim();
@@ -344,34 +589,123 @@ public class TodayViewModel : ObservableObject
                                  || (t.TicketUrl?.Contains(q, StringComparison.OrdinalIgnoreCase) ?? false)).ToList();
         }
 
+        TodayTasks.Clear();
+        foreach (var task in active.Where(task => todayTaskIds.Contains(task.Id)))
+            TodayTasks.Add(task);
+
         CurrentTasks.Clear();
-        foreach (var t in active) CurrentTasks.Add(t);
+        foreach (var task in active)
+            CurrentTasks.Add(task);
+
+        _currentTasksWithoutToday.Clear();
+        foreach (var task in active.Where(task => !todayTaskIds.Contains(task.Id)))
+            _currentTasksWithoutToday.Add(task);
 
         CompletedTasks.Clear();
         foreach (var t in done) CompletedTasks.Add(t);
+
+        RefreshDisplayedTasks();
+        _lastTodayVisibilityRefreshMinute = TruncateToMinute(now);
+        RefreshTodayAgenda(todaySegments, now);
     }
 
-    private int CalculateMonthOvertime()
+    private void RefreshTodayAgenda(List<(TaskItem Task, TaskSegment Segment)>? loadedSegments = null, DateTime? localNow = null)
     {
-        var first = new DateTime(DateTime.Today.Year, DateTime.Today.Month, 1);
-        var last = first.AddMonths(1).AddDays(-1);
-        var days = _workDays.GetWorkDaysInRange(first, last).ToDictionary(d => d.Day, d => d);
-        var total = 0;
-        for (var d = first; d <= last; d = d.AddDays(1))
+        var now = localNow ?? _germanTime.GetLocalNow(_settings.Current.CalendarTimeZoneId).DateTime;
+        var localToday = now.Date;
+        _agendaDate = localToday;
+        var tomorrow = localToday.AddDays(1);
+        var segments = loadedSegments ?? _tasks.GetSegmentsForRange(localToday, tomorrow);
+        var hidePastTodayItems = _settings.Current.HidePastTodayItems;
+        var visibleTodayTasks = TodayTasks.ToDictionary(task => task.Id);
+        var mirroredOutlookEntryIds = segments
+            .Select(pair => pair.Segment.OutlookEntryId)
+            .Where(entryId => !string.IsNullOrWhiteSpace(entryId))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        var agenda = new List<TodayAgendaItem>();
+        foreach (var (task, segment) in segments)
         {
-            var key = d.ToString("yyyy-MM-dd");
-            var wd = days.ContainsKey(key) ? days[key] : new WorkDayRecord { Day = key, DayType = "Normal" };
-            var target = (wd.DayType == "UL" || wd.DayType == "AM") ? 0 : _settings.Current.GetTargetMinutes(d.DayOfWeek);
-            var netMin = 0;
-            if (wd.ComeLocal.HasValue && wd.GoLocal.HasValue)
+            if (task.Status == TaskStatus.Done || !visibleTodayTasks.TryGetValue(task.Id, out var visibleTask))
+                continue;
+            if (hidePastTodayItems && segment.EndLocal <= now)
+                continue;
+
+            agenda.Add(new TodayAgendaItem
             {
-                var breaks = _workDays.GetBreaks(key);
-                var pause = breaks.Where(b => b.EndLocal.HasValue).Sum(b => (int)(b.EndLocal!.Value - b.StartLocal).TotalMinutes);
-                netMin = (int)(wd.GoLocal.Value - wd.ComeLocal.Value).TotalMinutes - pause;
-            }
-            total += netMin - target;
+                Start = segment.StartLocal,
+                End = segment.EndLocal,
+                Title = visibleTask.Title,
+                Task = visibleTask,
+                Segment = segment
+            });
         }
-        return total;
+
+        foreach (var outlookEvent in _outlookCalendar.GetEvents(localToday, tomorrow))
+        {
+            if (outlookEvent.IsCancelled || IsMirroredTaskSegment(outlookEvent, mirroredOutlookEntryIds))
+                continue;
+            if (hidePastTodayItems && !outlookEvent.IsAllDay && outlookEvent.EndLocal <= now)
+                continue;
+
+            if (outlookEvent.IsAllDay
+                && _settings.Current.OutlookInterpretAllDayAsMarkers
+                && OutlookAllDayMarkerMapper.TryMapAllDayMarker(outlookEvent, out _) != null)
+                continue;
+
+            agenda.Add(new TodayAgendaItem
+            {
+                Start = outlookEvent.StartLocal,
+                End = outlookEvent.EndLocal,
+                Title = outlookEvent.Subject,
+                Location = outlookEvent.Location,
+                OutlookEvent = outlookEvent,
+                IsAllDay = outlookEvent.IsAllDay
+            });
+        }
+
+        TodayAgendaItems.Clear();
+        foreach (var item in agenda
+                     .OrderBy(item => item.IsAllDay ? 0 : 1)
+                     .ThenBy(item => item.Start)
+                     .ThenBy(item => item.IsTask ? 0 : 1)
+                     .ThenBy(item => item.Title, StringComparer.CurrentCultureIgnoreCase))
+            TodayAgendaItems.Add(item);
+    }
+
+    private static bool IsMirroredTaskSegment(OutlookCalendarEvent outlookEvent, HashSet<string> mirroredOutlookEntryIds)
+    {
+        return mirroredOutlookEntryIds.Contains(outlookEvent.EntryId)
+               || mirroredOutlookEntryIds.Contains(outlookEvent.Id);
+    }
+
+    private void RefreshDisplayedTasks()
+    {
+        DisplayedTasks.Clear();
+        var source = SelectedTaskScope == TodayTaskScope.Today ? TodayTasks : _currentTasksWithoutToday;
+        IEnumerable<TaskItem> ordered = source;
+        if (SelectedTaskScope == TodayTaskScope.Current)
+        {
+            var pinnedFirst = source.OrderByDescending(task => task.IsPinned);
+            var sortByCreated = string.Equals(_settings.Current.CurrentTasksSortField, "Created", StringComparison.OrdinalIgnoreCase);
+            ordered = _settings.Current.CurrentTasksSortDescending
+                ? sortByCreated
+                    ? pinnedFirst.ThenByDescending(task => task.CreatedUtc)
+                    : pinnedFirst.ThenByDescending(task => task.UpdatedUtc)
+                : sortByCreated
+                    ? pinnedFirst.ThenBy(task => task.CreatedUtc)
+                    : pinnedFirst.ThenBy(task => task.UpdatedUtc);
+        }
+
+        foreach (var task in ordered)
+            DisplayedTasks.Add(task);
+    }
+
+    private void TogglePinTask(TaskItem? task)
+    {
+        if (task == null || SelectedTaskScope != TodayTaskScope.Current) return;
+        _tasks.SetPinned(task, !task.IsPinned);
+        RefreshDisplayedTasks();
     }
 
     private void SetDayType(string type)
@@ -384,6 +718,37 @@ public class TodayViewModel : ObservableObject
     {
         _workDays.SetDayMarkers(DateTime.Today.ToString("yyyy-MM-dd"), DayType, IsBr, IsHo);
         Load();
+    }
+
+    private async Task ToggleHomeOfficeAsync()
+    {
+        if (_isHomeOfficeOperationRunning) return;
+        var day = _germanTime.GetLocalNow(_settings.Current.CalendarTimeZoneId).Date;
+        if (!IsHo)
+        {
+            var confirmation = MessageBox.Show($"Wollen Sie am {day:dd.MM.yyyy} Homeoffice einreichen?", "Homeoffice einreichen", MessageBoxButton.YesNo, MessageBoxImage.Question);
+            if (confirmation != MessageBoxResult.Yes)
+            {
+                ServiceLocator.Logger.Info($"[HomeOffice] action=submit date={day:yyyy-MM-dd} confirmed=false");
+                Raise(nameof(IsHo));
+                return;
+            }
+        }
+
+        _isHomeOfficeOperationRunning = true;
+        ToggleHomeOfficeCommand.RaiseCanExecuteChanged();
+        try
+        {
+            var result = IsHo ? await _homeOffice.RemoveAsync(day) : await _homeOffice.SubmitAsync(day);
+            Load();
+            StatusMessage = result.Message;
+            if (!result.Success) MessageBox.Show(result.Message, "Homeoffice", MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+        finally
+        {
+            _isHomeOfficeOperationRunning = false;
+            ToggleHomeOfficeCommand.RaiseCanExecuteChanged();
+        }
     }
 
     private void LoadSegments()
@@ -472,6 +837,7 @@ public class TodayViewModel : ObservableObject
         var task = _tasks.ParseQuickAdd(QuickAddText);
         _tasks.CreateTask(task);
         QuickAddText = string.Empty;
+        SelectedTaskScope = TodayTaskScope.Current;
         Load();
         SelectedTask = CurrentTasks.FirstOrDefault(t => t.Id == task.Id)
                     ?? CompletedTasks.FirstOrDefault(t => t.Id == task.Id)
@@ -511,10 +877,14 @@ public class TodayViewModel : ObservableObject
             return;
 
         _tasks.AddSegment(segment);
+        NewSegmentNote = string.Empty;
+        _newSegmentEndTimeManuallyEdited = false;
+        SetAutomaticNewSegmentEndTime(NewSegmentStartTime);
         var outlookStatus = SyncSegmentOutlookAutomatically(segment);
         ServiceLocator.Notifications.RefreshSchedule();
         StatusMessage = $"Segment hinzugefügt.{outlookStatus}";
         LoadSegments();
+        RaiseSegmentEditorState();
         RaiseCommandStates();
     }
 
@@ -624,6 +994,165 @@ public class TodayViewModel : ObservableObject
         Load();
     }
 
+    private void LoadTicketBookingHistory()
+    {
+        TicketTimeBookings.Clear();
+        _successfullyTransferredSeconds = 0;
+        _successfullyBookedMinutes = 0;
+        _ticketTimeBookingBaselineSeconds = 0;
+        _hasUnresolvedTicketTimeBooking = false;
+        if (SelectedTask != null)
+        {
+            foreach (var booking in _tasks.GetAllTicketTimeBookings(SelectedTask.Id))
+                TicketTimeBookings.Add(booking);
+            var successful = TicketTimeBookings.Where(booking => booking.Status == "Succeeded").ToList();
+            _hasUnresolvedTicketTimeBooking = TicketTimeBookings.Any(booking => booking.Status != "Succeeded");
+            _successfullyTransferredSeconds = successful.Sum(booking => booking.SourceSeconds);
+            _successfullyBookedMinutes = successful.Sum(booking => booking.BookedMinutes);
+            _ticketTimeBookingBaselineSeconds = _tasks.GetTicketTimeBookingBaselineSeconds(SelectedTask.Id);
+        }
+
+        Raise(nameof(SuccessfullyTransferredSeconds));
+        Raise(nameof(UnbookedTicketSeconds));
+        Raise(nameof(UnbookedTicketTimeText));
+        Raise(nameof(TransferredTicketTimeText));
+        BookTimeInTicketSystemCommand.RaiseCanExecuteChanged();
+        CheckTicketTimeBookingCommand.RaiseCanExecuteChanged();
+        RetryTicketTimeBookingCommand.RaiseCanExecuteChanged();
+    }
+
+    private async Task LoadTicketBookingContextAsync(TaskItem? task)
+    {
+        CostCenterOptions.Clear();
+        OrderOptions.Clear();
+        SelectedCostCenter = null;
+        SelectedOrder = null;
+        TicketBookingInformation = string.Empty;
+        if (task == null || !task.Tags.Contains("ZnunyTicketID:", StringComparison.OrdinalIgnoreCase))
+            return;
+
+        try
+        {
+            var context = await _ticketSystem.GetTicketBookingContextAsync(task);
+            if (SelectedTask?.Id != task.Id) return;
+            foreach (var option in context.CostCenterOptions) CostCenterOptions.Add(option);
+            foreach (var option in context.OrderOptions) OrderOptions.Add(option);
+            SelectedCostCenter = EnsureCurrentOption(CostCenterOptions, context.CostCenterValue);
+            SelectedOrder = EnsureCurrentOption(OrderOptions, context.OrderValue);
+            TicketBookingInformation = context.Information;
+        }
+        catch (Exception ex)
+        {
+            if (SelectedTask?.Id == task.Id)
+                TicketBookingInformation = $"Ticketdaten konnten nicht geladen werden: {ex.Message}";
+        }
+    }
+
+    private async Task RefreshTicketFieldOptionsAsync()
+    {
+        if (SelectedTask == null || IsTicketBooking) return;
+        IsTicketBooking = true;
+        try
+        {
+            _ticketSystem.InvalidateDynamicFieldOptionsCache();
+            await LoadTicketBookingContextAsync(SelectedTask);
+            StatusMessage = "Kostenstellen und Aufträge wurden neu geladen.";
+        }
+        finally
+        {
+            IsTicketBooking = false;
+        }
+    }
+
+    private static TicketFieldOption? EnsureCurrentOption(ObservableCollection<TicketFieldOption> options, string currentValue)
+    {
+        if (string.IsNullOrWhiteSpace(currentValue))
+            return options.FirstOrDefault(option => option.Key == "00000");
+        var existing = options.FirstOrDefault(option => string.Equals(option.Key, currentValue, StringComparison.OrdinalIgnoreCase));
+        if (existing != null) return existing;
+        var current = new TicketFieldOption(currentValue, currentValue);
+        options.Insert(0, current);
+        return current;
+    }
+
+    private async Task BookTimeInTicketSystemAsync()
+    {
+        if (SelectedTask == null || IsTicketBooking) return;
+        var task = SelectedTask;
+        IsTicketBooking = true;
+        try
+        {
+            if (task.Status == TaskStatus.Running)
+                _tasks.StopTimer(task);
+            UpdateTimerDisplay();
+            var seconds = UnbookedTicketSeconds;
+            var description = FirstDescriptionLine(task.Description);
+            var result = await _ticketSystem.BookTimeAsync(
+                task,
+                seconds,
+                description,
+                SelectedCostCenter?.Key ?? string.Empty,
+                SelectedOrder?.Key ?? string.Empty);
+            StatusMessage = result.Message;
+            LoadTicketBookingHistory();
+            UpdateTimerDisplay();
+        }
+        finally
+        {
+            IsTicketBooking = false;
+        }
+    }
+
+    private async Task CheckTicketTimeBookingAsync(TicketTimeBooking? booking)
+    {
+        if (SelectedTask == null || booking == null || IsTicketBooking) return;
+        var task = SelectedTask;
+        IsTicketBooking = true;
+        try
+        {
+            var result = await _ticketSystem.CheckTicketTimeBookingAsync(task, booking);
+            StatusMessage = result.Message;
+            if (SelectedTask?.Id == task.Id)
+            {
+                LoadTicketBookingHistory();
+                UpdateTimerDisplay();
+            }
+        }
+        finally
+        {
+            IsTicketBooking = false;
+        }
+    }
+
+    private async Task RetryTicketTimeBookingAsync(TicketTimeBooking? booking)
+    {
+        if (SelectedTask == null || booking == null || IsTicketBooking) return;
+        var task = SelectedTask;
+        IsTicketBooking = true;
+        try
+        {
+            var result = await _ticketSystem.RetryTicketTimeBookingAsync(task, booking);
+            StatusMessage = result.Message;
+            if (SelectedTask?.Id == task.Id)
+            {
+                LoadTicketBookingHistory();
+                UpdateTimerDisplay();
+            }
+        }
+        finally
+        {
+            IsTicketBooking = false;
+        }
+    }
+
+    private static string FirstDescriptionLine(string description)
+    {
+        var line = (description ?? string.Empty)
+            .Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .FirstOrDefault() ?? "Zeitbuchung";
+        return line.Length <= 500 ? line : line[..500];
+    }
+
     private void ReopenSelectedTask() { if (SelectedTask == null) return; _tasks.MarkPlanned(SelectedTask); Load(); }
     private void MarkSelectedTaskDone() { if (SelectedTask == null) return; _tasks.MarkDone(SelectedTask); Load(); }
 
@@ -631,6 +1160,22 @@ public class TodayViewModel : ObservableObject
     {
         if (string.IsNullOrWhiteSpace(url)) return;
         ServiceLocator.MainViewModel.NavigateToTicketSystem(url);
+    }
+
+    private void OpenAgendaOutlookEvent(OutlookCalendarEvent? outlookEvent)
+    {
+        if (outlookEvent == null || string.IsNullOrWhiteSpace(outlookEvent.Id))
+            return;
+
+        var opened = ServiceLocator.Outlook.OpenCalendarEvent(outlookEvent.Id);
+        if (!opened.ok)
+            StatusMessage = $"Outlook-Termin konnte nicht geöffnet werden: {opened.error}";
+    }
+
+    private void OpenAgendaTeams(string? url)
+    {
+        if (!UrlLauncher.TryOpen(url, out var error))
+            StatusMessage = $"Teams-Link konnte nicht geöffnet werden: {error}";
     }
 
     private void SaveManualDay()
@@ -662,29 +1207,58 @@ public class TodayViewModel : ObservableObject
     }
 
     private static string Fmt(DateTime? dt) => dt?.ToString("HH:mm") ?? "--:--";
-    private static string FmtMin(int mins) => $"{mins / 60}h {Math.Abs(mins % 60):00}m";
 
     private void OnCardTaskAction(TaskItem? task, Action<TaskItem> action) { if (task == null) return; SelectedTask = task; action(task); Load(); }
     private void WithTask(Action<TaskItem> action) { if (SelectedTask == null) { MessageBox.Show("Bitte zuerst eine Aufgabe auswählen."); return; } action(SelectedTask); Load(); }
 
     private void UpdateTimerDisplay()
     {
-        if (SelectedTask == null) { TimerDisplay = "00:00:00"; return; }
-        var booked = TimeSpan.FromSeconds(Math.Max(0, SelectedTask.TicketSecondsBooked));
-        var runningPart = _tasks.GetOpenSessionDuration(SelectedTask.Id);
-        var total = booked + runningPart;
-        TimerDisplay = $"{(int)total.TotalHours:00}:{total.Minutes:00}:{total.Seconds:00}";
+        var unbooked = TimeSpan.FromSeconds(UnbookedTicketSeconds);
+        TimerDisplay = $"{(int)unbooked.TotalHours:00}:{unbooked.Minutes:00}:{unbooked.Seconds:00}";
+        Raise(nameof(UnbookedTicketSeconds));
+        Raise(nameof(UnbookedTicketTimeText));
+        Raise(nameof(TransferredTicketTimeText));
+        BookTimeInTicketSystemCommand.RaiseCanExecuteChanged();
     }
+
+    private void OnClockTick()
+    {
+        UpdateTimerDisplay();
+        var now = _germanTime.GetLocalNow(_settings.Current.CalendarTimeZoneId).DateTime;
+        var localToday = now.Date;
+        if (localToday != _agendaDate)
+        {
+            ApplyTaskFilters();
+            _ = _outlookCalendar.TriggerSyncAsync(localToday, localToday.AddDays(1), "today-agenda-day-change");
+            return;
+        }
+
+        var minute = TruncateToMinute(now);
+        if (_settings.Current.HidePastTodayItems && minute != _lastTodayVisibilityRefreshMinute)
+            ApplyTaskFilters();
+    }
+
+    private static DateTime TruncateToMinute(DateTime value)
+        => new(value.Year, value.Month, value.Day, value.Hour, value.Minute, 0, value.Kind);
 
 
     public bool NavigateToTask(Guid taskId)
     {
         Load();
 
+        var inToday = TodayTasks.FirstOrDefault(t => t.Id == taskId);
+        if (inToday != null)
+        {
+            SelectedTaskScope = TodayTaskScope.Today;
+            SelectedTask = inToday;
+            TaskBringIntoViewRequested?.Invoke(taskId);
+            return true;
+        }
+
         var inCurrent = CurrentTasks.FirstOrDefault(t => t.Id == taskId);
         if (inCurrent != null)
         {
-            ShowCompletedTasks = false;
+            SelectedTaskScope = TodayTaskScope.Current;
             SelectedTask = inCurrent;
             TaskBringIntoViewRequested?.Invoke(taskId);
             return true;
@@ -693,7 +1267,7 @@ public class TodayViewModel : ObservableObject
         var inCompleted = CompletedTasks.FirstOrDefault(t => t.Id == taskId);
         if (inCompleted != null)
         {
-            ShowCompletedTasks = true;
+            SelectedTaskScope = TodayTaskScope.Completed;
             SelectedTask = inCompleted;
             TaskBringIntoViewRequested?.Invoke(taskId);
             return true;
@@ -703,9 +1277,10 @@ public class TodayViewModel : ObservableObject
         if (task == null)
             return false;
 
-        ShowCompletedTasks = task.Status == TaskStatus.Done;
+        SelectedTaskScope = task.Status == TaskStatus.Done ? TodayTaskScope.Completed : TodayTaskScope.Current;
         Load();
-        SelectedTask = CurrentTasks.FirstOrDefault(t => t.Id == taskId)
+        SelectedTask = TodayTasks.FirstOrDefault(t => t.Id == taskId)
+                    ?? CurrentTasks.FirstOrDefault(t => t.Id == taskId)
                     ?? CompletedTasks.FirstOrDefault(t => t.Id == taskId)
                     ?? task;
         TaskBringIntoViewRequested?.Invoke(taskId);
@@ -713,6 +1288,14 @@ public class TodayViewModel : ObservableObject
     }
 
     public override string ToString() => Title;
+}
+
+public enum TodayTaskScope
+{
+    Today,
+    Current,
+    CandidateTickets,
+    Completed
 }
 
 public class BreakEditRow : ObservableObject
