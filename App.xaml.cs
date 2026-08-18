@@ -26,6 +26,17 @@ public partial class App : Application
             MainWindow = mainWindow;
             ServiceLocator.Notifications.AttachMainWindow(mainWindow);
             mainWindow.Show();
+            var postUpdateVersion = GetPostUpdateVersion(e.Args);
+            if (postUpdateVersion != null)
+            {
+                if (ServiceLocator.Updates.CompletePostUpdate(postUpdateVersion))
+                    ServiceLocator.MainViewModel.SettingsViewModel.RefreshInstalledVersion();
+            }
+            else
+            {
+                ServiceLocator.Updates.CleanupOldTempFolders();
+                _ = ServiceLocator.MainViewModel.SettingsViewModel.RunStartupUpdateCheckAsync();
+            }
         }
         catch (Exception ex)
         {
@@ -42,6 +53,16 @@ public partial class App : Application
         base.OnStartup(e);
     }
 
+    private static string? GetPostUpdateVersion(IReadOnlyList<string> args)
+    {
+        for (var index = 0; index < args.Count; index++)
+        {
+            if (!string.Equals(args[index], "--post-update-version", StringComparison.OrdinalIgnoreCase)) continue;
+            return index + 1 < args.Count ? args[index + 1] : string.Empty;
+        }
+        return null;
+    }
+
 
     protected override void OnExit(ExitEventArgs e)
     {
@@ -51,6 +72,8 @@ public partial class App : Application
                 ServiceLocator.Notifications.Dispose();
             if (ServiceLocator.OutlookCalendar != null)
                 ServiceLocator.OutlookCalendar.Dispose();
+            if (ServiceLocator.Updates != null)
+                ServiceLocator.Updates.Dispose();
         }
         catch
         {
