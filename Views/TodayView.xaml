@@ -300,7 +300,21 @@
                                         <StackPanel>
                                             <TextBlock Text="{Binding Title}" FontSize="18" FontWeight="Bold" TextWrapping="Wrap"/>
                                             <TextBlock Margin="0,4,0,6" Foreground="{StaticResource MutedTextBrush}" Text="{Binding StartLocal, StringFormat=Start: {0:dd.MM HH:mm}}"/>
-                                            <WrapPanel><Border Style="{StaticResource BadgeStyle}"><TextBlock Text="{Binding Status}"/></Border><TextBlock VerticalAlignment="Center" Text="{Binding TicketMinutesBooked, StringFormat=Ticket: {0} min}"/></WrapPanel>
+                                            <WrapPanel>
+                                                <Border Visibility="{Binding ShowCurrentListBadge, Converter={StaticResource BooleanToVisibilityConverter}}">
+                                                    <Border.Style>
+                                                        <Style TargetType="Border" BasedOn="{StaticResource BadgeStyle}">
+                                                            <Style.Triggers>
+                                                                <DataTrigger Binding="{Binding IsCurrentListBadgePlanned}" Value="True">
+                                                                    <Setter Property="Background" Value="#1D4ED8"/>
+                                                                </DataTrigger>
+                                                            </Style.Triggers>
+                                                        </Style>
+                                                    </Border.Style>
+                                                    <TextBlock Text="{Binding CurrentListBadgeText}" Foreground="#DBEAFE"/>
+                                                </Border>
+                                                <TextBlock VerticalAlignment="Center" Text="{Binding TicketMinutesBooked, StringFormat=Ticket: {0} min}"/>
+                                            </WrapPanel>
                                             <Button Content="Ticket öffnen" Style="{StaticResource LinkButtonStyle}"
                                                     Visibility="{Binding TicketUrl, Converter={StaticResource StringEmptyToVisibilityConverter}}"
                                                     ToolTip="{Binding TicketUrl}"

@@ -559,6 +559,7 @@ public class TodayViewModel : ObservableObject
     {
         var all = _tasks.GetAllTasks();
         var now = _germanTime.GetLocalNow(_settings.Current.CalendarTimeZoneId).DateTime;
+        var taskIdsWithActiveOrFutureSegments = _tasks.GetTaskIdsWithActiveOrFutureSegments(now);
         var localToday = now.Date;
         var hidePastTodayItems = _settings.Current.HidePastTodayItems;
         List<(TaskItem Task, TaskSegment Segment)>? todaySegments = null;
@@ -577,6 +578,12 @@ public class TodayViewModel : ObservableObject
         }
 
         var active = all.Where(t => t.Status != TaskStatus.Done && t.IsOperationallyVisible).ToList();
+        foreach (var task in active)
+        {
+            task.CurrentListBadgeText = task.Status == TaskStatus.Running
+                ? "Running"
+                : taskIdsWithActiveOrFutureSegments.Contains(task.Id) ? "Geplant" : string.Empty;
+        }
         if (!string.IsNullOrWhiteSpace(TaskSearchText))
         {
             var q = TaskSearchText.Trim();
@@ -1239,7 +1246,7 @@ public class TodayViewModel : ObservableObject
         }
 
         var minute = TruncateToMinute(now);
-        if (_settings.Current.HidePastTodayItems && minute != _lastTodayVisibilityRefreshMinute)
+        if (minute != _lastTodayVisibilityRefreshMinute)
             ApplyTaskFilters();
     }
 

@@ -52,38 +52,86 @@ public class WorkDayService
         return list;
     }
 
+    public void ReplaceSyncedOutlookMarkers(
+        DateTime fromInclusive,
+        DateTime toExclusive,
+        IReadOnlyList<OutlookCalendarEvent> events,
+        bool interpretAllDayMarkers)
+    {
+        using var conn = new SqliteConnection(_db.ConnectionString);
+        conn.Open();
+        using var transaction = conn.BeginTransaction();
+        for (var day = fromInclusive.Date; day < toExclusive.Date; day = day.AddDays(1))
+        {
+            var markers = CalendarMarkerResolver.ResolveOutlookMarkers(day, events, interpretAllDayMarkers, _logger);
+            using var cmd = conn.CreateCommand();
+            cmd.Transaction = transaction;
+            cmd.CommandText = @"INSERT INTO calendar_marker_sync(day,outlook_day_type,outlook_is_ho,updated_utc)
+VALUES ($day,$dayType,$isHo,$updated)
+ON CONFLICT(day) DO UPDATE SET
+    outlook_day_type=excluded.outlook_day_type,
+    outlook_is_ho=excluded.outlook_is_ho,
+    updated_utc=excluded.updated_utc";
+            cmd.Parameters.AddWithValue("$day", markers.Day);
+            cmd.Parameters.AddWithValue("$dayType", markers.OutlookDayType);
+            cmd.Parameters.AddWithValue("$isHo", markers.OutlookIsHo ? 1 : 0);
+            cmd.Parameters.AddWithValue("$updated", DateTime.UtcNow.ToString("O"));
+            cmd.ExecuteNonQuery();
+        }
+        transaction.Commit();
+    }
+
     public IReadOnlyList<MonthlyWorkDayStats> GetMonthlyMarkerStatistics()
     {
-        var result = new List<MonthlyWorkDayStats>();
+        var monthly = new Dictionary<DateTime, (int HomeOffice, int Vacation, int Am)>();
         using var conn = new SqliteConnection(_db.ConnectionString);
         conn.Open();
         using var cmd = conn.CreateCommand();
-        cmd.CommandText = @"SELECT substr(day, 1, 7) AS month_key,
-       SUM(CASE WHEN is_ho = 1 THEN 1 ELSE 0 END) AS homeoffice_days,
-       SUM(CASE WHEN day_type = 'UL' THEN 1 ELSE 0 END) AS vacation_days,
-       SUM(CASE WHEN day_type = 'AM' THEN 1 ELSE 0 END) AS am_days
-FROM work_days
-GROUP BY substr(day, 1, 7)
-ORDER BY month_key DESC";
+        cmd.CommandText = @"WITH days AS (
+    SELECT day FROM work_days
+    UNION
+    SELECT day FROM calendar_marker_sync
+    WHERE outlook_day_type IN ('UL', 'AM') OR outlook_is_ho = 1
+)
+SELECT d.day,
+       COALESCE(w.day_type, 'Normal') AS local_day_type,
+       COALESCE(w.is_ho, 0) AS local_is_ho,
+       COALESCE(c.outlook_day_type, 'Normal') AS outlook_day_type,
+       COALESCE(c.outlook_is_ho, 0) AS outlook_is_ho
+FROM days d
+LEFT JOIN work_days w ON w.day = d.day
+LEFT JOIN calendar_marker_sync c ON c.day = d.day
+ORDER BY d.day";
         using var reader = cmd.ExecuteReader();
         while (reader.Read())
         {
-            if (!DateTime.TryParseExact(
-                    reader["month_key"]?.ToString(),
-                    "yyyy-MM",
-                    CultureInfo.InvariantCulture,
-                    DateTimeStyles.None,
-                    out var month))
+            var dayText = reader["day"]?.ToString() ?? string.Empty;
+            if (!DateTime.TryParseExact(dayText, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var day))
                 continue;
 
-            result.Add(new MonthlyWorkDayStats(
-                month,
-                Convert.ToInt32(reader["homeoffice_days"]),
-                Convert.ToInt32(reader["vacation_days"]),
-                Convert.ToInt32(reader["am_days"])));
+            var local = new WorkDayRecord
+            {
+                Day = dayText,
+                DayType = reader["local_day_type"]?.ToString() ?? "Normal",
+                IsHo = Convert.ToInt32(reader["local_is_ho"]) == 1
+            };
+            var outlook = new SyncedCalendarMarkers(
+                dayText,
+                reader["outlook_day_type"]?.ToString() ?? "Normal",
+                Convert.ToInt32(reader["outlook_is_ho"]) == 1);
+            var effective = CalendarMarkerResolver.ResolveEffectiveMarkers(local, outlook);
+            var month = new DateTime(day.Year, day.Month, 1);
+            var current = monthly.GetValueOrDefault(month);
+            monthly[month] = (
+                current.HomeOffice + (effective.IsHo ? 1 : 0),
+                current.Vacation + (effective.DayType == "UL" ? 1 : 0),
+                current.Am + (effective.DayType == "AM" ? 1 : 0));
         }
 
-        return result;
+        return monthly
+            .OrderByDescending(pair => pair.Key)
+            .Select(pair => new MonthlyWorkDayStats(pair.Key, pair.Value.HomeOffice, pair.Value.Vacation, pair.Value.Am))
+            .ToList();
     }
 
     public List<BreakRecord> GetBreaks(string day)

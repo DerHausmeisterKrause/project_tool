@@ -36,7 +36,7 @@ public static class ServiceLocator
         WorkDays = new WorkDayService(Database, Logger);
         Notifications = new NotificationService(Logger, Settings, Tasks);
         TicketSystem = new TicketSystemService(Settings, Tasks, TicketAssignmentSnapshots, Notifications, Logger);
-        OutlookCalendar = new OutlookCalendarService(Logger, Settings, Outlook);
+        OutlookCalendar = new OutlookCalendarService(Logger, Settings, Outlook, WorkDays);
         HomeOffice = new HomeOfficeService(WorkDays, Settings, Outlook, OutlookCalendar, Logger);
         MainViewModel = new MainViewModel(Tasks, WorkDays, Settings, Notifications, OutlookCalendar, TicketSystem, Updates, HomeOffice, GermanTime, Logger);
     }

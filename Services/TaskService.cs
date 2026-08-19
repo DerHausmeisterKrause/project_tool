@@ -502,6 +502,25 @@ WHERE datetime(start_local) >= datetime($from)
         return taskIds;
     }
 
+    public HashSet<Guid> GetTaskIdsWithActiveOrFutureSegments(DateTime now)
+    {
+        var taskIds = new HashSet<Guid>();
+        using var conn = new SqliteConnection(_db.ConnectionString);
+        conn.Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = @"SELECT DISTINCT task_id
+FROM task_segments
+WHERE datetime(end_local) > datetime($now)";
+        cmd.Parameters.AddWithValue("$now", now.ToString("s"));
+        using var reader = cmd.ExecuteReader();
+        while (reader.Read())
+        {
+            if (Guid.TryParse(reader["task_id"]?.ToString(), out var taskId))
+                taskIds.Add(taskId);
+        }
+        return taskIds;
+    }
+
     public bool TestOutlookConnection()
     {
         LastError = string.Empty;

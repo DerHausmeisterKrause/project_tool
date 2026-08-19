@@ -460,12 +460,11 @@ public class WeekViewModel : ObservableObject
             ApplySharedOverlapLayout(calendarItems, external);
             MarkSegmentConflicts(calendarItems, external);
 
-            var displayDayType = wd.DayType;
-            if (displayDayType == "Normal" && (markerResult.DerivedDayType == "UL" || markerResult.DerivedDayType == "AM"))
-                displayDayType = markerResult.DerivedDayType;
-
-            // HO is set here either by explicit TaskTool day marker (wd.IsHo) or explicit Outlook marker mapping only.
-            var displayIsHo = wd.IsHo || markerResult.DerivedHo;
+            var effectiveMarkers = CalendarMarkerResolver.ResolveEffectiveMarkers(
+                wd,
+                new SyncedCalendarMarkers(key, markerResult.DerivedDayType, markerResult.DerivedHo));
+            var displayDayType = effectiveMarkers.DayType;
+            var displayIsHo = effectiveMarkers.IsHo;
             var displayIsBr = wd.IsBr || markerResult.DerivedBr;
 
             var allDayEvents = BuildAllDayPills(day.Date, dayEvents, markerResult.ConsumedEventIds);
@@ -697,7 +696,6 @@ public class WeekViewModel : ObservableObject
         if (!_settings.Current.OutlookInterpretAllDayAsMarkers)
             return ("Normal", false, false, "Normal", consumed, markerCandidates);
 
-        var matchedMarkers = new List<string>();
         foreach (var evt in events)
         {
             var duration = evt.EndLocal - evt.StartLocal;
@@ -718,16 +716,15 @@ public class WeekViewModel : ObservableObject
                 continue;
 
             consumed.Add(evt.Id);
-            matchedMarkers.Add(marker);
         }
 
-        var derivedMarker = "Normal";
-        if (matchedMarkers.Contains("UL", StringComparer.Ordinal))
-            derivedMarker = "UL";
-        else if (matchedMarkers.Contains("AM", StringComparer.Ordinal))
-            derivedMarker = "AM";
-        else if (matchedMarkers.Contains("HO", StringComparer.Ordinal))
-            derivedMarker = "HO";
+        var resolved = CalendarMarkerResolver.ResolveOutlookMarkers(
+            dayDate,
+            events,
+            _settings.Current.OutlookInterpretAllDayAsMarkers);
+        var derivedMarker = resolved.OutlookDayType is "UL" or "AM"
+            ? resolved.OutlookDayType
+            : resolved.OutlookIsHo ? "HO" : "Normal";
 
         if (derivedMarker != "Normal" && consumed.Count == 0)
         {

@@ -13,6 +13,7 @@ public class OutlookCalendarService : IDisposable
     private readonly LoggerService _logger;
     private readonly SettingsService _settings;
     private readonly OutlookInteropService _outlook;
+    private readonly WorkDayService _workDays;
     private readonly DispatcherTimer _timer;
     private readonly EventHandler _timerHandler;
     private readonly object _syncLock = new();
@@ -31,11 +32,12 @@ public class OutlookCalendarService : IDisposable
     public string LastError { get; private set; } = string.Empty;
     public DateTime? LastSyncAtLocal { get; private set; }
 
-    public OutlookCalendarService(LoggerService logger, SettingsService settings, OutlookInteropService outlook)
+    public OutlookCalendarService(LoggerService logger, SettingsService settings, OutlookInteropService outlook, WorkDayService workDays)
     {
         _logger = logger;
         _settings = settings;
         _outlook = outlook;
+        _workDays = workDays;
         _timer = new DispatcherTimer();
         _timerHandler = async (_, _) => await TriggerSyncAsync("timer");
         _timer.Tick += _timerHandler;
@@ -123,6 +125,14 @@ public class OutlookCalendarService : IDisposable
                     _logger.Info($"[OutlookFetchedEvent] subject='{e.Subject}' start={e.StartLocal:O} end={e.EndLocal:O} isAllDay={e.IsAllDay} entryId='{e.EntryId}'");
                     _logger.Info($"[OutlookRawEvent] subject='{e.Subject}' start={e.StartLocal:O} end={e.EndLocal:O} isAllDay={e.IsAllDay} busyStatus='{e.BusyStatus}' sensitivity='{e.Sensitivity}' isPrivate={e.IsPrivate} isRecurring={e.IsRecurring} isInstance={e.IsInstance} meetingStatus='{e.MeetingStatus}' messageClass='{e.MessageClass}' isCancelled={e.IsCancelled} categories='{e.Categories}' location='{e.Location}' calendar='{e.CalendarName}' entryId='{e.EntryId}' iCalUId='{e.ICalUId}'");
                 }
+
+                // Persist only after the complete Outlook query succeeded. Every day
+                // in the range is replaced, including days whose marker was removed.
+                _workDays.ReplaceSyncedOutlookMarkers(
+                    from,
+                    to,
+                    result.events,
+                    _settings.Current.OutlookInterpretAllDayAsMarkers);
 
                 lock (_syncLock)
                 {
