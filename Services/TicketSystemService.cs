@@ -5,6 +5,8 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using System.Collections.Concurrent;
+using System.Diagnostics;
 using TaskTool.Models;
 using TaskStatus = TaskTool.Models.TaskStatus;
 
@@ -27,14 +29,13 @@ public class TicketSystemService : IDisposable
     private IReadOnlyList<ZnunyCandidateTicket> _candidateTickets = Array.Empty<ZnunyCandidateTicket>();
     private int _lastCandidateUserId;
     private string _lastCandidateKeywords = string.Empty;
-    private string _lastCandidateSearchMode = string.Empty;
-    private string? _resolvedAutomaticCandidateSearchMode;
 
     public string LastError { get; private set; } = string.Empty;
     public event Action? TasksChanged;
     public event Action? CandidateTicketsChanged;
     public IReadOnlyList<ZnunyCandidateTicket> CurrentCandidateTickets => _candidateTickets;
     public string CandidateTicketsError { get; private set; } = string.Empty;
+    public bool IsCandidateRefreshRunning { get; private set; }
 
     private const int MaxIndividualAssignmentNotifications = 5;
 
@@ -48,7 +49,6 @@ public class TicketSystemService : IDisposable
         _timer = new System.Threading.Timer(async _ => await SyncAssignedTicketsAsync("timer"), null, Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
         _lastCandidateUserId = _settings.Current.TicketSystemCandidateUserId;
         _lastCandidateKeywords = _settings.Current.TicketSystemCandidateKeywords;
-        _lastCandidateSearchMode = _settings.Current.TicketSystemCandidateSearchMode;
         HandleSettingsChanged();
     }
 
@@ -57,14 +57,11 @@ public class TicketSystemService : IDisposable
         var interval = Math.Clamp(_settings.Current.TicketSystemSyncIntervalMinutes, 1, 1440);
         _timer.Change(TimeSpan.FromMinutes(interval), TimeSpan.FromMinutes(interval));
         var candidateSettingsChanged = _lastCandidateUserId != _settings.Current.TicketSystemCandidateUserId
-            || !string.Equals(_lastCandidateKeywords, _settings.Current.TicketSystemCandidateKeywords, StringComparison.Ordinal)
-            || !string.Equals(_lastCandidateSearchMode, _settings.Current.TicketSystemCandidateSearchMode, StringComparison.Ordinal);
+            || !string.Equals(_lastCandidateKeywords, _settings.Current.TicketSystemCandidateKeywords, StringComparison.Ordinal);
         _lastCandidateUserId = _settings.Current.TicketSystemCandidateUserId;
         _lastCandidateKeywords = _settings.Current.TicketSystemCandidateKeywords;
-        _lastCandidateSearchMode = _settings.Current.TicketSystemCandidateSearchMode;
         if (candidateSettingsChanged)
         {
-            _resolvedAutomaticCandidateSearchMode = null;
             _ = RefreshCandidateTicketsAsync("settings");
         }
     }
@@ -82,6 +79,9 @@ public class TicketSystemService : IDisposable
 
         try
         {
+            IsCandidateRefreshRunning = true;
+            CandidateTicketsError = string.Empty;
+            CandidateTicketsChanged?.Invoke();
             var configError = ValidateConfiguration(requireAgentId: true);
             if (!string.IsNullOrWhiteSpace(configError))
                 throw new InvalidOperationException(configError);
@@ -98,6 +98,8 @@ public class TicketSystemService : IDisposable
         }
         finally
         {
+            IsCandidateRefreshRunning = false;
+            CandidateTicketsChanged?.Invoke();
             _syncGate.Release();
         }
     }
@@ -758,140 +760,63 @@ public class TicketSystemService : IDisposable
         string sessionHash,
         string reason)
     {
+        var stopwatch = Stopwatch.StartNew();
         var keywords = ParseCandidateKeywords(_settings.Current.TicketSystemCandidateKeywords);
         var candidateUserId = _settings.Current.TicketSystemCandidateUserId;
-        _logger.Info($"[ZnunyCandidates] action=refresh-start reason={reason} candidateUserId={candidateUserId} parsedKeywords=[{string.Join(',', keywords.Select(keyword => $"'{LogValue(keyword)}'"))}]");
+        _logger.Info($"[ZnunyCandidates] action=refresh-start reason={reason} candidateUserId={candidateUserId} keywordCount={keywords.Count}");
         if (keywords.Count == 0)
         {
             PublishCandidateTickets(Array.Empty<ZnunyCandidateTicket>(), string.Empty);
-            _logger.Info($"[ZnunyCandidates] action=refresh reason={reason} candidateUserId={candidateUserId} sourceUnique=0 excludedOwnAssigned=0 ticketGetFailed=0 closed=0 noKeywordMatch=0 matched=0 keywords=0");
+            _logger.Info($"[ZnunyCandidates] source=0 closed=0 wrongAssignment=0 noKeywordMatch=0 matched=0 durationMs={stopwatch.ElapsedMilliseconds}");
             return;
         }
 
-        var ownerIds = await SearchTicketsAsync("Owner", candidateUserId, _settings.Current.TicketSystemTicketSearchRoute,
-            _settings.Current.TicketSystemTicketSearchMethod, sessionId, sessionHash, onlyOpenOverride: true);
-        var responsibleIds = await SearchTicketsAsync("Responsible", candidateUserId, _settings.Current.TicketSystemTicketSearchRoute,
-            _settings.Current.TicketSystemTicketSearchMethod, sessionId, sessionHash, onlyOpenOverride: true);
-        var serverFilteredIds = ownerIds.Concat(responsibleIds).ToHashSet(StringComparer.OrdinalIgnoreCase);
-        _logger.Info($"[ZnunyCandidateDiagnostic] mode={_settings.Current.TicketSystemTicketSearchMethod.ToLowerInvariant()}-scalar ownerCount={ownerIds.Count} responsibleCount={responsibleIds.Count}");
+        // StateType is an array in TicketSearch. Some older/custom GenericInterface
+        // mappings do not accept it, so the role-restricted unfiltered searches are
+        // also made. Their intersection remains small and closed tickets are removed
+        // after TicketGet; there is deliberately no all-visible-ticket fallback.
+        var ownerActiveTask = SearchCandidateRoleActiveTicketIdsAsync("Owner", candidateUserId, sessionId, sessionHash);
+        var responsibleActiveTask = SearchCandidateRoleActiveTicketIdsAsync("Responsible", candidateUserId, sessionId, sessionHash);
+        var ownerUnfilteredTask = SearchTicketsAsync("Owner", candidateUserId, _settings.Current.TicketSystemTicketSearchRoute,
+            _settings.Current.TicketSystemTicketSearchMethod, sessionId, sessionHash, onlyOpenOverride: false);
+        var responsibleUnfilteredTask = SearchTicketsAsync("Responsible", candidateUserId, _settings.Current.TicketSystemTicketSearchRoute,
+            _settings.Current.TicketSystemTicketSearchMethod, sessionId, sessionHash, onlyOpenOverride: false);
+        await Task.WhenAll(ownerActiveTask, responsibleActiveTask, ownerUnfilteredTask, responsibleUnfilteredTask);
 
-        var allVisibleOpenIds = await SearchAllVisibleOpenTicketIdsAsync(sessionId, sessionHash);
-        _logger.Info($"[ZnunyCandidateDiagnostic] search=all-visible-open count={allVisibleOpenIds.Count}");
+        var ownerActiveIds = await ownerActiveTask;
+        var responsibleActiveIds = await responsibleActiveTask;
+        var ownerIds = await ownerUnfilteredTask;
+        var responsibleIds = await responsibleUnfilteredTask;
+        var candidateIds = ownerIds.Intersect(responsibleIds, StringComparer.OrdinalIgnoreCase).ToList();
+        _logger.Info($"[ZnunyCandidateSource] candidateUserId={candidateUserId} ownerAndResponsible=true ownerOpen={ownerActiveIds.Count} ownerUnfiltered={ownerIds.Count} responsibleOpen={responsibleActiveIds.Count} responsibleUnfiltered={responsibleIds.Count} intersection={candidateIds.Count}");
 
-        var postOwnerIds = new List<string>();
-        var postResponsibleIds = new List<string>();
-        var postArraySupported = false;
-        if (string.Equals(_settings.Current.TicketSystemCandidateSearchMode, "Auto", StringComparison.Ordinal)
-            && (_resolvedAutomaticCandidateSearchMode == null || _resolvedAutomaticCandidateSearchMode == "PostArray"))
+        var loadedTickets = new ConcurrentDictionary<string, ZnunyTicket>(StringComparer.OrdinalIgnoreCase);
+        var completed = 0;
+        await Parallel.ForEachAsync(candidateIds, new ParallelOptions { MaxDegreeOfParallelism = 4 }, async (ticketId, _) =>
         {
-            try
-            {
-                postOwnerIds = await SearchTicketsPostArrayAsync("Owner", candidateUserId, sessionId, sessionHash);
-                postResponsibleIds = await SearchTicketsPostArrayAsync("Responsible", candidateUserId, sessionId, sessionHash);
-                postArraySupported = true;
-                _logger.Info($"[ZnunyCandidateDiagnostic] mode=post-array ownerCount={postOwnerIds.Count} responsibleCount={postResponsibleIds.Count}");
-            }
-            catch (Exception ex)
-            {
-                _logger.Info($"[ZnunyCandidateDiagnostic] mode=post-array supported=false message='{LogValue(ex.Message)}'");
-            }
-        }
+            var ticket = await GetTicketAsync(ticketId, sessionId, sessionHash)
+                ?? throw new InvalidOperationException($"TicketGet lieferte keine Daten für TicketID {ticketId}.");
+            loadedTickets[ticketId] = ticket;
+            var current = Interlocked.Increment(ref completed);
+            _logger.Info($"[ZnunyCandidateProgress] loaded={current} total={candidateIds.Count}");
+        });
 
-        var configuredMode = _settings.Current.TicketSystemCandidateSearchMode;
-        var selectedMode = configuredMode;
-        var allVisibleTickets = new Dictionary<string, ZnunyTicket>(StringComparer.OrdinalIgnoreCase);
-        HashSet<string> allSourceIds;
-
-        if (string.Equals(configuredMode, "Auto", StringComparison.Ordinal))
-        {
-            selectedMode = _resolvedAutomaticCandidateSearchMode ?? string.Empty;
-            if ((selectedMode.Length == 0 || selectedMode == "PostArray") && postArraySupported)
-            {
-                var postIds = postOwnerIds.Concat(postResponsibleIds).ToHashSet(StringComparer.OrdinalIgnoreCase);
-                if (selectedMode == "PostArray" || postIds.Count > serverFilteredIds.Count)
-                {
-                    selectedMode = "PostArray";
-                    serverFilteredIds = postIds;
-                }
-            }
-
-            if (selectedMode.Length == 0)
-            {
-                allVisibleTickets = await LoadVisibleOpenTicketsForCandidateDiagnosticAsync(allVisibleOpenIds, sessionId, sessionHash);
-                var hasNumericAssignmentData = allVisibleTickets.Values.Any(ticket => ticket.OwnerId.HasValue || ticket.ResponsibleId.HasValue);
-                var locallyMatchedIds = allVisibleTickets.Values
-                    .Where(ticket => ticket.OwnerId == candidateUserId || ticket.ResponsibleId == candidateUserId)
-                    .Select(ticket => ticket.TicketID)
-                    .ToHashSet(StringComparer.OrdinalIgnoreCase);
-                selectedMode = !hasNumericAssignmentData || locallyMatchedIds.SetEquals(serverFilteredIds) ? "ServerFilter" : "LocalFilter";
-                _logger.Info($"[ZnunyCandidateDiagnostic] numericAssignmentData={hasNumericAssignmentData.ToString().ToLowerInvariant()} localCandidateUserMatches={locallyMatchedIds.Count}");
-                if (selectedMode == "LocalFilter")
-                    serverFilteredIds = locallyMatchedIds;
-            }
-
-            _resolvedAutomaticCandidateSearchMode = selectedMode;
-        }
-
-        if (string.Equals(selectedMode, "LocalFilter", StringComparison.Ordinal))
-        {
-            if (allVisibleTickets.Count == 0)
-                allVisibleTickets = await LoadVisibleOpenTicketsForCandidateDiagnosticAsync(allVisibleOpenIds, sessionId, sessionHash);
-            allSourceIds = allVisibleTickets.Values
-                .Where(ticket => ticket.OwnerId == candidateUserId || ticket.ResponsibleId == candidateUserId)
-                .Select(ticket => ticket.TicketID)
-                .ToHashSet(StringComparer.OrdinalIgnoreCase);
-        }
-        else
-        {
-            allSourceIds = serverFilteredIds;
-        }
-
-        var possiblePermissionRestriction = allVisibleOpenIds.Count > 0 && allVisibleOpenIds.SetEquals(serverFilteredIds);
-        _logger.Info($"[ZnunyCandidateDiagnostic] allVisibleOpen={allVisibleOpenIds.Count} ownerFilter={ownerIds.Count} responsibleFilter={responsibleIds.Count} possiblePermissionRestriction={possiblePermissionRestriction.ToString().ToLowerInvariant()} selectedMode={selectedMode}");
-        var permissionMessage = possiblePermissionRestriction
-            ? $"Die Znuny-API liefert für den angemeldeten Benutzer nur {allVisibleOpenIds.Count} sichtbare offene Tickets. Bitte prüfen Sie die Queue-/Leseberechtigungen des verwendeten Znuny-Benutzers."
-            : string.Empty;
-
-        var ownOwnerIds = await SearchTicketsAsync("Owner", _settings.Current.TicketSystemAgentId,
-            _settings.Current.TicketSystemTicketSearchRoute, _settings.Current.TicketSystemTicketSearchMethod,
-            sessionId, sessionHash, onlyOpenOverride: true);
-        var ownResponsibleIds = await SearchTicketsAsync("Responsible", _settings.Current.TicketSystemAgentId,
-            _settings.Current.TicketSystemTicketSearchRoute, _settings.Current.TicketSystemTicketSearchMethod,
-            sessionId, sessionHash, onlyOpenOverride: true);
-        var ownAssignedIds = ownOwnerIds.Concat(ownResponsibleIds).ToHashSet(StringComparer.OrdinalIgnoreCase);
-
-        var ownAssignedSourceIds = allSourceIds.Where(ownAssignedIds.Contains).ToHashSet(StringComparer.OrdinalIgnoreCase);
-        var candidateIds = allSourceIds.Except(ownAssignedIds, StringComparer.OrdinalIgnoreCase).ToHashSet(StringComparer.OrdinalIgnoreCase);
         var matches = new List<ZnunyCandidateTicket>();
-        var ticketGetFailed = 0;
         var closed = 0;
+        var wrongAssignment = 0;
         var noKeywordMatch = 0;
-        foreach (var ticketId in allSourceIds.OrderBy(id => id, StringComparer.OrdinalIgnoreCase))
+        foreach (var ticket in loadedTickets.Values.OrderBy(ticket => ticket.TicketID, StringComparer.OrdinalIgnoreCase))
         {
-            var ticket = allVisibleTickets.TryGetValue(ticketId, out var loadedTicket)
-                ? loadedTicket
-                : await GetTicketAsync(ticketId, sessionId, sessionHash);
-            if (ticket == null)
+            if (ticket.OwnerId != candidateUserId || ticket.ResponsibleId != candidateUserId)
             {
-                ticketGetFailed++;
-                _logger.Info($"[ZnunyCandidateEvaluation] ticketId={ticketId} isOwnAssigned={ownAssignedSourceIds.Contains(ticketId).ToString().ToLowerInvariant()} result=ticket-get-failed");
+                wrongAssignment++;
+                LogCandidateEvaluation(ticket, string.Empty, string.Empty, "wrong-owner-or-responsible");
                 continue;
             }
-
-            var isOwnAssigned = ownAssignedSourceIds.Contains(ticketId);
-            if (isOwnAssigned)
-            {
-                LogCandidateEvaluation(ticket, true, string.Empty, string.Empty, "excluded-own-assigned");
-                continue;
-            }
-
-            if (!candidateIds.Contains(ticketId))
-                continue;
-
             if (ticket.IsClosed)
             {
                 closed++;
-                LogCandidateEvaluation(ticket, false, string.Empty, string.Empty, "closed");
+                LogCandidateEvaluation(ticket, string.Empty, string.Empty, "closed");
                 continue;
             }
 
@@ -899,7 +824,7 @@ public class TicketSystemService : IDisposable
             if (match.Keyword.Length == 0)
             {
                 noKeywordMatch++;
-                LogCandidateEvaluation(ticket, false, string.Empty, string.Empty, "no-keyword-match");
+                LogCandidateEvaluation(ticket, string.Empty, string.Empty, "no-keyword-match");
                 continue;
             }
 
@@ -909,18 +834,21 @@ public class TicketSystemService : IDisposable
                 TicketNumber = ticket.TicketNumber,
                 Title = ticket.Title,
                 DescriptionPreview = CreateDescriptionPreview(ticket.ContentText),
-                Owner = ticket.Owner,
-                Responsible = ticket.Responsible,
+                Owner = CandidateDisplayName(candidateUserId),
+                Responsible = CandidateDisplayName(candidateUserId),
                 State = ticket.State,
                 WebUrl = ticket.WebUrl,
                 MatchedKeyword = match.Keyword
             });
-            LogCandidateEvaluation(ticket, false, match.Keyword, match.Source, "matched");
+            LogCandidateEvaluation(ticket, match.Keyword, match.Source, "matched");
         }
 
-        PublishCandidateTickets(matches.OrderByDescending(ticket => ticket.TicketNumber, StringComparer.OrdinalIgnoreCase).ToList(), permissionMessage);
-        _logger.Info($"[ZnunyCandidates] action=refresh reason={reason} candidateUserId={candidateUserId} visibleOpen={allVisibleOpenIds.Count} candidateUserMatches={allSourceIds.Count} excludedOwnAssigned={ownAssignedSourceIds.Count} ticketGetFailed={ticketGetFailed} closed={closed} noKeywordMatch={noKeywordMatch} matched={matches.Count} keywords={keywords.Count} selectedMode={selectedMode}");
+        PublishCandidateTickets(matches.OrderByDescending(ticket => ticket.TicketNumber, StringComparer.OrdinalIgnoreCase).ToList(), string.Empty);
+        _logger.Info($"[ZnunyCandidates] source={candidateIds.Count} closed={closed} wrongAssignment={wrongAssignment} noKeywordMatch={noKeywordMatch} matched={matches.Count} durationMs={stopwatch.ElapsedMilliseconds}");
     }
+
+    private static string CandidateDisplayName(int candidateUserId)
+        => candidateUserId == 1 ? "OTRS, Admin" : $"UserID {candidateUserId}";
 
     private void PublishCandidateTickets(IReadOnlyList<ZnunyCandidateTicket> tickets, string error)
     {
@@ -951,12 +879,12 @@ public class TicketSystemService : IDisposable
         return (string.Empty, string.Empty);
     }
 
-    private void LogCandidateEvaluation(ZnunyTicket ticket, bool isOwnAssigned, string matchedKeyword, string matchedIn, string result)
+    private void LogCandidateEvaluation(ZnunyTicket ticket, string matchedKeyword, string matchedIn, string result)
     {
         var matchDetails = matchedKeyword.Length == 0
             ? string.Empty
             : $" matchedKeyword='{LogValue(matchedKeyword)}' matchedIn='{matchedIn}'";
-        _logger.Info($"[ZnunyCandidateEvaluation] ticketId={ticket.TicketID} ticketNumber='{LogValue(ticket.TicketNumber)}' title='{LogValue(ticket.Title)}' owner='{LogValue(ticket.Owner)}' responsible='{LogValue(ticket.Responsible)}' state='{LogValue(ticket.State)}' contentLength={ticket.CandidateSearchText.Length} isOwnAssigned={isOwnAssigned.ToString().ToLowerInvariant()}{matchDetails} result={result}");
+        _logger.Info($"[ZnunyCandidateEvaluation] ticketId={ticket.TicketID} ticketNumber='{LogValue(ticket.TicketNumber)}' title='{LogValue(ticket.Title)}' owner='{LogValue(ticket.Owner)}' responsible='{LogValue(ticket.Responsible)}' state='{LogValue(ticket.State)}' ownerId={ticket.OwnerId?.ToString(CultureInfo.InvariantCulture) ?? "unknown"} responsibleId={ticket.ResponsibleId?.ToString(CultureInfo.InvariantCulture) ?? "unknown"}{matchDetails} result={result}");
     }
 
     private static string CreateDescriptionPreview(string text)
@@ -1004,30 +932,25 @@ public class TicketSystemService : IDisposable
         return ticketIds;
     }
 
-    private async Task<HashSet<string>> SearchAllVisibleOpenTicketIdsAsync(string sessionId, string sessionHash)
-    {
-        var payload = BuildSearchAuthenticationPayload(sessionId);
-        payload["StateType"] = "Open";
-        var route = NormalizeRouteValue(_settings.Current.TicketSystemTicketSearchRoute, "/Ticket");
-        var method = string.Equals(_settings.Current.TicketSystemTicketSearchMethod, "GET", StringComparison.OrdinalIgnoreCase) ? "GET" : "POST";
-        if (method == "GET" && string.Equals(_settings.Current.TicketSystemTicketSearchAuthMode, "Direct", StringComparison.OrdinalIgnoreCase))
-            method = "POST";
-        using var request = BuildSearchRequest(method, route, payload);
-        var result = await SendZnunyAsync(request, "TicketSearchAllVisibleOpen", "[ZnunyCandidateAllVisibleOpenResponse]", logBody: false);
-        return ExtractTicketIdsStrict(result.Body, "TicketSearchAllVisibleOpen").ToHashSet(StringComparer.OrdinalIgnoreCase);
-    }
-
-    private async Task<List<string>> SearchTicketsPostArrayAsync(string role, int userId, string sessionId, string sessionHash)
+    private async Task<List<string>> SearchCandidateRoleActiveTicketIdsAsync(string role, int userId, string sessionId, string sessionHash)
     {
         var payload = BuildSearchAuthenticationPayload(sessionId);
         payload[role == "Owner" ? "OwnerIDs" : "ResponsibleIDs"] = new[] { userId };
-        payload["StateType"] = "Open";
+        payload["StateType"] = new[] { "new", "open", "pending reminder", "pending auto" };
         var route = NormalizeRouteValue(_settings.Current.TicketSystemTicketSearchRoute, "/Ticket");
+        var stage = $"TicketSearchCandidate{role}Active";
         using var request = BuildSearchRequest("POST", route, payload);
-        var stage = $"TicketSearchCandidate{role}PostArray";
-        _logger.Info($"[ZnunyCandidateDiagnostic] mode=post-array role={role} route={route} userId={userId} sessionHash={sessionHash}");
-        var result = await SendZnunyAsync(request, stage, "[ZnunyCandidatePostArrayResponse]");
-        return ExtractTicketIdsStrict(result.Body, stage).ToList();
+        try
+        {
+            var result = await SendZnunyAsync(request, stage, "[ZnunyCandidateActiveSearchResponse]", logBody: false);
+            return ExtractTicketIdsStrict(result.Body, stage).ToList();
+        }
+        catch (Exception ex)
+        {
+            _logger.Warning($"[ZnunyCandidateSource] role={role} activeStateTypesSupported=false message='{LogValue(ex.Message)}'");
+            return await SearchTicketsAsync(role, userId, _settings.Current.TicketSystemTicketSearchRoute,
+                _settings.Current.TicketSystemTicketSearchMethod, sessionId, sessionHash, onlyOpenOverride: true);
+        }
     }
 
     private Dictionary<string, object?> BuildSearchAuthenticationPayload(string sessionId)
@@ -1042,27 +965,6 @@ public class TicketSystemService : IDisposable
         }
 
         return new Dictionary<string, object?> { ["SessionID"] = sessionId };
-    }
-
-    private async Task<Dictionary<string, ZnunyTicket>> LoadVisibleOpenTicketsForCandidateDiagnosticAsync(
-        IEnumerable<string> ticketIds,
-        string sessionId,
-        string sessionHash)
-    {
-        var tickets = new Dictionary<string, ZnunyTicket>(StringComparer.OrdinalIgnoreCase);
-        var diagnosticCount = 0;
-        foreach (var ticketId in ticketIds.OrderBy(id => id, StringComparer.OrdinalIgnoreCase))
-        {
-            var ticket = await GetTicketAsync(ticketId, sessionId, sessionHash);
-            if (ticket == null || ticket.IsClosed)
-                continue;
-            tickets[ticket.TicketID] = ticket;
-            if (diagnosticCount++ >= 20)
-                continue;
-            _logger.Info($"[ZnunyCandidateUserMapping] ticketId={ticket.TicketID} ownerId={ticket.OwnerId?.ToString(CultureInfo.InvariantCulture) ?? "unknown"} owner='{LogValue(ticket.Owner)}' responsibleId={ticket.ResponsibleId?.ToString(CultureInfo.InvariantCulture) ?? "unknown"} responsible='{LogValue(ticket.Responsible)}' state='{LogValue(ticket.State)}'");
-        }
-
-        return tickets;
     }
 
     private async Task<ZnunyTicket?> GetTicketAsync(string ticketId, string sessionId, string sessionHash)
@@ -1084,7 +986,7 @@ public class TicketSystemService : IDisposable
         using var request = new HttpRequestMessage(HttpMethod.Get, url);
 
         _logger.Info($"[ZnunyTicket] method=GET route={route} ticketId={ticketId} auth={_settings.Current.TicketSystemTicketGetAuthMode} requestedDynamicFields=true allArticles=true sessionHash={sessionHash}");
-        var result = await SendZnunyAsync(request, "TicketGet", "[ZnunyTicketResponse]");
+        var result = await SendZnunyAsync(request, "TicketGet", "[ZnunyTicketResponse]", logBody: false);
         using var doc = JsonDocument.Parse(result.Body);
         ThrowIfApiError(doc.RootElement, "TicketGet");
         var ticketElement = FindFirstTicketElement(doc.RootElement);

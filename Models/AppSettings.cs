@@ -8,6 +8,8 @@ public class AppSettings
     public const string DefaultTicketSystemTicketUpdateRoute = "/Ticket/{TicketID}/Update";
     public const string LegacyTicketSystemTicketUpdateRoute = "/Ticket/Update";
     public bool DynamicIslandEnabled { get; set; } = true;
+    public string LogLevel { get; set; } = "Warning";
+    public bool NotificationSoundEnabled { get; set; } = true;
     public bool CheckForUpdatesOnStartup { get; set; } = true;
     public bool AutoInstallUpdatesOnStartup { get; set; } = true;
     public string InstalledVersion { get; set; } = string.Empty;
@@ -44,7 +46,6 @@ public class AppSettings
     public int TicketSystemAgentId { get; set; } = 0;
     public int TicketSystemCandidateUserId { get; set; } = 1;
     public string TicketSystemCandidateKeywords { get; set; } = string.Empty;
-    public string TicketSystemCandidateSearchMode { get; set; } = "Auto";
     public string TicketSystemTicketSearchRoute { get; set; } = "/Ticket";
     public string TicketSystemTicketSearchMethod { get; set; } = "GET";
     public string TicketSystemTicketSearchAuthMode { get; set; } = "Session";
