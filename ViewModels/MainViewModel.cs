@@ -15,6 +15,7 @@ public class MainViewModel : ObservableObject
     private readonly ReportsViewModel _reportsViewModel;
     private readonly LoggerService _logger;
     public SettingsViewModel SettingsViewModel { get; }
+    public RelayCommand NavigateToSettingsCommand { get; }
 
     private object _selectedView;
     public object SelectedView
@@ -88,6 +89,7 @@ public class MainViewModel : ObservableObject
         _ticketSystemViewModel = new TicketSystemViewModel(settingsService);
         _reportsViewModel = new ReportsViewModel(taskService, workDayService, settingsService, germanTime, logger);
         SettingsViewModel = new SettingsViewModel(settingsService, notifications, outlookCalendar, taskService, ticketSystem, updates);
+        NavigateToSettingsCommand = new RelayCommand(() => SelectedView = SettingsViewModel);
 
         NavigationItems = new ObservableCollection<object> { TodayViewModel, _weekViewModel, _ticketSystemViewModel, _reportsViewModel, SettingsViewModel };
         _selectedView = TodayViewModel;

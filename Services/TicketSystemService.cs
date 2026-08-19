@@ -23,6 +23,8 @@ public class TicketSystemService : IDisposable
     private readonly SemaphoreSlim _syncGate = new(1, 1);
     private readonly SemaphoreSlim _dynamicFieldOptionsGate = new(1, 1);
     private readonly System.Threading.Timer _timer;
+    private bool _scheduledSyncStarted;
+    private bool _scheduledSyncHasRun;
     private IReadOnlyDictionary<string, IReadOnlyList<TicketFieldOption>> _dynamicFieldOptionsCache = new Dictionary<string, IReadOnlyList<TicketFieldOption>>(StringComparer.OrdinalIgnoreCase);
     private DateTime _dynamicFieldOptionsCacheExpiresUtc;
     private bool _dynamicFieldOptionsCacheValid;
@@ -46,7 +48,7 @@ public class TicketSystemService : IDisposable
         _assignmentSnapshots = assignmentSnapshots;
         _notifications = notifications;
         _logger = logger;
-        _timer = new System.Threading.Timer(async _ => await SyncAssignedTicketsAsync("timer"), null, Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
+        _timer = new System.Threading.Timer(async _ => await RunScheduledSyncAsync(), null, Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
         _lastCandidateUserId = _settings.Current.TicketSystemCandidateUserId;
         _lastCandidateKeywords = _settings.Current.TicketSystemCandidateKeywords;
         HandleSettingsChanged();
@@ -55,7 +57,8 @@ public class TicketSystemService : IDisposable
     public void HandleSettingsChanged()
     {
         var interval = Math.Clamp(_settings.Current.TicketSystemSyncIntervalMinutes, 1, 1440);
-        _timer.Change(TimeSpan.FromMinutes(interval), TimeSpan.FromMinutes(interval));
+        if (_scheduledSyncStarted)
+            _timer.Change(_scheduledSyncHasRun ? TimeSpan.FromMinutes(interval) : TimeSpan.FromSeconds(10), TimeSpan.FromMinutes(interval));
         var candidateSettingsChanged = _lastCandidateUserId != _settings.Current.TicketSystemCandidateUserId
             || !string.Equals(_lastCandidateKeywords, _settings.Current.TicketSystemCandidateKeywords, StringComparison.Ordinal);
         _lastCandidateUserId = _settings.Current.TicketSystemCandidateUserId;
@@ -63,6 +66,34 @@ public class TicketSystemService : IDisposable
         if (candidateSettingsChanged)
         {
             _ = RefreshCandidateTicketsAsync("settings");
+        }
+    }
+
+    public void StartScheduledSync()
+    {
+        if (_scheduledSyncStarted)
+            return;
+
+        _scheduledSyncStarted = true;
+        var interval = Math.Clamp(_settings.Current.TicketSystemSyncIntervalMinutes, 1, 1440);
+        _timer.Change(TimeSpan.FromSeconds(10), TimeSpan.FromMinutes(interval));
+        _logger.Info($"[ZnunyScheduledSync] action=started firstRunSeconds=10 intervalMinutes={interval} candidateRefresh=true");
+    }
+
+    private async Task RunScheduledSyncAsync()
+    {
+        _scheduledSyncHasRun = true;
+        var interval = Math.Clamp(_settings.Current.TicketSystemSyncIntervalMinutes, 1, 1440);
+        _logger.Info($"[ZnunyScheduledSync] reason=timer intervalMinutes={interval} candidateRefresh=true");
+        try
+        {
+            await SyncAssignedTicketsAsync("timer");
+            if (!string.IsNullOrWhiteSpace(LastError))
+                _logger.Warning($"[ZnunyCandidates] scheduled refresh failed message='{LogValue(LastError)}'");
+        }
+        catch (Exception ex)
+        {
+            _logger.Warning($"[ZnunyCandidates] scheduled refresh failed message='{LogValue(ex.Message)}'");
         }
     }
 
@@ -620,7 +651,10 @@ public class TicketSystemService : IDisposable
             catch (Exception ex)
             {
                 CandidateTicketsError = "Neue Aufgaben konnten nicht aktualisiert werden.";
-                _logger.Error($"[ZnunyCandidates] action=refresh-failed reason={reason} message={ex.Message}");
+                if (string.Equals(reason, "timer", StringComparison.Ordinal))
+                    _logger.Warning($"[ZnunyCandidates] scheduled refresh failed message='{LogValue(ex.Message)}'");
+                else
+                    _logger.Error($"[ZnunyCandidates] action=refresh-failed reason={reason} message={ex.Message}");
                 CandidateTicketsChanged?.Invoke();
             }
 
@@ -845,6 +879,8 @@ public class TicketSystemService : IDisposable
 
         PublishCandidateTickets(matches.OrderByDescending(ticket => ticket.TicketNumber, StringComparer.OrdinalIgnoreCase).ToList(), string.Empty);
         _logger.Info($"[ZnunyCandidates] source={candidateIds.Count} closed={closed} wrongAssignment={wrongAssignment} noKeywordMatch={noKeywordMatch} matched={matches.Count} durationMs={stopwatch.ElapsedMilliseconds}");
+        if (string.Equals(reason, "timer", StringComparison.Ordinal))
+            _logger.Info($"[ZnunyCandidates] action=scheduled-refresh matched={matches.Count}");
     }
 
     private static string CandidateDisplayName(int candidateUserId)

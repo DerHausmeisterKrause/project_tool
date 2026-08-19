@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Windows;
+using System.Windows.Threading;
 using TaskTool.Infrastructure;
 using TaskTool.Models;
 using TaskTool.Services;
@@ -16,6 +17,8 @@ public class SettingsViewModel : ObservableObject
     private readonly TicketSystemService _ticketSystem;
     private readonly Action? _tasksChanged;
     private readonly UpdateService _updates;
+    private readonly DispatcherTimer _hourlyUpdateTimer;
+    private readonly SemaphoreSlim _updateCheckGate = new(1, 1);
     public string Title => "Einstellungen";
     public string InstalledVersion => _settings.Current.InstalledVersion;
     public bool CheckForUpdatesOnStartup { get => _settings.Current.CheckForUpdatesOnStartup; set { _settings.Current.CheckForUpdatesOnStartup = value; Save(); } }
@@ -23,18 +26,20 @@ public class SettingsViewModel : ObservableObject
     public string LogLevel { get => _settings.Current.LogLevel; set { _settings.Current.LogLevel = value; Save(); } }
     public bool NotificationSoundEnabled { get => _settings.Current.NotificationSoundEnabled; set { _settings.Current.NotificationSoundEnabled = value; Save(); } }
     private UpdateState _updateState = UpdateState.Idle;
-    public UpdateState CurrentUpdateState { get => _updateState; set { if (Set(ref _updateState, value)) RaiseUpdateCommands(); } }
+    public UpdateState CurrentUpdateState { get => _updateState; set { if (Set(ref _updateState, value)) { RaiseUpdateCommands(); RaiseUpdateBanner(); } } }
     private string _updateStatus = "Noch nicht geprüft";
     public string UpdateStatus { get => _updateStatus; set => Set(ref _updateStatus, value); }
     private string _lastUpdateCheck = "Noch nicht geprüft";
     public string LastUpdateCheck { get => _lastUpdateCheck; set => Set(ref _lastUpdateCheck, value); }
     private string _availableVersion = "–";
-    public string AvailableVersion { get => _availableVersion; set => Set(ref _availableVersion, value); }
+    public string AvailableVersion { get => _availableVersion; set { if (Set(ref _availableVersion, value)) RaiseUpdateBanner(); } }
     private string _releaseNotes = string.Empty;
     public string ReleaseNotes { get => _releaseNotes; set => Set(ref _releaseNotes, value); }
     private int _updateProgress;
     public int UpdateProgress { get => _updateProgress; set => Set(ref _updateProgress, value); }
     private UpdateInfo? _availableUpdate;
+    public bool IsUpdateAvailable => CurrentUpdateState == UpdateState.UpdateAvailable && _availableUpdate != null;
+    public string UpdateBannerText => IsUpdateAvailable ? $"Update {AvailableVersion} verfügbar" : string.Empty;
 
     public bool OutlookSyncEnabled { get => _settings.Current.OutlookSyncEnabled; set { _settings.Current.OutlookSyncEnabled = value; Save(); } }
     public string OutlookCategoryName { get => _settings.Current.OutlookCategoryName; set { _settings.Current.OutlookCategoryName = value; Save(); } }
@@ -154,6 +159,8 @@ public class SettingsViewModel : ObservableObject
         _ticketSystem = ticketSystem;
         _updates = updates;
         _tasksChanged = tasksChanged;
+        _hourlyUpdateTimer = new DispatcherTimer { Interval = TimeSpan.FromHours(1) };
+        _hourlyUpdateTimer.Tick += async (_, _) => await RunHourlyUpdateCheckAsync();
         TestReminderCommand = new RelayCommand(() => _notifications.ShowTestNotification());
         RefreshOutlookCalendarCommand = new RelayCommand(async () => await _outlookCalendar.TriggerSyncAsync("manual-button"));
         TestOutlookConnectionCommand = new RelayCommand(TestOutlookConnection);
@@ -164,6 +171,14 @@ public class SettingsViewModel : ObservableObject
         InstallUpdateCommand = new RelayCommand(async () => await InstallUpdateAsync(), () => CurrentUpdateState == UpdateState.UpdateAvailable && _availableUpdate != null);
         OpenReleaseCommand = new RelayCommand(() => { if (_availableUpdate != null) UrlLauncher.TryOpen(_availableUpdate.HtmlUrl, out _); }, () => _availableUpdate != null);
     }
+
+    public void StartHourlyUpdateMonitor()
+    {
+        if (!_hourlyUpdateTimer.IsEnabled)
+            _hourlyUpdateTimer.Start();
+    }
+
+    public void StopHourlyUpdateMonitor() => _hourlyUpdateTimer.Stop();
 
     public async Task RunStartupUpdateCheckAsync()
     {
@@ -183,11 +198,21 @@ public class SettingsViewModel : ObservableObject
 
     public void RefreshInstalledVersion() => Raise(nameof(InstalledVersion));
 
-    private async Task CheckForUpdatesAsync(bool automatic)
+    private async Task CheckForUpdatesAsync(bool automatic, bool background = false)
     {
-        CurrentUpdateState = UpdateState.Checking; UpdateStatus = "Updates werden geprüft ...";
+        if (!await _updateCheckGate.WaitAsync(0))
+            return;
+
+        var previousState = CurrentUpdateState;
+        var previousStatus = UpdateStatus;
         try
         {
+            if (!background)
+            {
+                CurrentUpdateState = UpdateState.Checking;
+                UpdateStatus = "Updates werden geprüft ...";
+            }
+
             var result = await _updates.CheckForUpdatesAsync();
             LastUpdateCheck = DateTime.Now.ToString("dd.MM.yyyy HH:mm");
             _availableUpdate = result.Update;
@@ -195,12 +220,44 @@ public class SettingsViewModel : ObservableObject
             ReleaseNotes = result.Update?.ReleaseNotes ?? string.Empty;
             CurrentUpdateState = result.UpdateAvailable ? UpdateState.UpdateAvailable : UpdateState.UpToDate;
             UpdateStatus = result.Message;
+            if (background)
+            {
+                ServiceLocator.Logger.Info($"[UpdateMonitor] action=hourly-check installedVersion={InstalledVersion} remoteVersion={AvailableVersion} updateAvailable={result.UpdateAvailable.ToString().ToLowerInvariant()}");
+            }
         }
         catch (Exception ex)
         {
-            CurrentUpdateState = UpdateState.Failed; UpdateStatus = automatic ? "Automatische Prüfung fehlgeschlagen." : $"Updateprüfung fehlgeschlagen: {ex.Message}";
+            if (background)
+            {
+                CurrentUpdateState = previousState;
+                UpdateStatus = previousStatus;
+                ServiceLocator.Logger.Warning($"[UpdateMonitor] hourlyCheckFailed message='{ex.Message}'");
+            }
+            else
+            {
+                CurrentUpdateState = UpdateState.Failed;
+                UpdateStatus = automatic ? "Automatische Prüfung fehlgeschlagen." : $"Updateprüfung fehlgeschlagen: {ex.Message}";
+            }
         }
-        RaiseUpdateCommands();
+        finally
+        {
+            _updateCheckGate.Release();
+            RaiseUpdateCommands();
+            RaiseUpdateBanner();
+        }
+    }
+
+    private async Task RunHourlyUpdateCheckAsync()
+    {
+        if (CurrentUpdateState is UpdateState.Checking or UpdateState.Downloading or UpdateState.ReadyToInstall or UpdateState.Installing)
+            return;
+        await CheckForUpdatesAsync(automatic: true, background: true);
+    }
+
+    private void RaiseUpdateBanner()
+    {
+        Raise(nameof(IsUpdateAvailable));
+        Raise(nameof(UpdateBannerText));
     }
 
     private Task InstallUpdateAsync() => InstallUpdateAsync(false);

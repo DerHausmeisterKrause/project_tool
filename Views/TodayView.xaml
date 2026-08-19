@@ -105,12 +105,16 @@
         </Border>
 
         <Border Grid.Row="1" Style="{StaticResource CardStyle}">
-            <Grid>
+            <Grid x:Name="WorkDayHeaderGrid" SizeChanged="WorkDayHeaderGrid_SizeChanged">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
                 <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="Auto"/>
                     <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
-                <StackPanel Grid.Column="0" Margin="0,0,24,0">
+                <StackPanel x:Name="WorkDayStatisticsPanel" Grid.Row="0" Grid.Column="0" Margin="0,0,24,0">
                     <TextBlock Text="Arbeitstag heute" FontSize="18" FontWeight="SemiBold"/>
                     <StackPanel Margin="0,4,0,0">
                         <TextBlock Foreground="{StaticResource MutedTextBrush}">
@@ -123,7 +127,7 @@
                         </TextBlock>
                     </StackPanel>
                 </StackPanel>
-                <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
+                <StackPanel x:Name="WorkDayMarkerPanel" Grid.Row="0" Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
                     <Border Background="Transparent" BorderBrush="{StaticResource BorderBrushColor}" BorderThickness="1" CornerRadius="16" Padding="0" Margin="0,0,0,8" HorizontalAlignment="Left">
                         <StackPanel Orientation="Horizontal">
                             <RadioButton GroupName="TodayDayType" Content="Normal" Style="{StaticResource DayMarkerSegmentLeftStyle}"
@@ -134,10 +138,10 @@
                                          IsChecked="{Binding DayType, Converter={StaticResource EqualityConverter}, ConverterParameter=AM}" Command="{Binding SetDayTypeAmCommand}"/>
                         </StackPanel>
                     </Border>
-                    <WrapPanel Margin="8,0,0,0">
+                    <StackPanel Orientation="Horizontal" Margin="8,0,0,0">
                         <ToggleButton Content="HO" Style="{StaticResource DayMarkerChipToggleStyle}" IsChecked="{Binding IsHo, Mode=OneWay}" Command="{Binding ToggleHomeOfficeCommand}"/>
                         <ToggleButton Content="BR" Style="{StaticResource DayMarkerChipToggleStyle}" IsChecked="{Binding IsBr}" Command="{Binding SaveMarkersCommand}"/>
-                    </WrapPanel>
+                    </StackPanel>
                 </StackPanel>
             </Grid>
         </Border>
