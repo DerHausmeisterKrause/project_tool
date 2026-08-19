@@ -1831,9 +1831,10 @@ public class TicketSystemService : IDisposable
         return string.Empty;
     }
 
-    private static string AddZnunyTicketTags(string existingTags, string ticketId, string ticketNumber)
+    private static string AddZnunyTicketTags(string? existingTags, string ticketId, string ticketNumber)
     {
-        var tags = (existingTags ?? string.Empty)
+        var safeTags = existingTags ?? string.Empty;
+        var tags = safeTags
             .Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
             .Where(tag => !tag.StartsWith("ZnunyTicketID:", StringComparison.OrdinalIgnoreCase)
                           && !tag.StartsWith("ZnunyTicketNumber:", StringComparison.OrdinalIgnoreCase))
