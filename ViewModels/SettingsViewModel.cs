@@ -20,6 +20,8 @@ public class SettingsViewModel : ObservableObject
     public string InstalledVersion => _settings.Current.InstalledVersion;
     public bool CheckForUpdatesOnStartup { get => _settings.Current.CheckForUpdatesOnStartup; set { _settings.Current.CheckForUpdatesOnStartup = value; Save(); } }
     public bool AutoInstallUpdatesOnStartup { get => _settings.Current.AutoInstallUpdatesOnStartup; set { _settings.Current.AutoInstallUpdatesOnStartup = value; Save(); } }
+    public string LogLevel { get => _settings.Current.LogLevel; set { _settings.Current.LogLevel = value; Save(); } }
+    public bool NotificationSoundEnabled { get => _settings.Current.NotificationSoundEnabled; set { _settings.Current.NotificationSoundEnabled = value; Save(); } }
     private UpdateState _updateState = UpdateState.Idle;
     public UpdateState CurrentUpdateState { get => _updateState; set { if (Set(ref _updateState, value)) RaiseUpdateCommands(); } }
     private string _updateStatus = "Noch nicht geprüft";
@@ -126,6 +128,7 @@ public class SettingsViewModel : ObservableObject
     public bool DynamicIslandEnabled { get => _settings.Current.DynamicIslandEnabled; set { _settings.Current.DynamicIslandEnabled = value; Save(); } }
 
     public List<string> OutlookSyncModes { get; } = new() { "Manual", "Periodic" };
+    public List<string> LogLevels { get; } = new() { "Info", "Warning", "Error" };
     public List<string> CalendarTimeZones { get; } = new() { "Europe/Berlin", "Europe/London", "UTC", "Europe/Vienna", "Europe/Zurich" };
     public List<string> TicketSystemSearchMethods { get; } = new() { "POST", "GET" };
     public List<string> TicketSystemAuthModes { get; } = new() { "Session", "Direct" };

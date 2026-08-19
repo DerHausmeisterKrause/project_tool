@@ -947,7 +947,7 @@ public class TicketSystemService : IDisposable
         }
         catch (Exception ex)
         {
-            _logger.Info($"[ZnunyCandidateSource] role={role} activeStateTypesSupported=false message='{LogValue(ex.Message)}'");
+            _logger.Warning($"[ZnunyCandidateSource] role={role} activeStateTypesSupported=false message='{LogValue(ex.Message)}'");
             return await SearchTicketsAsync(role, userId, _settings.Current.TicketSystemTicketSearchRoute,
                 _settings.Current.TicketSystemTicketSearchMethod, sessionId, sessionHash, onlyOpenOverride: true);
         }

@@ -8,6 +8,8 @@ public class AppSettings
     public const string DefaultTicketSystemTicketUpdateRoute = "/Ticket/{TicketID}/Update";
     public const string LegacyTicketSystemTicketUpdateRoute = "/Ticket/Update";
     public bool DynamicIslandEnabled { get; set; } = true;
+    public string LogLevel { get; set; } = "Warning";
+    public bool NotificationSoundEnabled { get; set; } = true;
     public bool CheckForUpdatesOnStartup { get; set; } = true;
     public bool AutoInstallUpdatesOnStartup { get; set; } = true;
     public string InstalledVersion { get; set; } = string.Empty;

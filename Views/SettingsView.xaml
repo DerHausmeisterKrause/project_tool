@@ -27,6 +27,21 @@
 
                 <Border Style="{StaticResource CardStyle}">
                     <StackPanel>
+                        <TextBlock Text="Protokollierung &amp; Benachrichtigungen" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,10"/>
+                        <TextBlock Text="Log-Level" Foreground="{StaticResource MutedTextBrush}"/>
+                        <ComboBox Width="160" HorizontalAlignment="Left" Style="{StaticResource DarkComboBoxStyle}"
+                                  ItemsSource="{Binding LogLevels}" SelectedItem="{Binding LogLevel}" Margin="0,0,0,4"/>
+                        <TextBlock Text="Info: Alle Meldungen · Warning: Warnungen und Fehler · Error: Nur Fehler"
+                                   Foreground="{StaticResource MutedTextBrush}" TextWrapping="Wrap" Margin="0,0,0,10"/>
+                        <CheckBox Content="Ton bei Benachrichtigungen abspielen"
+                                  IsChecked="{Binding NotificationSoundEnabled}" Margin="0,0,0,4"/>
+                        <TextBlock Text="Spielt einen kurzen Windows-Benachrichtigungston ab, sobald ein Popup angezeigt wird."
+                                   Foreground="{StaticResource MutedTextBrush}" TextWrapping="Wrap" Margin="24,0,0,0"/>
+                    </StackPanel>
+                </Border>
+
+                <Border Style="{StaticResource CardStyle}">
+                    <StackPanel>
                         <TextBlock Text="Heute-Ansicht" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,10"/>
                         <CheckBox Content="Bereits vergangene Termine und Aufgaben ausblenden"
                                   IsChecked="{Binding HidePastTodayItems}"/>
