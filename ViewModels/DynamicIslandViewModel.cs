@@ -153,6 +153,7 @@ public class DynamicIslandViewModel : ObservableObject
         ActiveNotification = _notificationQueue.Dequeue();
         IsExpanded = true;
         Log($"Notification dequeue -> active Kind={ActiveNotification.Kind} TaskId={ActiveNotification.TaskId}");
+        ServiceLocator.Notifications.PlayNotificationSound(ActiveNotification.Kind);
         _notificationDismissTimer.Start();
     }
 
