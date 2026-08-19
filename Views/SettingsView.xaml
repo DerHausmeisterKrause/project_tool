@@ -27,6 +27,21 @@
 
                 <Border Style="{StaticResource CardStyle}">
                     <StackPanel>
+                        <TextBlock Text="Protokollierung &amp; Benachrichtigungen" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,10"/>
+                        <TextBlock Text="Log-Level" Foreground="{StaticResource MutedTextBrush}"/>
+                        <ComboBox Width="160" HorizontalAlignment="Left" Style="{StaticResource DarkComboBoxStyle}"
+                                  ItemsSource="{Binding LogLevels}" SelectedItem="{Binding LogLevel}" Margin="0,0,0,4"/>
+                        <TextBlock Text="Info: Alle Meldungen · Warning: Warnungen und Fehler · Error: Nur Fehler"
+                                   Foreground="{StaticResource MutedTextBrush}" TextWrapping="Wrap" Margin="0,0,0,10"/>
+                        <CheckBox Content="Ton bei Benachrichtigungen abspielen"
+                                  IsChecked="{Binding NotificationSoundEnabled}" Margin="0,0,0,4"/>
+                        <TextBlock Text="Spielt einen kurzen Windows-Benachrichtigungston ab, sobald ein Popup angezeigt wird."
+                                   Foreground="{StaticResource MutedTextBrush}" TextWrapping="Wrap" Margin="24,0,0,0"/>
+                    </StackPanel>
+                </Border>
+
+                <Border Style="{StaticResource CardStyle}">
+                    <StackPanel>
                         <TextBlock Text="Heute-Ansicht" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,10"/>
                         <CheckBox Content="Bereits vergangene Termine und Aufgaben ausblenden"
                                   IsChecked="{Binding HidePastTodayItems}"/>
@@ -117,13 +132,11 @@
                         <TextBox Text="{Binding TicketSystemAgentId, UpdateSourceTrigger=PropertyChanged}" Width="120"/>
                         <TextBlock Text="Interne numerische Agenten-ID für Owner- und Responsible-Suche. Sie kann in Znuny unter Admin → Agenten bzw. in der URL des geöffneten Agenten gefunden werden." Foreground="{StaticResource MutedTextBrush}" TextWrapping="Wrap" Margin="0,0,0,8"/>
                         <TextBlock Text="Neue Aufgaben / Ticket-Vorschläge" FontSize="16" FontWeight="SemiBold" Margin="0,8,0,6"/>
-                        <TextBlock Text="Quell-Benutzer-ID" Foreground="{StaticResource MutedTextBrush}"/>
+                        <TextBlock Text="Candidate Benutzer: OTRS, Admin" Foreground="{StaticResource MutedTextBrush}"/>
                         <TextBox Text="{Binding TicketSystemCandidateUserId, UpdateSourceTrigger=LostFocus}" Width="120"/>
-                        <TextBlock Text="Standard: OTRS, Admin (UserID 1). Besitzer und Verantwortlicher werden berücksichtigt." Foreground="{StaticResource MutedTextBrush}" TextWrapping="Wrap"/>
+                        <TextBlock Text="UserID: 1 (Standard). Besitzer UND Verantwortlicher müssen diesem Benutzer entsprechen." Foreground="{StaticResource MutedTextBrush}" TextWrapping="Wrap"/>
                         <TextBlock Text="Schlüsselwörter (Zeile, Komma oder Semikolon als Trennzeichen)" Foreground="{StaticResource MutedTextBrush}" Margin="0,6,0,0"/>
                         <TextBox Text="{Binding TicketSystemCandidateKeywords, UpdateSourceTrigger=LostFocus}" AcceptsReturn="True" Width="560" Height="90" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto"/>
-                        <TextBlock Text="Candidate-Suchmodus" Foreground="{StaticResource MutedTextBrush}" Margin="0,6,0,0"/>
-                        <ComboBox Width="160" Style="{StaticResource DarkComboBoxStyle}" ItemsSource="{Binding TicketSystemCandidateSearchModes}" SelectedItem="{Binding TicketSystemCandidateSearchMode}"/>
                         <TextBlock Text="TicketSearch Route" Foreground="{StaticResource MutedTextBrush}"/>
                         <TextBox Text="{Binding TicketSystemTicketSearchRoute, UpdateSourceTrigger=PropertyChanged}" Width="220"/>
                         <TextBlock Text="TicketSearch HTTP-Methode" Foreground="{StaticResource MutedTextBrush}"/>
@@ -139,6 +152,23 @@
                         <TextBlock Text="TicketUpdate Route" Foreground="{StaticResource MutedTextBrush}"/>
                         <TextBox Text="{Binding TicketSystemTicketUpdateRoute, UpdateSourceTrigger=PropertyChanged}" Width="320"
                                  ToolTip="REST-Route für TicketUpdate. {TicketID} wird automatisch durch die interne Znuny-Ticket-ID ersetzt. Standard: /Ticket/{TicketID}/Update"/>
+                        <TextBlock Text="Ticket-Erstellung" FontSize="16" FontWeight="SemiBold" Margin="0,12,0,6"/>
+                        <TextBlock Text="TicketCreate Route" Foreground="{StaticResource MutedTextBrush}"/>
+                        <TextBox Text="{Binding TicketSystemTicketCreateRoute, UpdateSourceTrigger=PropertyChanged}" Width="320" ToolTip="Standard: /Ticket"/>
+                        <TextBlock Text="TicketCreate HTTP-Methode" Foreground="{StaticResource MutedTextBrush}"/>
+                        <ComboBox Width="120" Style="{StaticResource DarkComboBoxStyle}" ItemsSource="{Binding TicketSystemSearchMethods}" SelectedItem="{Binding TicketSystemTicketCreateMethod}"/>
+                        <TextBlock Text="Standard Queue" Foreground="{StaticResource MutedTextBrush}"/>
+                        <TextBox Text="{Binding TicketSystemCreateQueue, UpdateSourceTrigger=PropertyChanged}" Width="320"/>
+                        <TextBlock Text="Standard Status" Foreground="{StaticResource MutedTextBrush}"/>
+                        <TextBox Text="{Binding TicketSystemCreateState, UpdateSourceTrigger=PropertyChanged}" Width="220" ToolTip="Standard: open"/>
+                        <TextBlock Text="Standard Priorität" Foreground="{StaticResource MutedTextBrush}"/>
+                        <TextBox Text="{Binding TicketSystemCreatePriority, UpdateSourceTrigger=PropertyChanged}" Width="220" ToolTip="Standard: 3 normal"/>
+                        <TextBlock Text="Standard Typ (optional)" Foreground="{StaticResource MutedTextBrush}"/>
+                        <TextBox Text="{Binding TicketSystemCreateType, UpdateSourceTrigger=PropertyChanged}" Width="320"/>
+                        <TextBlock Text="Standard CustomerUser" Foreground="{StaticResource MutedTextBrush}"/>
+                        <TextBox Text="{Binding TicketSystemCreateCustomerUser, UpdateSourceTrigger=PropertyChanged}" Width="320"/>
+                        <TextBlock Text="Neue Tickets werden intern und ohne Kundenbenachrichtigung erstellt sowie dem konfigurierten Agenten als Owner und Responsible zugeordnet."
+                                   Foreground="{StaticResource MutedTextBrush}" TextWrapping="Wrap" Margin="0,0,0,8"/>
                         <TextBlock Text="DynamicField-Options Route (read-only)" Foreground="{StaticResource MutedTextBrush}"/>
                         <TextBox Text="{Binding TicketSystemDynamicFieldOptionsRoute, UpdateSourceTrigger=PropertyChanged}" Width="360" ToolTip="/Ticket/DynamicField/{FieldName}/Options"/>
                         <TextBlock Text="DynamicField: Kostenstelle (interner Name)" Foreground="{StaticResource MutedTextBrush}"/>

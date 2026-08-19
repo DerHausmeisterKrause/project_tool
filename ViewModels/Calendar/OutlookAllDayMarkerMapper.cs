@@ -1,7 +1,7 @@
 using System.Text.RegularExpressions;
 using TaskTool.Models;
 
-namespace TaskTool.ViewModels;
+namespace TaskTool.Services;
 
 public static class OutlookAllDayMarkerMapper
 {
@@ -87,5 +87,50 @@ public static class OutlookAllDayMarkerMapper
             return string.Empty;
 
         return Regex.Replace(value.Trim().ToUpperInvariant(), @"\s+", " ");
+    }
+}
+
+public static class CalendarMarkerResolver
+{
+    public static SyncedCalendarMarkers ResolveOutlookMarkers(
+        DateTime day,
+        IEnumerable<OutlookCalendarEvent> events,
+        bool interpretAllDayMarkers,
+        LoggerService? logger = null)
+    {
+        if (!interpretAllDayMarkers)
+            return new(day.ToString("yyyy-MM-dd"), "Normal", false);
+
+        var markers = events
+            .Where(evt => evt.IsAllDay && evt.StartLocal.Date <= day.Date && EffectiveEndDateExclusive(evt) > day.Date)
+            .Select(evt => OutlookAllDayMarkerMapper.TryMapAllDayMarker(evt, out _))
+            .Where(marker => marker != null)
+            .Select(marker => marker!)
+            .ToHashSet(StringComparer.Ordinal);
+
+        if (markers.Contains("UL") && markers.Contains("AM"))
+            logger?.Warning($"[OutlookCalendarMarker] day={day:yyyy-MM-dd} conflict=UL+AM selected=UL");
+
+        var dayType = markers.Contains("UL") ? "UL" : markers.Contains("AM") ? "AM" : "Normal";
+        // Preserve the existing calendar priority: UL, then AM, then HO.
+        var isHo = dayType == "Normal" && markers.Contains("HO");
+        return new(day.ToString("yyyy-MM-dd"), dayType, isHo);
+    }
+
+    public static EffectiveDayMarkers ResolveEffectiveMarkers(
+        WorkDayRecord local,
+        SyncedCalendarMarkers outlook)
+    {
+        var localDayType = local.DayType is "UL" or "AM" ? local.DayType : "Normal";
+        var dayType = localDayType != "Normal"
+            ? localDayType
+            : outlook.OutlookDayType is "UL" or "AM" ? outlook.OutlookDayType : "Normal";
+        return new(dayType, local.IsHo || outlook.OutlookIsHo);
+    }
+
+    private static DateTime EffectiveEndDateExclusive(OutlookCalendarEvent evt)
+    {
+        var end = evt.EndLocal.Date;
+        return end <= evt.StartLocal.Date ? evt.StartLocal.Date.AddDays(1) : end;
     }
 }
