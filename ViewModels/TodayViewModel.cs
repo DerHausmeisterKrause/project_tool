@@ -54,6 +54,8 @@ public class TodayViewModel : ObservableObject
                 LoadSegments();
                 Raise(nameof(IsTaskSelected));
                 Raise(nameof(HasZnunyTicket));
+                Raise(nameof(ShowCreateTicketFromSelectedTask));
+                Raise(nameof(CanCreateTicketFromSelectedTask));
                 RaiseCommandStates();
                 UpdateTimerDisplay();
                 LoadTicketBookingHistory();
@@ -108,7 +110,9 @@ public class TodayViewModel : ObservableObject
     public bool ShowCompletedTaskList => SelectedTaskScope == TodayTaskScope.Completed;
     public bool ShowCandidateTickets => SelectedTaskScope == TodayTaskScope.CandidateTickets;
     public string CandidateTabTitle => $"Neue Aufgaben ({NewTaskCandidates.Count})";
-    public bool ShowCandidateHint => ShowCandidateTickets && NewTaskCandidates.Count == 0;
+    public bool ShowCandidateHint => ShowCandidateTickets && NewTaskCandidates.Count == 0 && !_ticketSystem.IsCandidateRefreshRunning;
+    public bool ShowCandidateStatus => ShowCandidateTickets && _ticketSystem.IsCandidateRefreshRunning;
+    public string CandidateStatus => "Neue Aufgaben werden geladen…";
     public string CandidateHint => !string.IsNullOrWhiteSpace(_ticketSystem.CandidateTicketsError)
         ? _ticketSystem.CandidateTicketsError
         : string.IsNullOrWhiteSpace(_settings.Current.TicketSystemCandidateKeywords)
@@ -201,6 +205,22 @@ public class TodayViewModel : ObservableObject
     public string UnbookedTicketTimeText => $"Noch nicht gebucht: {UnbookedTicketSeconds / 60m:0.##} Min.";
     public string TransferredTicketTimeText => $"Insgesamt über TaskTool in OTRS gebucht: {_successfullyBookedMinutes:0.##} Min.";
     public bool HasZnunyTicket => SelectedTask?.Tags.Contains("ZnunyTicketID:", StringComparison.OrdinalIgnoreCase) == true;
+    public bool ShowCreateTicketFromSelectedTask => SelectedTask != null && !SelectedTask.IsZnunyTask;
+    public bool CanCreateTicketFromSelectedTask => ShowCreateTicketFromSelectedTask && !IsCreatingTicket;
+
+    private bool _isCreatingTicket;
+    public bool IsCreatingTicket
+    {
+        get => _isCreatingTicket;
+        private set
+        {
+            if (Set(ref _isCreatingTicket, value))
+            {
+                Raise(nameof(CanCreateTicketFromSelectedTask));
+                CreateTicketFromLocalTaskCommand.RaiseCanExecuteChanged();
+            }
+        }
+    }
 
     private DateTime? _newSegmentDate = DateTime.Today;
     public DateTime? NewSegmentDate
@@ -303,6 +323,7 @@ public class TodayViewModel : ObservableObject
     public RelayCommand ShowNewTasksCommand { get; }
     public RelayCommand ShowCompletedTasksCommand { get; }
     public RelayCommand RefreshCandidateTicketsCommand { get; }
+    public RelayCommand CreateTicketFromLocalTaskCommand { get; }
 
     public RelayCommand<TaskItem> SelectTaskCommand { get; }
     public RelayCommand<TaskItem> StartTaskCommand { get; }
@@ -376,6 +397,7 @@ public class TodayViewModel : ObservableObject
         ShowNewTasksCommand = new RelayCommand(() => SelectedTaskScope = TodayTaskScope.CandidateTickets);
         ShowCompletedTasksCommand = new RelayCommand(() => SelectedTaskScope = TodayTaskScope.Completed);
         RefreshCandidateTicketsCommand = new RelayCommand(async () => await _ticketSystem.RefreshCandidateTicketsAsync());
+        CreateTicketFromLocalTaskCommand = new RelayCommand(async () => await CreateTicketFromLocalTaskAsync(), () => CanCreateTicketFromSelectedTask);
 
         SelectTaskCommand = new RelayCommand<TaskItem>(task => SelectedTask = task, task => task != null);
         StartTaskCommand = new RelayCommand<TaskItem>(StartTaskFromCard);
@@ -419,6 +441,8 @@ public class TodayViewModel : ObservableObject
         Raise(nameof(CandidateTabTitle));
         Raise(nameof(ShowCandidateHint));
         Raise(nameof(CandidateHint));
+        Raise(nameof(ShowCandidateStatus));
+        Raise(nameof(CandidateStatus));
     }
 
     private void RaiseSegmentEditorState()
@@ -457,6 +481,7 @@ public class TodayViewModel : ObservableObject
         Subtract60Command.RaiseCanExecuteChanged();
         BookTimeInTicketSystemCommand.RaiseCanExecuteChanged();
         RefreshTicketFieldOptionsCommand.RaiseCanExecuteChanged();
+        CreateTicketFromLocalTaskCommand.RaiseCanExecuteChanged();
         AddSegmentCommand.RaiseCanExecuteChanged();
         SaveSegmentCommand.RaiseCanExecuteChanged();
         DeleteSegmentCommand.RaiseCanExecuteChanged();
@@ -555,6 +580,7 @@ public class TodayViewModel : ObservableObject
     {
         var all = _tasks.GetAllTasks();
         var now = _germanTime.GetLocalNow(_settings.Current.CalendarTimeZoneId).DateTime;
+        var taskIdsWithActiveOrFutureSegments = _tasks.GetTaskIdsWithActiveOrFutureSegments(now);
         var localToday = now.Date;
         var hidePastTodayItems = _settings.Current.HidePastTodayItems;
         List<(TaskItem Task, TaskSegment Segment)>? todaySegments = null;
@@ -573,6 +599,12 @@ public class TodayViewModel : ObservableObject
         }
 
         var active = all.Where(t => t.Status != TaskStatus.Done && t.IsOperationallyVisible).ToList();
+        foreach (var task in active)
+        {
+            task.CurrentListBadgeText = task.Status == TaskStatus.Running
+                ? "Running"
+                : taskIdsWithActiveOrFutureSegments.Contains(task.Id) ? "Geplant" : string.Empty;
+        }
         if (!string.IsNullOrWhiteSpace(TaskSearchText))
         {
             var q = TaskSearchText.Trim();
@@ -851,6 +883,45 @@ public class TodayViewModel : ObservableObject
         _tasks.UpdateTask(SelectedTask);
         StatusMessage = "Task gespeichert.";
         Load();
+    }
+
+    private async Task CreateTicketFromLocalTaskAsync()
+    {
+        if (!CanCreateTicketFromSelectedTask || SelectedTask == null) return;
+        var task = SelectedTask;
+        var confirmation = MessageBox.Show(
+            $"Aus dieser Aufgabe ein Ticket erstellen?\n\nTitel:\n{task.Title}\n\nDie bestehende Aufgabe, Zeiten und Segmente bleiben erhalten.",
+            "Ticket erstellen",
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Question);
+        if (confirmation != MessageBoxResult.Yes) return;
+
+        _tasks.UpdateTask(task);
+        IsCreatingTicket = true;
+        try
+        {
+            var result = await _ticketSystem.CreateTicketFromLocalTaskAsync(task);
+            StatusMessage = result.Message;
+            if (result.Success)
+            {
+                Raise(nameof(HasZnunyTicket));
+                Raise(nameof(ShowCreateTicketFromSelectedTask));
+                Raise(nameof(CanCreateTicketFromSelectedTask));
+                RaiseCommandStates();
+                LoadTicketBookingHistory();
+                await LoadTicketBookingContextAsync(task);
+                MessageBox.Show(result.Message, "Ticket erstellt", MessageBoxButton.OK, MessageBoxImage.Information);
+            }
+            else
+            {
+                MessageBox.Show(result.Message, "Ticket-Erstellung", MessageBoxButton.OK,
+                    result.ConfirmationUncertain ? MessageBoxImage.Warning : MessageBoxImage.Error);
+            }
+        }
+        finally
+        {
+            IsCreatingTicket = false;
+        }
     }
 
     private static DateTime BuildSegmentDateTime(DateTime day, string timeText)
@@ -1235,7 +1306,7 @@ public class TodayViewModel : ObservableObject
         }
 
         var minute = TruncateToMinute(now);
-        if (_settings.Current.HidePastTodayItems && minute != _lastTodayVisibilityRefreshMinute)
+        if (minute != _lastTodayVisibilityRefreshMinute)
             ApplyTaskFilters();
     }
 
