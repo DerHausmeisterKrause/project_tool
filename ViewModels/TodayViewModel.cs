@@ -108,7 +108,9 @@ public class TodayViewModel : ObservableObject
     public bool ShowCompletedTaskList => SelectedTaskScope == TodayTaskScope.Completed;
     public bool ShowCandidateTickets => SelectedTaskScope == TodayTaskScope.CandidateTickets;
     public string CandidateTabTitle => $"Neue Aufgaben ({NewTaskCandidates.Count})";
-    public bool ShowCandidateHint => ShowCandidateTickets && NewTaskCandidates.Count == 0;
+    public bool ShowCandidateHint => ShowCandidateTickets && NewTaskCandidates.Count == 0 && !_ticketSystem.IsCandidateRefreshRunning;
+    public bool ShowCandidateStatus => ShowCandidateTickets && _ticketSystem.IsCandidateRefreshRunning;
+    public string CandidateStatus => "Neue Aufgaben werden geladen…";
     public string CandidateHint => !string.IsNullOrWhiteSpace(_ticketSystem.CandidateTicketsError)
         ? _ticketSystem.CandidateTicketsError
         : string.IsNullOrWhiteSpace(_settings.Current.TicketSystemCandidateKeywords)
@@ -419,6 +421,8 @@ public class TodayViewModel : ObservableObject
         Raise(nameof(CandidateTabTitle));
         Raise(nameof(ShowCandidateHint));
         Raise(nameof(CandidateHint));
+        Raise(nameof(ShowCandidateStatus));
+        Raise(nameof(CandidateStatus));
     }
 
     private void RaiseSegmentEditorState()

@@ -16,6 +16,7 @@ public partial class ReminderWindow : Window
     private const int WsExToolwindow = 0x00000080;
     private readonly DispatcherTimer _hideTimer;
     private readonly Guid _taskId;
+    private readonly ReminderKind _kind;
 
     public event EventHandler<Guid>? NotificationClicked;
 
@@ -24,6 +25,7 @@ public partial class ReminderWindow : Window
         InitializeComponent();
 
         _taskId = taskId;
+        _kind = kind;
         MessageText.Text = text;
         if (kind == ReminderKind.Start)
         {
@@ -53,6 +55,7 @@ public partial class ReminderWindow : Window
     {
         PositionTopCenter();
         BeginShow();
+        ServiceLocator.Notifications.PlayNotificationSound(_kind);
         _hideTimer.Start();
     }
 

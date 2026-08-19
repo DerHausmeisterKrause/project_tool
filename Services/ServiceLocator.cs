@@ -22,8 +22,9 @@ public static class ServiceLocator
 
     public static void Initialize()
     {
-        Logger = new LoggerService();
+        Logger = new LoggerService(AppLogLevel.Warning);
         Settings = new SettingsService(Logger);
+        Logger.SetMinimumLevel(ParseLogLevel(Settings.Current.LogLevel));
         AppVersion = new AppVersionService(Settings, Logger);
         Updates = new UpdateService(Logger, Settings, AppVersion);
         GermanTime = new GermanTimeService();
@@ -37,6 +38,11 @@ public static class ServiceLocator
         TicketSystem = new TicketSystemService(Settings, Tasks, TicketAssignmentSnapshots, Notifications, Logger);
         OutlookCalendar = new OutlookCalendarService(Logger, Settings, Outlook);
         HomeOffice = new HomeOfficeService(WorkDays, Settings, Outlook, OutlookCalendar, Logger);
-        MainViewModel = new MainViewModel(Tasks, WorkDays, Settings, Notifications, OutlookCalendar, TicketSystem, Updates, HomeOffice, Logger);
+        MainViewModel = new MainViewModel(Tasks, WorkDays, Settings, Notifications, OutlookCalendar, TicketSystem, Updates, HomeOffice, GermanTime, Logger);
     }
+
+    private static AppLogLevel ParseLogLevel(string? value)
+        => Enum.TryParse<AppLogLevel>(value, true, out var level) && Enum.IsDefined(level)
+            ? level
+            : AppLogLevel.Warning;
 }

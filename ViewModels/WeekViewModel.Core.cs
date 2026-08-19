@@ -37,7 +37,7 @@ public class WeekViewModel : ObservableObject
     public double DayColumnWidth { get => _dayColumnWidth; private set => Set(ref _dayColumnWidth, value); }
     public double PixelsPerMinute => PixelsPerHour / 60;
     public double CalendarBodyHeight => (CalendarEndHour - CalendarStartHour) * 60 * PixelsPerMinute;
-    public double FullDayColumnHeight => CalendarBodyHeight + 58;
+    public double FullDayColumnHeight => CalendarBodyHeight + 44;
     public bool ShowWeekend => _settings.Current.ShowWeekendInWeekView;
 
     public ObservableCollection<TimeAxisLabel> TimeAxisLabels { get; } = new();
@@ -404,12 +404,6 @@ public class WeekViewModel : ObservableObject
             if (!workDays.ContainsKey(key)) workDays[key] = _workDays.GetOrCreateDay(key);
 
             var wd = workDays[key];
-            var breaks = _workDays.GetBreaks(key);
-            var pause = breaks.Where(b => b.EndLocal.HasValue).Sum(b => (int)(b.EndLocal!.Value - b.StartLocal).TotalMinutes);
-            var net = (wd.ComeLocal.HasValue && wd.GoLocal.HasValue) ? (int)(wd.GoLocal.Value - wd.ComeLocal.Value).TotalMinutes - pause : 0;
-            var target = (wd.DayType == "UL" || wd.DayType == "AM") ? 0 : _settings.Current.GetTargetMinutes(day.DayOfWeek);
-            var overtime = net - target;
-
             var calendarItems = new List<WeekCalendarItem>();
             if (showInternalSegments && segmentsInWeek.TryGetValue(day.Date, out var segmentItems))
             {
@@ -490,7 +484,6 @@ public class WeekViewModel : ObservableObject
                 DayType = displayDayType,
                 IsBr = displayIsBr,
                 IsHo = displayIsHo,
-                Summary = $"Soll {Fmt(target)} | Ist {Fmt(net)} | Ü {Fmt(overtime)}",
                 AllDayEvents = new ObservableCollection<PlenaroWeekAllDayPillModel>(allDayEvents),
                 VisibleAllDayEvents = new ObservableCollection<PlenaroWeekAllDayPillModel>(visibleAllDayEvents),
                 AllDayOverflowCount = Math.Max(0, allDayEvents.Count - visibleAllDayEvents.Count),
@@ -1106,7 +1099,6 @@ public class WeekViewModel : ObservableObject
         return Days.First();
     }
 
-    private static string Fmt(int minutes) => $"{minutes / 60}h {Math.Abs(minutes % 60):00}m";
 
     private static DateTime StartOfWeek(DateTime date)
     {
@@ -1143,9 +1135,6 @@ public class WeekDayGroup : ObservableObject
 
     private bool _isHo;
     public bool IsHo { get => _isHo; set => Set(ref _isHo, value); }
-
-    private string _summary = string.Empty;
-    public string Summary { get => _summary; set => Set(ref _summary, value); }
 
     private bool _isSelected;
     public bool IsSelected { get => _isSelected; set => Set(ref _isSelected, value); }
