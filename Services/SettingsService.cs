@@ -151,6 +151,15 @@ public class SettingsService
         settings.TicketSystemTicketUpdateRoute = ticketUpdateRouteMigrated
             ? AppSettings.DefaultTicketSystemTicketUpdateRoute
             : NormalizeRoute(settings.TicketSystemTicketUpdateRoute, AppSettings.DefaultTicketSystemTicketUpdateRoute);
+        settings.TicketSystemTicketCreateRoute = NormalizeRoute(settings.TicketSystemTicketCreateRoute, "/Ticket");
+        settings.TicketSystemTicketCreateMethod = string.IsNullOrWhiteSpace(settings.TicketSystemTicketCreateMethod)
+            ? "POST"
+            : settings.TicketSystemTicketCreateMethod.Trim().ToUpperInvariant();
+        settings.TicketSystemCreateQueue = settings.TicketSystemCreateQueue?.Trim() ?? string.Empty;
+        settings.TicketSystemCreateState = string.IsNullOrWhiteSpace(settings.TicketSystemCreateState) ? "open" : settings.TicketSystemCreateState.Trim();
+        settings.TicketSystemCreatePriority = string.IsNullOrWhiteSpace(settings.TicketSystemCreatePriority) ? "3 normal" : settings.TicketSystemCreatePriority.Trim();
+        settings.TicketSystemCreateType = settings.TicketSystemCreateType?.Trim() ?? string.Empty;
+        settings.TicketSystemCreateCustomerUser = settings.TicketSystemCreateCustomerUser?.Trim() ?? string.Empty;
         settings.TicketSystemDynamicFieldOptionsRoute = string.Equals(settings.TicketSystemDynamicFieldOptionsRoute?.Trim(), "/DynamicField/Options", StringComparison.OrdinalIgnoreCase)
             ? "/Ticket/DynamicField/{FieldName}/Options"
             : NormalizeRoute(settings.TicketSystemDynamicFieldOptionsRoute, "/Ticket/DynamicField/{FieldName}/Options");

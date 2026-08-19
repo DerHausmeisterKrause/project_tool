@@ -54,6 +54,8 @@ public class TodayViewModel : ObservableObject
                 LoadSegments();
                 Raise(nameof(IsTaskSelected));
                 Raise(nameof(HasZnunyTicket));
+                Raise(nameof(ShowCreateTicketFromSelectedTask));
+                Raise(nameof(CanCreateTicketFromSelectedTask));
                 RaiseCommandStates();
                 UpdateTimerDisplay();
                 LoadTicketBookingHistory();
@@ -203,6 +205,22 @@ public class TodayViewModel : ObservableObject
     public string UnbookedTicketTimeText => $"Noch nicht gebucht: {UnbookedTicketSeconds / 60m:0.##} Min.";
     public string TransferredTicketTimeText => $"Insgesamt über TaskTool in OTRS gebucht: {_successfullyBookedMinutes:0.##} Min.";
     public bool HasZnunyTicket => SelectedTask?.Tags.Contains("ZnunyTicketID:", StringComparison.OrdinalIgnoreCase) == true;
+    public bool ShowCreateTicketFromSelectedTask => SelectedTask != null && !SelectedTask.IsZnunyTask;
+    public bool CanCreateTicketFromSelectedTask => ShowCreateTicketFromSelectedTask && !IsCreatingTicket;
+
+    private bool _isCreatingTicket;
+    public bool IsCreatingTicket
+    {
+        get => _isCreatingTicket;
+        private set
+        {
+            if (Set(ref _isCreatingTicket, value))
+            {
+                Raise(nameof(CanCreateTicketFromSelectedTask));
+                CreateTicketFromLocalTaskCommand.RaiseCanExecuteChanged();
+            }
+        }
+    }
 
     private DateTime? _newSegmentDate = DateTime.Today;
     public DateTime? NewSegmentDate
@@ -305,6 +323,7 @@ public class TodayViewModel : ObservableObject
     public RelayCommand ShowNewTasksCommand { get; }
     public RelayCommand ShowCompletedTasksCommand { get; }
     public RelayCommand RefreshCandidateTicketsCommand { get; }
+    public RelayCommand CreateTicketFromLocalTaskCommand { get; }
 
     public RelayCommand<TaskItem> SelectTaskCommand { get; }
     public RelayCommand<TaskItem> StartTaskCommand { get; }
@@ -378,6 +397,7 @@ public class TodayViewModel : ObservableObject
         ShowNewTasksCommand = new RelayCommand(() => SelectedTaskScope = TodayTaskScope.CandidateTickets);
         ShowCompletedTasksCommand = new RelayCommand(() => SelectedTaskScope = TodayTaskScope.Completed);
         RefreshCandidateTicketsCommand = new RelayCommand(async () => await _ticketSystem.RefreshCandidateTicketsAsync());
+        CreateTicketFromLocalTaskCommand = new RelayCommand(async () => await CreateTicketFromLocalTaskAsync(), () => CanCreateTicketFromSelectedTask);
 
         SelectTaskCommand = new RelayCommand<TaskItem>(task => SelectedTask = task, task => task != null);
         StartTaskCommand = new RelayCommand<TaskItem>(StartTaskFromCard);
@@ -461,6 +481,7 @@ public class TodayViewModel : ObservableObject
         Subtract60Command.RaiseCanExecuteChanged();
         BookTimeInTicketSystemCommand.RaiseCanExecuteChanged();
         RefreshTicketFieldOptionsCommand.RaiseCanExecuteChanged();
+        CreateTicketFromLocalTaskCommand.RaiseCanExecuteChanged();
         AddSegmentCommand.RaiseCanExecuteChanged();
         SaveSegmentCommand.RaiseCanExecuteChanged();
         DeleteSegmentCommand.RaiseCanExecuteChanged();
@@ -862,6 +883,45 @@ public class TodayViewModel : ObservableObject
         _tasks.UpdateTask(SelectedTask);
         StatusMessage = "Task gespeichert.";
         Load();
+    }
+
+    private async Task CreateTicketFromLocalTaskAsync()
+    {
+        if (!CanCreateTicketFromSelectedTask || SelectedTask == null) return;
+        var task = SelectedTask;
+        var confirmation = MessageBox.Show(
+            $"Aus dieser Aufgabe ein Ticket erstellen?\n\nTitel:\n{task.Title}\n\nDie bestehende Aufgabe, Zeiten und Segmente bleiben erhalten.",
+            "Ticket erstellen",
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Question);
+        if (confirmation != MessageBoxResult.Yes) return;
+
+        _tasks.UpdateTask(task);
+        IsCreatingTicket = true;
+        try
+        {
+            var result = await _ticketSystem.CreateTicketFromLocalTaskAsync(task);
+            StatusMessage = result.Message;
+            if (result.Success)
+            {
+                Raise(nameof(HasZnunyTicket));
+                Raise(nameof(ShowCreateTicketFromSelectedTask));
+                Raise(nameof(CanCreateTicketFromSelectedTask));
+                RaiseCommandStates();
+                LoadTicketBookingHistory();
+                await LoadTicketBookingContextAsync(task);
+                MessageBox.Show(result.Message, "Ticket erstellt", MessageBoxButton.OK, MessageBoxImage.Information);
+            }
+            else
+            {
+                MessageBox.Show(result.Message, "Ticket-Erstellung", MessageBoxButton.OK,
+                    result.ConfirmationUncertain ? MessageBoxImage.Warning : MessageBoxImage.Error);
+            }
+        }
+        finally
+        {
+            IsCreatingTicket = false;
+        }
     }
 
     private static DateTime BuildSegmentDateTime(DateTime day, string timeText)

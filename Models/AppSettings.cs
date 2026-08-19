@@ -53,6 +53,13 @@ public class AppSettings
     public string TicketSystemTicketGetMethod { get; set; } = "GET";
     public string TicketSystemTicketGetAuthMode { get; set; } = "Session";
     public string TicketSystemTicketUpdateRoute { get; set; } = DefaultTicketSystemTicketUpdateRoute;
+    public string TicketSystemTicketCreateRoute { get; set; } = "/Ticket";
+    public string TicketSystemTicketCreateMethod { get; set; } = "POST";
+    public string TicketSystemCreateQueue { get; set; } = string.Empty;
+    public string TicketSystemCreateState { get; set; } = "open";
+    public string TicketSystemCreatePriority { get; set; } = "3 normal";
+    public string TicketSystemCreateType { get; set; } = string.Empty;
+    public string TicketSystemCreateCustomerUser { get; set; } = string.Empty;
     public string TicketSystemDynamicFieldOptionsRoute { get; set; } = "/Ticket/DynamicField/{FieldName}/Options";
     public string TicketSystemCostCenterFieldName { get; set; } = "KostenstelleID";
     public string TicketSystemOrderFieldName { get; set; } = "AuftragsID";

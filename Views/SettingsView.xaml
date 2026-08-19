@@ -152,6 +152,23 @@
                         <TextBlock Text="TicketUpdate Route" Foreground="{StaticResource MutedTextBrush}"/>
                         <TextBox Text="{Binding TicketSystemTicketUpdateRoute, UpdateSourceTrigger=PropertyChanged}" Width="320"
                                  ToolTip="REST-Route für TicketUpdate. {TicketID} wird automatisch durch die interne Znuny-Ticket-ID ersetzt. Standard: /Ticket/{TicketID}/Update"/>
+                        <TextBlock Text="Ticket-Erstellung" FontSize="16" FontWeight="SemiBold" Margin="0,12,0,6"/>
+                        <TextBlock Text="TicketCreate Route" Foreground="{StaticResource MutedTextBrush}"/>
+                        <TextBox Text="{Binding TicketSystemTicketCreateRoute, UpdateSourceTrigger=PropertyChanged}" Width="320" ToolTip="Standard: /Ticket"/>
+                        <TextBlock Text="TicketCreate HTTP-Methode" Foreground="{StaticResource MutedTextBrush}"/>
+                        <ComboBox Width="120" Style="{StaticResource DarkComboBoxStyle}" ItemsSource="{Binding TicketSystemSearchMethods}" SelectedItem="{Binding TicketSystemTicketCreateMethod}"/>
+                        <TextBlock Text="Standard Queue" Foreground="{StaticResource MutedTextBrush}"/>
+                        <TextBox Text="{Binding TicketSystemCreateQueue, UpdateSourceTrigger=PropertyChanged}" Width="320"/>
+                        <TextBlock Text="Standard Status" Foreground="{StaticResource MutedTextBrush}"/>
+                        <TextBox Text="{Binding TicketSystemCreateState, UpdateSourceTrigger=PropertyChanged}" Width="220" ToolTip="Standard: open"/>
+                        <TextBlock Text="Standard Priorität" Foreground="{StaticResource MutedTextBrush}"/>
+                        <TextBox Text="{Binding TicketSystemCreatePriority, UpdateSourceTrigger=PropertyChanged}" Width="220" ToolTip="Standard: 3 normal"/>
+                        <TextBlock Text="Standard Typ (optional)" Foreground="{StaticResource MutedTextBrush}"/>
+                        <TextBox Text="{Binding TicketSystemCreateType, UpdateSourceTrigger=PropertyChanged}" Width="320"/>
+                        <TextBlock Text="Standard CustomerUser" Foreground="{StaticResource MutedTextBrush}"/>
+                        <TextBox Text="{Binding TicketSystemCreateCustomerUser, UpdateSourceTrigger=PropertyChanged}" Width="320"/>
+                        <TextBlock Text="Neue Tickets werden intern und ohne Kundenbenachrichtigung erstellt sowie dem konfigurierten Agenten als Owner und Responsible zugeordnet."
+                                   Foreground="{StaticResource MutedTextBrush}" TextWrapping="Wrap" Margin="0,0,0,8"/>
                         <TextBlock Text="DynamicField-Options Route (read-only)" Foreground="{StaticResource MutedTextBrush}"/>
                         <TextBox Text="{Binding TicketSystemDynamicFieldOptionsRoute, UpdateSourceTrigger=PropertyChanged}" Width="360" ToolTip="/Ticket/DynamicField/{FieldName}/Options"/>
                         <TextBlock Text="DynamicField: Kostenstelle (interner Name)" Foreground="{StaticResource MutedTextBrush}"/>

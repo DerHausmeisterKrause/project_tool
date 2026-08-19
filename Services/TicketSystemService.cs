@@ -100,6 +100,84 @@ public class TicketSystemService : IDisposable
     public Task<(int created, int updated, int skipped)> ImportAssignedOpenTicketsAsync()
         => SyncAssignedTicketsAsync("manual");
 
+    public async Task<CreateTicketResult> CreateTicketFromLocalTaskAsync(TaskItem task)
+    {
+        if (task == null)
+            return new CreateTicketResult(false, "Es wurde keine Aufgabe ausgewählt.");
+        if (task.IsZnunyTask)
+            return new CreateTicketResult(false, "Diese Aufgabe ist bereits mit einem Znuny-Ticket verknüpft.");
+
+        var validationError = ValidateTicketCreateConfiguration(task);
+        if (!string.IsNullOrWhiteSpace(validationError))
+            return new CreateTicketResult(false, validationError);
+        if (!await _syncGate.WaitAsync(0))
+            return new CreateTicketResult(false, "Es läuft bereits eine Znuny-Aktion. Bitte versuchen Sie es gleich erneut.");
+
+        try
+        {
+            _logger.Info($"[ZnunyTicketCreate] taskId={task.Id} action=start");
+            var sessionId = await CreateSessionAsync();
+            var payload = BuildTicketCreatePayload(task, sessionId);
+            var route = _settings.Current.TicketSystemTicketCreateRoute;
+            var method = new HttpMethod(_settings.Current.TicketSystemTicketCreateMethod);
+            using var request = new HttpRequestMessage(method, Combine(_settings.Current.TicketSystemApiUrl, route))
+            {
+                Content = new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json")
+            };
+
+            var response = await SendZnunyAsync(request, "TicketCreate", "[ZnunyTicketCreateResponse]", logBody: false);
+            using var document = JsonDocument.Parse(response.Body);
+            ThrowIfApiError(document.RootElement, "TicketCreate", response.StatusCode, response.Body);
+            var ticketId = FindStringRecursive(document.RootElement, "TicketID");
+            var ticketNumber = FindStringRecursive(document.RootElement, "TicketNumber");
+            if (string.IsNullOrWhiteSpace(ticketId) || string.IsNullOrWhiteSpace(ticketNumber))
+            {
+                _logger.Warning($"[ZnunyTicketCreate] taskId={task.Id} action=unconfirmed reason=missing-ticket-identifiers");
+                return new CreateTicketResult(false,
+                    "Ticket-Erstellung konnte nicht eindeutig bestätigt werden. Bitte vor einem erneuten Versuch im Ticketsystem prüfen.",
+                    ConfirmationUncertain: true);
+            }
+
+            task.Tags = AddZnunyTicketTags(task.Tags, ticketId, ticketNumber);
+            task.TicketUrl = BuildTicketWebUrl(_settings.Current.TicketSystemWebUrl, ticketId);
+            task.IsZnunyAssigned = true;
+            _tasks.UpdateTask(task);
+            NotifyTasksChanged();
+
+            _logger.Info($"[ZnunyTicketCreate] taskId={task.Id} ticketId={ticketId} ticketNumber='{LogValue(ticketNumber)}' action=completed");
+            return new CreateTicketResult(true, $"Ticket {ticketNumber} wurde erfolgreich erstellt.", ticketId, ticketNumber, task.TicketUrl);
+        }
+        catch (TaskCanceledException ex)
+        {
+            _logger.Warning($"[ZnunyTicketCreate] taskId={task.Id} action=unconfirmed message='{LogValue(ex.Message)}'");
+            return new CreateTicketResult(false,
+                "Ticket-Erstellung konnte nicht eindeutig bestätigt werden. Bitte vor einem erneuten Versuch im Ticketsystem prüfen.",
+                ConfirmationUncertain: true);
+        }
+        catch (HttpRequestException ex)
+        {
+            _logger.Warning($"[ZnunyTicketCreate] taskId={task.Id} action=unconfirmed message='{LogValue(ex.Message)}'");
+            return new CreateTicketResult(false,
+                "Ticket-Erstellung konnte nicht eindeutig bestätigt werden. Bitte vor einem erneuten Versuch im Ticketsystem prüfen.",
+                ConfirmationUncertain: true);
+        }
+        catch (ZnunyApiException ex)
+        {
+            LogZnunyError(ex);
+            _logger.Error($"[ZnunyTicketCreate] taskId={task.Id} action=failed errorCode='{LogValue(ex.ErrorCode)}' message='{LogValue(ex.ErrorMessage)}'");
+            return new CreateTicketResult(false, $"Ticket konnte nicht erstellt werden: {ex.ErrorMessage}");
+        }
+        catch (Exception ex)
+        {
+            _logger.Error($"[ZnunyTicketCreate] taskId={task.Id} action=failed message='{LogValue(ex.Message)}'");
+            return new CreateTicketResult(false, $"Ticket konnte nicht erstellt werden: {ex.Message}");
+        }
+        finally
+        {
+            _syncGate.Release();
+        }
+    }
+
     public async Task<bool> RefreshCandidateTicketsAsync(string reason = "manual")
     {
         if (!await _syncGate.WaitAsync(0))
@@ -708,6 +786,55 @@ public class TicketSystemService : IDisposable
         return string.Empty;
     }
 
+    private string ValidateTicketCreateConfiguration(TaskItem task)
+    {
+        var baseError = ValidateConfiguration(requireAgentId: true);
+        if (!string.IsNullOrWhiteSpace(baseError)) return baseError;
+        if (string.IsNullOrWhiteSpace(task.Title)) return "Für die Ticket-Erstellung fehlt der Titel der Aufgabe.";
+        if (string.IsNullOrWhiteSpace(_settings.Current.TicketSystemTicketCreateRoute)) return "Für die Ticket-Erstellung fehlt die TicketCreate-Route.";
+        if (string.IsNullOrWhiteSpace(_settings.Current.TicketSystemTicketCreateMethod)) return "Für die Ticket-Erstellung fehlt die TicketCreate-HTTP-Methode.";
+        if (string.IsNullOrWhiteSpace(_settings.Current.TicketSystemCreateQueue))
+            return "Für die Ticket-Erstellung fehlt die Standard-Queue. Bitte unter Einstellungen → Ticketsystem konfigurieren.";
+        if (string.IsNullOrWhiteSpace(_settings.Current.TicketSystemCreateCustomerUser))
+            return "Für die Ticket-Erstellung fehlt der Standard-CustomerUser. Bitte unter Einstellungen → Ticketsystem konfigurieren.";
+        return string.Empty;
+    }
+
+    private Dictionary<string, object?> BuildTicketCreatePayload(TaskItem task, string sessionId)
+    {
+        var settings = _settings.Current;
+        var ticket = new Dictionary<string, object?>
+        {
+            ["Title"] = task.Title.Trim(),
+            ["Queue"] = settings.TicketSystemCreateQueue,
+            ["State"] = settings.TicketSystemCreateState,
+            ["Priority"] = settings.TicketSystemCreatePriority,
+            ["Lock"] = "unlock",
+            ["OwnerID"] = settings.TicketSystemAgentId,
+            ["ResponsibleID"] = settings.TicketSystemAgentId,
+            ["CustomerUser"] = settings.TicketSystemCreateCustomerUser
+        };
+        if (!string.IsNullOrWhiteSpace(settings.TicketSystemCreateType))
+            ticket["Type"] = settings.TicketSystemCreateType;
+
+        return new Dictionary<string, object?>
+        {
+            ["SessionID"] = sessionId,
+            ["Ticket"] = ticket,
+            ["Article"] = new Dictionary<string, object?>
+            {
+                ["Subject"] = task.Title.Trim(),
+                ["Body"] = string.IsNullOrWhiteSpace(task.Description)
+                    ? "Ticket aus Plenaro-Aufgabe erstellt."
+                    : task.Description,
+                ["ContentType"] = "text/plain; charset=utf8",
+                ["CommunicationChannel"] = "Internal",
+                ["SenderType"] = "agent",
+                ["IsVisibleForCustomer"] = 0
+            }
+        };
+    }
+
     private async Task<string> CreateSessionAsync()
     {
         var route = "/Session";
@@ -1100,9 +1227,13 @@ public class TicketSystemService : IDisposable
 
     private static bool MapTicketToTask(ZnunyTicket ticket, TaskItem task)
     {
-        var title = $"[{ticket.TicketNumber}] {ticket.Title}".Trim();
-        var description = ticket.ToDescription();
-        var tags = $"Znuny;ZnunyTicketID:{ticket.TicketID};ZnunyTicketNumber:{ticket.TicketNumber}";
+        var preserveLocalContent = (task.Tags ?? string.Empty).Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Contains("PlenaroLocalOrigin", StringComparer.OrdinalIgnoreCase);
+        var title = preserveLocalContent ? task.Title : $"[{ticket.TicketNumber}] {ticket.Title}".Trim();
+        var description = preserveLocalContent ? task.Description : ticket.ToDescription();
+        var tags = preserveLocalContent
+            ? AddZnunyTicketTags(task.Tags, ticket.TicketID, ticket.TicketNumber)
+            : $"Znuny;ZnunyTicketID:{ticket.TicketID};ZnunyTicketNumber:{ticket.TicketNumber}";
         var changed = !string.Equals(task.Title, title, StringComparison.Ordinal)
                       || !string.Equals(task.Description, description, StringComparison.Ordinal)
                       || !string.Equals(task.TicketUrl, ticket.WebUrl, StringComparison.Ordinal)
@@ -1676,6 +1807,63 @@ public class TicketSystemService : IDisposable
         return string.Empty;
     }
 
+    private static string FindStringRecursive(JsonElement element, string name)
+    {
+        if (element.ValueKind == JsonValueKind.Object)
+        {
+            foreach (var property in element.EnumerateObject())
+            {
+                if (string.Equals(property.Name, name, StringComparison.OrdinalIgnoreCase)
+                    && property.Value.ValueKind is JsonValueKind.String or JsonValueKind.Number)
+                    return property.Value.ToString();
+                var nested = FindStringRecursive(property.Value, name);
+                if (!string.IsNullOrWhiteSpace(nested)) return nested;
+            }
+        }
+        else if (element.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var item in element.EnumerateArray())
+            {
+                var nested = FindStringRecursive(item, name);
+                if (!string.IsNullOrWhiteSpace(nested)) return nested;
+            }
+        }
+        return string.Empty;
+    }
+
+    private static string AddZnunyTicketTags(string existingTags, string ticketId, string ticketNumber)
+    {
+        var tags = (existingTags ?? string.Empty)
+            .Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Where(tag => !tag.StartsWith("ZnunyTicketID:", StringComparison.OrdinalIgnoreCase)
+                          && !tag.StartsWith("ZnunyTicketNumber:", StringComparison.OrdinalIgnoreCase))
+            .ToList();
+        if (!tags.Contains("Znuny", StringComparer.OrdinalIgnoreCase)) tags.Add("Znuny");
+        if (!tags.Contains("PlenaroLocalOrigin", StringComparer.OrdinalIgnoreCase)) tags.Add("PlenaroLocalOrigin");
+        tags.Add($"ZnunyTicketID:{ticketId}");
+        tags.Add($"ZnunyTicketNumber:{ticketNumber}");
+        return string.Join(';', tags);
+    }
+
+    private static string BuildTicketWebUrl(string webBaseUrl, string ticketId)
+    {
+        if (string.IsNullOrWhiteSpace(webBaseUrl) || string.IsNullOrWhiteSpace(ticketId)) return webBaseUrl;
+        var normalizedWebBaseUrl = RemoveOtrsPathSegmentForTicketUrl(webBaseUrl.Trim());
+        var separator = normalizedWebBaseUrl.Contains('?') ? '&' : '?';
+        return $"{normalizedWebBaseUrl.TrimEnd('/')}{separator}Action=AgentTicketZoom;TicketID={Uri.EscapeDataString(ticketId)}";
+    }
+
+    private static string RemoveOtrsPathSegmentForTicketUrl(string webBaseUrl)
+    {
+        if (!Uri.TryCreate(webBaseUrl, UriKind.Absolute, out var uri))
+            return Regex.Replace(webBaseUrl, "/otrs(?=/|$)", string.Empty, RegexOptions.IgnoreCase);
+        var segments = uri.AbsolutePath.Split('/', StringSplitOptions.RemoveEmptyEntries)
+            .Where(segment => !string.Equals(segment, "otrs", StringComparison.OrdinalIgnoreCase)).ToArray();
+        var path = segments.Length == 0 ? "/" : "/" + string.Join("/", segments);
+        var builder = new UriBuilder(uri) { Path = path };
+        return builder.Uri.ToString();
+    }
+
     private static bool IsPlaceholderUrl(string value)
         => value.Contains("SERVER", StringComparison.OrdinalIgnoreCase);
 
@@ -1945,34 +2133,7 @@ public class TicketSystemService : IDisposable
         }
 
         private static string BuildTicketWebUrl(string webBaseUrl, string ticketId)
-        {
-            if (string.IsNullOrWhiteSpace(webBaseUrl) || string.IsNullOrWhiteSpace(ticketId)) return webBaseUrl;
-
-            var normalizedWebBaseUrl = RemoveOtrsPathSegment(webBaseUrl.Trim());
-            var separator = normalizedWebBaseUrl.Contains('?') ? '&' : '?';
-            return $"{normalizedWebBaseUrl.TrimEnd('/')}{separator}Action=AgentTicketZoom;TicketID={Uri.EscapeDataString(ticketId)}";
-        }
-
-        private static string RemoveOtrsPathSegment(string webBaseUrl)
-        {
-            if (!Uri.TryCreate(webBaseUrl, UriKind.Absolute, out var uri))
-            {
-                return Regex.Replace(webBaseUrl, "/otrs(?=/|$)", string.Empty, RegexOptions.IgnoreCase);
-            }
-
-            var segments = uri.AbsolutePath
-                .Split('/', StringSplitOptions.RemoveEmptyEntries)
-                .Where(segment => !string.Equals(segment, "otrs", StringComparison.OrdinalIgnoreCase))
-                .ToArray();
-            var path = segments.Length == 0 ? "/" : "/" + string.Join("/", segments);
-
-            var builder = new UriBuilder(uri)
-            {
-                Path = path
-            };
-
-            return builder.Uri.ToString();
-        }
+            => TicketSystemService.BuildTicketWebUrl(webBaseUrl, ticketId);
 
         private static string ExtractDynamicFields(JsonElement item)
         {
