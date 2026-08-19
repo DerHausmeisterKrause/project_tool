@@ -17,7 +17,8 @@ public class SettingsService
         TicketUpdateRoute = 1,
         InstalledVersion = 2,
         SegmentDuration = 4,
-        LogLevel = 8
+        LogLevel = 8,
+        TicketCreateRoute = 16
     }
 
     private readonly LoggerService _logger;
@@ -70,6 +71,8 @@ public class SettingsService
     {
         if (changes.HasFlag(NormalizationChanges.TicketUpdateRoute))
             _logger.Info($"[ZnunySettingsMigration] TicketSystemTicketUpdateRoute old='{AppSettings.LegacyTicketSystemTicketUpdateRoute}' new='{AppSettings.DefaultTicketSystemTicketUpdateRoute}'");
+        if (changes.HasFlag(NormalizationChanges.TicketCreateRoute))
+            _logger.Info($"[ZnunySettingsMigration] TicketSystemTicketCreateRoute old='{AppSettings.LegacyTicketSystemTicketCreateRoute}' new='{AppSettings.DefaultTicketSystemTicketCreateRoute}'");
         if (changes.HasFlag(NormalizationChanges.InstalledVersion))
             _logger.Info($"[SettingsMigration] InstalledVersion missing initializedVersion={AppSettings.InitialInstalledVersion}");
     }
@@ -92,6 +95,12 @@ public class SettingsService
             StringComparison.OrdinalIgnoreCase);
         if (ticketUpdateRouteMigrated)
             changes |= NormalizationChanges.TicketUpdateRoute;
+        var ticketCreateRouteMigrated = string.Equals(
+            settings.TicketSystemTicketCreateRoute?.Trim(),
+            AppSettings.LegacyTicketSystemTicketCreateRoute,
+            StringComparison.OrdinalIgnoreCase);
+        if (ticketCreateRouteMigrated)
+            changes |= NormalizationChanges.TicketCreateRoute;
         if (string.IsNullOrWhiteSpace(settings.InstalledVersion))
         {
             settings.InstalledVersion = AppSettings.InitialInstalledVersion;
@@ -151,7 +160,9 @@ public class SettingsService
         settings.TicketSystemTicketUpdateRoute = ticketUpdateRouteMigrated
             ? AppSettings.DefaultTicketSystemTicketUpdateRoute
             : NormalizeRoute(settings.TicketSystemTicketUpdateRoute, AppSettings.DefaultTicketSystemTicketUpdateRoute);
-        settings.TicketSystemTicketCreateRoute = NormalizeRoute(settings.TicketSystemTicketCreateRoute, "/Ticket");
+        settings.TicketSystemTicketCreateRoute = ticketCreateRouteMigrated
+            ? AppSettings.DefaultTicketSystemTicketCreateRoute
+            : NormalizeRoute(settings.TicketSystemTicketCreateRoute, AppSettings.DefaultTicketSystemTicketCreateRoute);
         settings.TicketSystemTicketCreateMethod = string.IsNullOrWhiteSpace(settings.TicketSystemTicketCreateMethod)
             ? "POST"
             : settings.TicketSystemTicketCreateMethod.Trim().ToUpperInvariant();
