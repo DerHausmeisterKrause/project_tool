@@ -26,6 +26,7 @@ public partial class App : Application
             MainWindow = mainWindow;
             ServiceLocator.Notifications.AttachMainWindow(mainWindow);
             mainWindow.Show();
+            ServiceLocator.TicketSystem.StartScheduledSync();
             var postUpdateVersion = GetPostUpdateVersion(e.Args);
             if (postUpdateVersion != null)
             {
@@ -37,6 +38,7 @@ public partial class App : Application
                 ServiceLocator.Updates.CleanupOldTempFolders();
                 _ = ServiceLocator.MainViewModel.SettingsViewModel.RunStartupUpdateCheckAsync();
             }
+            ServiceLocator.MainViewModel.SettingsViewModel.StartHourlyUpdateMonitor();
         }
         catch (Exception ex)
         {
@@ -68,6 +70,7 @@ public partial class App : Application
     {
         try
         {
+            ServiceLocator.MainViewModel?.SettingsViewModel.StopHourlyUpdateMonitor();
             if (ServiceLocator.Notifications != null)
                 ServiceLocator.Notifications.Dispose();
             if (ServiceLocator.OutlookCalendar != null)
