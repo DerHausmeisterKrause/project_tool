@@ -401,9 +401,14 @@
                                                 </WrapPanel>
                                                 <TextBlock Text="{Binding MatchedKeyword, StringFormat=Treffer: {0}}" Foreground="{StaticResource MutedTextBrush}" Margin="0,4,0,0"/>
                                             </StackPanel>
-                                            <Button Grid.Column="1" Content="Ticket öffnen" Width="125" VerticalAlignment="Center" Style="{StaticResource SecondaryButtonStyle}"
-                                                    Command="{Binding DataContext.OpenTicketUrlCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
-                                                    CommandParameter="{Binding WebUrl}"/>
+                                            <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                                                <Button Content="Mir zuweisen" Width="125"
+                                                        Command="{Binding DataContext.AssignCandidateToMeCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
+                                                        CommandParameter="{Binding}"/>
+                                                <Button Content="Ticket öffnen" Width="125" Style="{StaticResource SecondaryButtonStyle}"
+                                                        Command="{Binding DataContext.OpenTicketUrlCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
+                                                        CommandParameter="{Binding WebUrl}"/>
+                                            </StackPanel>
                                         </Grid>
                                     </Border>
                                 </DataTemplate>

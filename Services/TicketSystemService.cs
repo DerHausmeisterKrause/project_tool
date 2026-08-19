@@ -22,6 +22,7 @@ public class TicketSystemService : IDisposable
     private readonly HttpClient _client = new() { Timeout = TimeSpan.FromSeconds(45) };
     private readonly SemaphoreSlim _syncGate = new(1, 1);
     private readonly SemaphoreSlim _dynamicFieldOptionsGate = new(1, 1);
+    private readonly ConcurrentDictionary<string, byte> _pendingManualSelfAssignmentNotificationSuppressions = new(StringComparer.OrdinalIgnoreCase);
     private readonly System.Threading.Timer _timer;
     private bool _scheduledSyncStarted;
     private bool _scheduledSyncHasRun;
@@ -99,6 +100,80 @@ public class TicketSystemService : IDisposable
 
     public Task<(int created, int updated, int skipped)> ImportAssignedOpenTicketsAsync()
         => SyncAssignedTicketsAsync("manual");
+
+    public async Task<AssignTicketResult> AssignCandidateToCurrentAgentAsync(ZnunyCandidateTicket candidate)
+    {
+        if (candidate == null || string.IsNullOrWhiteSpace(candidate.TicketId))
+            return new AssignTicketResult(false, "Das Ticket besitzt keine gültige TicketID.");
+
+        var configError = ValidateConfiguration(requireAgentId: true);
+        if (!string.IsNullOrWhiteSpace(configError))
+            return new AssignTicketResult(false, configError);
+        if (!await _syncGate.WaitAsync(0))
+            return new AssignTicketResult(false, "Es läuft bereits eine Znuny-Aktion. Bitte versuchen Sie es gleich erneut.");
+
+        var ticketId = candidate.TicketId.Trim();
+        var targetAgentId = _settings.Current.TicketSystemAgentId;
+        var serverConfirmed = false;
+        try
+        {
+            _logger.Info($"[ZnunySelfAssign] ticketId={ticketId} ticketNumber='{LogValue(candidate.TicketNumber)}' targetAgentId={targetAgentId} action=start");
+            var sessionId = await CreateSessionAsync();
+            var route = ResolveTicketUpdateRoute(ticketId);
+            var payload = new Dictionary<string, object?>
+            {
+                ["SessionID"] = sessionId,
+                ["TicketID"] = ticketId,
+                ["Ticket"] = new Dictionary<string, object?>
+                {
+                    ["OwnerID"] = targetAgentId,
+                    ["ResponsibleID"] = targetAgentId
+                }
+            };
+            using var request = new HttpRequestMessage(HttpMethod.Post, Combine(_settings.Current.TicketSystemApiUrl, route))
+            {
+                Content = new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json")
+            };
+            var response = await SendZnunyAsync(request, "TicketUpdateSelfAssignment", "[ZnunyTicketUpdateResponse]", logBody: false);
+            EnsureTicketUpdateResponseIsInterpretable(response);
+            _pendingManualSelfAssignmentNotificationSuppressions.TryAdd(ticketId, 0);
+            serverConfirmed = true;
+            _logger.Info($"[ZnunySelfAssign] ticketId={ticketId} targetAgentId={targetAgentId} action=updated");
+        }
+        catch (ZnunyApiException ex) when ((int)ex.StatusCode >= 500)
+        {
+            LogZnunyError(ex);
+            return new AssignTicketResult(false,
+                "Zuweisung konnte nicht eindeutig bestätigt werden. Bitte aktualisieren Sie die Aufgaben.",
+                ConfirmationUncertain: true);
+        }
+        catch (ZnunyApiException ex)
+        {
+            LogZnunyError(ex);
+            return new AssignTicketResult(false, $"Ticket konnte nicht zugewiesen werden: {ex.ErrorMessage}");
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException)
+        {
+            _logger.Warning($"[ZnunySelfAssign] ticketId={ticketId} targetAgentId={targetAgentId} action=unconfirmed message='{LogValue(ex.Message)}'");
+            return new AssignTicketResult(false,
+                "Zuweisung konnte nicht eindeutig bestätigt werden. Bitte aktualisieren Sie die Aufgaben.",
+                ConfirmationUncertain: true);
+        }
+        catch (Exception ex)
+        {
+            _logger.Error($"[ZnunySelfAssign] ticketId={ticketId} targetAgentId={targetAgentId} action=failed message='{LogValue(ex.Message)}'");
+            return new AssignTicketResult(false, $"Ticket konnte nicht zugewiesen werden: {ex.Message}");
+        }
+        finally
+        {
+            _syncGate.Release();
+        }
+
+        if (serverConfirmed)
+            await SyncAssignedTicketsAsync("candidate-self-assign");
+
+        return new AssignTicketResult(true, $"Ticket {candidate.TicketNumber} wurde Ihnen zugewiesen.");
+    }
 
     public async Task<CreateTicketResult> CreateTicketFromLocalTaskAsync(TaskItem task)
     {
@@ -657,8 +732,15 @@ public class TicketSystemService : IDisposable
 
                 if (!ticket.IsClosed && newlyAssignedIds.Contains(ticket.TicketID))
                 {
-                    notificationCandidates[ticket.TicketID] = (task.Id, ticket.TicketNumber, ticket.Title);
-                    _logger.Info($"[ZnunyNotificationCandidate] ticketId={ticket.TicketID} ticketNumber='{ticket.TicketNumber}' taskId={task.Id}");
+                    if (_pendingManualSelfAssignmentNotificationSuppressions.ContainsKey(ticket.TicketID))
+                    {
+                        _logger.Info($"[ZnunySelfAssign] ticketId={ticket.TicketID} action=notification-suppressed snapshotPending=true");
+                    }
+                    else
+                    {
+                        notificationCandidates[ticket.TicketID] = (task.Id, ticket.TicketNumber, ticket.Title);
+                        _logger.Info($"[ZnunyNotificationCandidate] ticketId={ticket.TicketID} ticketNumber='{ticket.TicketNumber}' taskId={task.Id}");
+                    }
                 }
             }
 
@@ -680,6 +762,7 @@ public class TicketSystemService : IDisposable
             {
                 _assignmentSnapshots.Replace(assignmentContextKey, currentAssignedIds);
                 _logger.Info($"[ZnunyAssignmentSnapshot] committed=true contextHash={assignmentContextHash} current={currentAssignedIds.Count}");
+                CompleteManualSelfAssignmentSuppressions(currentAssignedIds);
                 _logger.Info($"[ZnunyAssignmentNotifications] action=initialize-baseline contextHash={assignmentContextHash} current={currentAssignedIds.Count} notifications=0");
             }
             else
@@ -720,6 +803,7 @@ public class TicketSystemService : IDisposable
 
                 _assignmentSnapshots.Replace(assignmentContextKey, currentAssignedIds);
                 _logger.Info($"[ZnunyAssignmentSnapshot] committed=true contextHash={assignmentContextHash} current={currentAssignedIds.Count}");
+                CompleteManualSelfAssignmentSuppressions(currentAssignedIds);
             }
 
             try
@@ -768,6 +852,15 @@ public class TicketSystemService : IDisposable
             _settings.Current.TicketSystemIncludeOwner ? "owner:1" : "owner:0",
             _settings.Current.TicketSystemIncludeResponsible ? "responsible:1" : "responsible:0");
         return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(context))).ToLowerInvariant();
+    }
+
+    private void CompleteManualSelfAssignmentSuppressions(IReadOnlySet<string> currentAssignedIds)
+    {
+        foreach (var ticketId in currentAssignedIds)
+        {
+            if (!_pendingManualSelfAssignmentNotificationSuppressions.TryRemove(ticketId, out _)) continue;
+            _logger.Info($"[ZnunySelfAssign] ticketId={ticketId} action=assignment-sync-completed notificationSuppressed=true");
+        }
     }
 
     private string ValidateConfiguration(bool requireAgentId)

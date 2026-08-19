@@ -120,6 +120,17 @@ public class TodayViewModel : ObservableObject
             : "Keine passenden neuen Aufgaben gefunden.";
     public string ActiveTaskListHeading => SelectedTaskScope == TodayTaskScope.Today ? "Heute:" : "Aktuelle Aufgaben:";
 
+    private bool _isCandidateAssignmentRunning;
+    public bool IsCandidateAssignmentRunning
+    {
+        get => _isCandidateAssignmentRunning;
+        private set
+        {
+            if (Set(ref _isCandidateAssignmentRunning, value))
+                AssignCandidateToMeCommand.RaiseCanExecuteChanged();
+        }
+    }
+
     public string SelectedCurrentTaskSortField
     {
         get => string.Equals(_settings.Current.CurrentTasksSortField, "Created", StringComparison.OrdinalIgnoreCase)
@@ -323,6 +334,7 @@ public class TodayViewModel : ObservableObject
     public RelayCommand ShowNewTasksCommand { get; }
     public RelayCommand ShowCompletedTasksCommand { get; }
     public RelayCommand RefreshCandidateTicketsCommand { get; }
+    public RelayCommand<ZnunyCandidateTicket> AssignCandidateToMeCommand { get; }
     public RelayCommand CreateTicketFromLocalTaskCommand { get; }
 
     public RelayCommand<TaskItem> SelectTaskCommand { get; }
@@ -397,6 +409,9 @@ public class TodayViewModel : ObservableObject
         ShowNewTasksCommand = new RelayCommand(() => SelectedTaskScope = TodayTaskScope.CandidateTickets);
         ShowCompletedTasksCommand = new RelayCommand(() => SelectedTaskScope = TodayTaskScope.Completed);
         RefreshCandidateTicketsCommand = new RelayCommand(async () => await _ticketSystem.RefreshCandidateTicketsAsync());
+        AssignCandidateToMeCommand = new RelayCommand<ZnunyCandidateTicket>(
+            async candidate => await AssignCandidateToMeAsync(candidate),
+            candidate => candidate != null && !IsCandidateAssignmentRunning);
         CreateTicketFromLocalTaskCommand = new RelayCommand(async () => await CreateTicketFromLocalTaskAsync(), () => CanCreateTicketFromSelectedTask);
 
         SelectTaskCommand = new RelayCommand<TaskItem>(task => SelectedTask = task, task => task != null);
@@ -443,6 +458,35 @@ public class TodayViewModel : ObservableObject
         Raise(nameof(CandidateHint));
         Raise(nameof(ShowCandidateStatus));
         Raise(nameof(CandidateStatus));
+    }
+
+    private async Task AssignCandidateToMeAsync(ZnunyCandidateTicket? candidate)
+    {
+        if (candidate == null || IsCandidateAssignmentRunning) return;
+        var displayNumber = string.IsNullOrWhiteSpace(candidate.TicketNumber) ? candidate.TicketId : candidate.TicketNumber;
+        var confirmation = MessageBox.Show(
+            $"Ticket {displayNumber} – {candidate.Title}\n\nwirklich Ihnen zuweisen?",
+            "Ticket mir zuweisen",
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Question);
+        if (confirmation != MessageBoxResult.Yes) return;
+
+        IsCandidateAssignmentRunning = true;
+        StatusMessage = "Ticket wird Ihnen zugewiesen …";
+        try
+        {
+            var result = await _ticketSystem.AssignCandidateToCurrentAgentAsync(candidate);
+            StatusMessage = result.Message;
+            if (!result.Success)
+            {
+                MessageBox.Show(result.Message, "Ticket zuweisen", MessageBoxButton.OK,
+                    result.ConfirmationUncertain ? MessageBoxImage.Warning : MessageBoxImage.Error);
+            }
+        }
+        finally
+        {
+            IsCandidateAssignmentRunning = false;
+        }
     }
 
     private void RaiseSegmentEditorState()
