@@ -105,12 +105,16 @@
         </Border>
 
         <Border Grid.Row="1" Style="{StaticResource CardStyle}">
-            <Grid>
+            <Grid x:Name="WorkDayHeaderGrid" SizeChanged="WorkDayHeaderGrid_SizeChanged">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
                 <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="Auto"/>
                     <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
-                <StackPanel Grid.Column="0" Margin="0,0,24,0">
+                <StackPanel x:Name="WorkDayStatisticsPanel" Grid.Row="0" Grid.Column="0" Margin="0,0,24,0">
                     <TextBlock Text="Arbeitstag heute" FontSize="18" FontWeight="SemiBold"/>
                     <StackPanel Margin="0,4,0,0">
                         <TextBlock Foreground="{StaticResource MutedTextBrush}">
@@ -123,7 +127,7 @@
                         </TextBlock>
                     </StackPanel>
                 </StackPanel>
-                <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
+                <StackPanel x:Name="WorkDayMarkerPanel" Grid.Row="0" Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
                     <Border Background="Transparent" BorderBrush="{StaticResource BorderBrushColor}" BorderThickness="1" CornerRadius="16" Padding="0" Margin="0,0,0,8" HorizontalAlignment="Left">
                         <StackPanel Orientation="Horizontal">
                             <RadioButton GroupName="TodayDayType" Content="Normal" Style="{StaticResource DayMarkerSegmentLeftStyle}"
@@ -134,10 +138,10 @@
                                          IsChecked="{Binding DayType, Converter={StaticResource EqualityConverter}, ConverterParameter=AM}" Command="{Binding SetDayTypeAmCommand}"/>
                         </StackPanel>
                     </Border>
-                    <WrapPanel Margin="8,0,0,0">
+                    <StackPanel Orientation="Horizontal" Margin="8,0,0,0">
                         <ToggleButton Content="HO" Style="{StaticResource DayMarkerChipToggleStyle}" IsChecked="{Binding IsHo, Mode=OneWay}" Command="{Binding ToggleHomeOfficeCommand}"/>
                         <ToggleButton Content="BR" Style="{StaticResource DayMarkerChipToggleStyle}" IsChecked="{Binding IsBr}" Command="{Binding SaveMarkersCommand}"/>
-                    </WrapPanel>
+                    </StackPanel>
                 </StackPanel>
             </Grid>
         </Border>
@@ -300,7 +304,21 @@
                                         <StackPanel>
                                             <TextBlock Text="{Binding Title}" FontSize="18" FontWeight="Bold" TextWrapping="Wrap"/>
                                             <TextBlock Margin="0,4,0,6" Foreground="{StaticResource MutedTextBrush}" Text="{Binding StartLocal, StringFormat=Start: {0:dd.MM HH:mm}}"/>
-                                            <WrapPanel><Border Style="{StaticResource BadgeStyle}"><TextBlock Text="{Binding Status}"/></Border><TextBlock VerticalAlignment="Center" Text="{Binding TicketMinutesBooked, StringFormat=Ticket: {0} min}"/></WrapPanel>
+                                            <WrapPanel>
+                                                <Border Visibility="{Binding ShowCurrentListBadge, Converter={StaticResource BooleanToVisibilityConverter}}">
+                                                    <Border.Style>
+                                                        <Style TargetType="Border" BasedOn="{StaticResource BadgeStyle}">
+                                                            <Style.Triggers>
+                                                                <DataTrigger Binding="{Binding IsCurrentListBadgePlanned}" Value="True">
+                                                                    <Setter Property="Background" Value="#1D4ED8"/>
+                                                                </DataTrigger>
+                                                            </Style.Triggers>
+                                                        </Style>
+                                                    </Border.Style>
+                                                    <TextBlock Text="{Binding CurrentListBadgeText}" Foreground="#DBEAFE"/>
+                                                </Border>
+                                                <TextBlock VerticalAlignment="Center" Text="{Binding TicketMinutesBooked, StringFormat=Ticket: {0} min}"/>
+                                            </WrapPanel>
                                             <Button Content="Ticket öffnen" Style="{StaticResource LinkButtonStyle}"
                                                     Visibility="{Binding TicketUrl, Converter={StaticResource StringEmptyToVisibilityConverter}}"
                                                     ToolTip="{Binding TicketUrl}"
@@ -363,6 +381,8 @@
                 <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto" Background="Transparent"
                               Visibility="{Binding ShowCandidateTickets, Converter={StaticResource BooleanToVisibilityConverter}}">
                     <StackPanel>
+                        <TextBlock Text="{Binding CandidateStatus}" Foreground="{StaticResource AccentBrush}" Margin="4,8"
+                                   Visibility="{Binding ShowCandidateStatus, Converter={StaticResource BooleanToVisibilityConverter}}"/>
                         <TextBlock Text="{Binding CandidateHint}" Foreground="{StaticResource MutedTextBrush}" TextWrapping="Wrap" Margin="4,8"
                                    Visibility="{Binding ShowCandidateHint, Converter={StaticResource BooleanToVisibilityConverter}}"/>
                         <ItemsControl ItemsSource="{Binding NewTaskCandidates}">

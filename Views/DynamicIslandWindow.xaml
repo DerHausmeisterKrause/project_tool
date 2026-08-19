@@ -49,6 +49,9 @@
                     <Style TargetType="Border">
                         <Setter Property="BorderBrush" Value="#F59E0B"/>
                         <Style.Triggers>
+                            <DataTrigger Binding="{Binding IsTicketNotification}" Value="True">
+                                <Setter Property="BorderBrush" Value="#3B82F6"/>
+                            </DataTrigger>
                             <DataTrigger Binding="{Binding IsStartNotification}" Value="True">
                                 <Setter Property="BorderBrush" Value="#EF4444"/>
                             </DataTrigger>

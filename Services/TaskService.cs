@@ -367,18 +367,51 @@ VALUES ($id,$task,$ticket,$number,$booking,$article,$minutes,$bookedMinutes,$sec
         return elapsed > TimeSpan.Zero ? elapsed : TimeSpan.Zero;
     }
 
-    public int GetTicketMinutesForDay(DateTime day)
+    public SuccessfulBookingStatistics GetSuccessfulBookingStatistics(
+        DateTime localDay,
+        TimeZoneInfo calendarTimeZone)
     {
-        return GetTicketMinutesForRange(day.Date, day.Date.AddDays(1));
+        var secondsByMonth = new Dictionary<DateTime, long>();
+        long todaySeconds = 0;
+        using var conn = new SqliteConnection(_db.ConnectionString);
+        conn.Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = @"SELECT booked_at_utc, source_seconds
+FROM ticket_time_bookings
+WHERE status = 'Succeeded'";
+        using var reader = cmd.ExecuteReader();
+        while (reader.Read())
+        {
+            if (!DateTimeOffset.TryParse(
+                    reader["booked_at_utc"]?.ToString(),
+                    CultureInfo.InvariantCulture,
+                    DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal,
+                    out var bookedAtUtc))
+                continue;
+
+            var bookedLocal = TimeZoneInfo.ConvertTime(bookedAtUtc, calendarTimeZone);
+            var seconds = Math.Max(0, Convert.ToInt64(reader["source_seconds"]));
+            var month = new DateTime(bookedLocal.Year, bookedLocal.Month, 1);
+            secondsByMonth[month] = secondsByMonth.GetValueOrDefault(month) + seconds;
+            if (bookedLocal.Date == localDay.Date)
+                todaySeconds += seconds;
+        }
+
+        return new SuccessfulBookingStatistics(todaySeconds, secondsByMonth);
     }
+
+    // These task-based counters remain for the existing Today view. Reports use
+    // GetSuccessfulBookingStatistics and never infer booking dates from tasks.
+    public int GetTicketMinutesForDay(DateTime day)
+        => GetTaskTicketMinutesForRange(day.Date, day.Date.AddDays(1));
 
     public int GetMonthTicketMinutes(DateTime month)
     {
         var monthStart = new DateTime(month.Year, month.Month, 1);
-        return GetTicketMinutesForRange(monthStart, monthStart.AddMonths(1));
+        return GetTaskTicketMinutesForRange(monthStart, monthStart.AddMonths(1));
     }
 
-    private int GetTicketMinutesForRange(DateTime fromInclusive, DateTime toExclusive)
+    private int GetTaskTicketMinutesForRange(DateTime fromInclusive, DateTime toExclusive)
     {
         using var conn = new SqliteConnection(_db.ConnectionString);
         conn.Open();
@@ -390,26 +423,6 @@ WHERE datetime(COALESCE(start_local, created_utc)) >= datetime($from)
         cmd.Parameters.AddWithValue("$from", fromInclusive.ToString("s"));
         cmd.Parameters.AddWithValue("$to", toExclusive.ToString("s"));
         return Convert.ToInt32(cmd.ExecuteScalar());
-    }
-
-    public List<(string Title, int Minutes)> GetTopTasksForMonth(DateTime month, int max = 5)
-    {
-        var result = new List<(string Title, int Minutes)>();
-        using var conn = new SqliteConnection(_db.ConnectionString);
-        conn.Open();
-        using var cmd = conn.CreateCommand();
-        cmd.CommandText = @"SELECT title, ticket_minutes_booked FROM tasks
-WHERE strftime('%Y-%m', COALESCE(start_local, created_utc)) = $m
-ORDER BY ticket_minutes_booked DESC, title ASC LIMIT $max";
-        cmd.Parameters.AddWithValue("$m", month.ToString("yyyy-MM"));
-        cmd.Parameters.AddWithValue("$max", max);
-
-        using var reader = cmd.ExecuteReader();
-        while (reader.Read())
-        {
-            result.Add((reader["title"]?.ToString() ?? "(ohne Titel)", Convert.ToInt32(reader["ticket_minutes_booked"])));
-        }
-        return result;
     }
 
     public TaskItem ParseQuickAdd(string input)
@@ -486,6 +499,25 @@ WHERE datetime(start_local) >= datetime($from)
                 taskIds.Add(taskId);
         }
 
+        return taskIds;
+    }
+
+    public HashSet<Guid> GetTaskIdsWithActiveOrFutureSegments(DateTime now)
+    {
+        var taskIds = new HashSet<Guid>();
+        using var conn = new SqliteConnection(_db.ConnectionString);
+        conn.Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = @"SELECT DISTINCT task_id
+FROM task_segments
+WHERE datetime(end_local) > datetime($now)";
+        cmd.Parameters.AddWithValue("$now", now.ToString("s"));
+        using var reader = cmd.ExecuteReader();
+        while (reader.Read())
+        {
+            if (Guid.TryParse(reader["task_id"]?.ToString(), out var taskId))
+                taskIds.Add(taskId);
+        }
         return taskIds;
     }
 

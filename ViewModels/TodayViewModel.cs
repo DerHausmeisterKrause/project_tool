@@ -108,7 +108,9 @@ public class TodayViewModel : ObservableObject
     public bool ShowCompletedTaskList => SelectedTaskScope == TodayTaskScope.Completed;
     public bool ShowCandidateTickets => SelectedTaskScope == TodayTaskScope.CandidateTickets;
     public string CandidateTabTitle => $"Neue Aufgaben ({NewTaskCandidates.Count})";
-    public bool ShowCandidateHint => ShowCandidateTickets && NewTaskCandidates.Count == 0;
+    public bool ShowCandidateHint => ShowCandidateTickets && NewTaskCandidates.Count == 0 && !_ticketSystem.IsCandidateRefreshRunning;
+    public bool ShowCandidateStatus => ShowCandidateTickets && _ticketSystem.IsCandidateRefreshRunning;
+    public string CandidateStatus => "Neue Aufgaben werden geladen…";
     public string CandidateHint => !string.IsNullOrWhiteSpace(_ticketSystem.CandidateTicketsError)
         ? _ticketSystem.CandidateTicketsError
         : string.IsNullOrWhiteSpace(_settings.Current.TicketSystemCandidateKeywords)
@@ -419,6 +421,8 @@ public class TodayViewModel : ObservableObject
         Raise(nameof(CandidateTabTitle));
         Raise(nameof(ShowCandidateHint));
         Raise(nameof(CandidateHint));
+        Raise(nameof(ShowCandidateStatus));
+        Raise(nameof(CandidateStatus));
     }
 
     private void RaiseSegmentEditorState()
@@ -555,6 +559,7 @@ public class TodayViewModel : ObservableObject
     {
         var all = _tasks.GetAllTasks();
         var now = _germanTime.GetLocalNow(_settings.Current.CalendarTimeZoneId).DateTime;
+        var taskIdsWithActiveOrFutureSegments = _tasks.GetTaskIdsWithActiveOrFutureSegments(now);
         var localToday = now.Date;
         var hidePastTodayItems = _settings.Current.HidePastTodayItems;
         List<(TaskItem Task, TaskSegment Segment)>? todaySegments = null;
@@ -573,6 +578,12 @@ public class TodayViewModel : ObservableObject
         }
 
         var active = all.Where(t => t.Status != TaskStatus.Done && t.IsOperationallyVisible).ToList();
+        foreach (var task in active)
+        {
+            task.CurrentListBadgeText = task.Status == TaskStatus.Running
+                ? "Running"
+                : taskIdsWithActiveOrFutureSegments.Contains(task.Id) ? "Geplant" : string.Empty;
+        }
         if (!string.IsNullOrWhiteSpace(TaskSearchText))
         {
             var q = TaskSearchText.Trim();
@@ -1235,7 +1246,7 @@ public class TodayViewModel : ObservableObject
         }
 
         var minute = TruncateToMinute(now);
-        if (_settings.Current.HidePastTodayItems && minute != _lastTodayVisibilityRefreshMinute)
+        if (minute != _lastTodayVisibilityRefreshMinute)
             ApplyTaskFilters();
     }
 

@@ -3,23 +3,81 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              Background="{StaticResource BgBrush}">
     <Grid Background="{StaticResource BgBrush}" HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
-        <ScrollViewer VerticalScrollBarVisibility="Auto" Background="Transparent">
+        <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Background="Transparent">
             <StackPanel>
-                <UniformGrid Columns="2" Margin="0,0,0,12">
-                    <Border Style="{StaticResource CardStyle}"><StackPanel><TextBlock Text="Ticket-/Aufgabenzeit heute" Foreground="{StaticResource MutedTextBrush}"/><TextBlock Text="{Binding TicketMinutesToday, StringFormat={}{0:N0} Min.}" FontSize="26" FontWeight="Bold"/></StackPanel></Border>
-                    <Border Style="{StaticResource CardStyle}"><StackPanel><TextBlock Text="Ticket-/Aufgabenzeit Monat" Foreground="{StaticResource MutedTextBrush}"/><TextBlock Text="{Binding TicketMinutesCurrentMonth, StringFormat={}{0:N0} Min.}" FontSize="26" FontWeight="Bold"/></StackPanel></Border>
+                <TextBlock Text="Reports" FontSize="26" FontWeight="SemiBold" Margin="0,0,0,14"/>
+                <TextBlock Text="Heute" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,8"/>
+                <UniformGrid Columns="2" Margin="0,0,0,18">
+                    <Border Style="{StaticResource CardStyle}" Margin="0,0,6,0">
+                        <StackPanel>
+                            <TextBlock Text="HEUTE GEBUCHT" Foreground="{StaticResource MutedTextBrush}" FontWeight="SemiBold"/>
+                            <TextBlock Text="{Binding BookedMinutesTodayText}" FontSize="30" FontWeight="Bold" Margin="0,6,0,0"/>
+                        </StackPanel>
+                    </Border>
+                    <Border Style="{StaticResource CardStyle}" Margin="6,0,0,0">
+                        <StackPanel>
+                            <TextBlock Text="HEUTE GEBUCHT" Foreground="{StaticResource MutedTextBrush}" FontWeight="SemiBold"/>
+                            <TextBlock Text="{Binding BookedHoursTodayText}" FontSize="30" FontWeight="Bold" Margin="0,6,0,0"/>
+                        </StackPanel>
+                    </Border>
                 </UniformGrid>
 
                 <Border Style="{StaticResource CardStyle}">
                     <StackPanel>
-                        <DockPanel Margin="0,0,0,8">
-                            <TextBlock Text="Top Tasks diesen Monat" FontSize="16" FontWeight="SemiBold"/>
-                            <Button Content="Aktualisieren" Width="110" HorizontalAlignment="Right" Style="{StaticResource SecondaryButtonStyle}" Command="{Binding RefreshCommand}"/>
+                        <DockPanel Margin="0,0,0,12">
+                            <TextBlock Text="Monatsübersicht" FontSize="18" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                            <Button Content="Aktualisieren" Width="120" HorizontalAlignment="Right"
+                                    Style="{StaticResource SecondaryButtonStyle}" Command="{Binding RefreshCommand}"/>
                         </DockPanel>
-                        <ItemsControl ItemsSource="{Binding TopTasks}">
+                        <Grid Margin="10,0,10,7">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="160"/><ColumnDefinition Width="130"/><ColumnDefinition Width="170"/>
+                                <ColumnDefinition Width="120"/><ColumnDefinition Width="100"/><ColumnDefinition Width="80"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="Monat" FontWeight="SemiBold"/>
+                            <TextBlock Grid.Column="1" Text="Minuten" FontWeight="SemiBold"/>
+                            <TextBlock Grid.Column="2" Text="Stunden" FontWeight="SemiBold"/>
+                            <TextBlock Grid.Column="3" Text="Homeoffice" FontWeight="SemiBold"/>
+                            <TextBlock Grid.Column="4" Text="Urlaub" FontWeight="SemiBold"/>
+                            <TextBlock Grid.Column="5" Text="AM" FontWeight="SemiBold"/>
+                        </Grid>
+                        <ItemsControl ItemsSource="{Binding MonthlyReports}">
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate>
-                                    <Grid Margin="0,0,0,8"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="120"/></Grid.ColumnDefinitions><TextBlock Grid.Column="0" Text="{Binding Title}" TextTrimming="CharacterEllipsis"/><TextBlock Grid.Column="1" Text="{Binding DurationText}" HorizontalAlignment="Right" Foreground="{StaticResource MutedTextBrush}"/></Grid>
+                                    <Border CornerRadius="8" Padding="10,9" Margin="0,0,0,4">
+                                        <Border.Style>
+                                            <Style TargetType="Border">
+                                                <Setter Property="Background" Value="{StaticResource SurfaceAltBrush}"/>
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding IsCurrentMonth}" Value="True">
+                                                        <Setter Property="Background" Value="#172554"/>
+                                                        <Setter Property="BorderBrush" Value="{StaticResource AccentBrush}"/>
+                                                        <Setter Property="BorderThickness" Value="1"/>
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </Border.Style>
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="160"/><ColumnDefinition Width="130"/><ColumnDefinition Width="170"/>
+                                                <ColumnDefinition Width="120"/><ColumnDefinition Width="100"/><ColumnDefinition Width="80"/>
+                                                <ColumnDefinition Width="*"/>
+                                            </Grid.ColumnDefinitions>
+                                            <StackPanel Grid.Column="0" Orientation="Horizontal">
+                                                <TextBlock Text="{Binding MonthText}" VerticalAlignment="Center"/>
+                                                <Border Margin="6,0,0,0" Padding="5,1" CornerRadius="7" Background="#1D4ED8"
+                                                        Visibility="{Binding IsCurrentMonth, Converter={StaticResource BooleanToVisibilityConverter}}">
+                                                    <TextBlock Text="Aktuell" FontSize="10" Foreground="#EAF2FF"/>
+                                                </Border>
+                                            </StackPanel>
+                                            <TextBlock Grid.Column="1" Text="{Binding MinutesText}" VerticalAlignment="Center"/>
+                                            <TextBlock Grid.Column="2" Text="{Binding HoursText}" VerticalAlignment="Center"/>
+                                            <TextBlock Grid.Column="3" Text="{Binding HomeOfficeText}" VerticalAlignment="Center"/>
+                                            <TextBlock Grid.Column="4" Text="{Binding VacationText}" VerticalAlignment="Center"/>
+                                            <TextBlock Grid.Column="5" Text="{Binding AmText}" VerticalAlignment="Center"/>
+                                        </Grid>
+                                    </Border>
                                 </DataTemplate>
                             </ItemsControl.ItemTemplate>
                         </ItemsControl>
