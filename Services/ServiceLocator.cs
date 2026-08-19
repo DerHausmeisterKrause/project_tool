@@ -38,7 +38,7 @@ public static class ServiceLocator
         TicketSystem = new TicketSystemService(Settings, Tasks, TicketAssignmentSnapshots, Notifications, Logger);
         OutlookCalendar = new OutlookCalendarService(Logger, Settings, Outlook);
         HomeOffice = new HomeOfficeService(WorkDays, Settings, Outlook, OutlookCalendar, Logger);
-        MainViewModel = new MainViewModel(Tasks, WorkDays, Settings, Notifications, OutlookCalendar, TicketSystem, Updates, HomeOffice, Logger);
+        MainViewModel = new MainViewModel(Tasks, WorkDays, Settings, Notifications, OutlookCalendar, TicketSystem, Updates, HomeOffice, GermanTime, Logger);
     }
 
     private static AppLogLevel ParseLogLevel(string? value)

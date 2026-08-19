@@ -52,6 +52,40 @@ public class WorkDayService
         return list;
     }
 
+    public IReadOnlyList<MonthlyWorkDayStats> GetMonthlyMarkerStatistics()
+    {
+        var result = new List<MonthlyWorkDayStats>();
+        using var conn = new SqliteConnection(_db.ConnectionString);
+        conn.Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = @"SELECT substr(day, 1, 7) AS month_key,
+       SUM(CASE WHEN is_ho = 1 THEN 1 ELSE 0 END) AS homeoffice_days,
+       SUM(CASE WHEN day_type = 'UL' THEN 1 ELSE 0 END) AS vacation_days,
+       SUM(CASE WHEN day_type = 'AM' THEN 1 ELSE 0 END) AS am_days
+FROM work_days
+GROUP BY substr(day, 1, 7)
+ORDER BY month_key DESC";
+        using var reader = cmd.ExecuteReader();
+        while (reader.Read())
+        {
+            if (!DateTime.TryParseExact(
+                    reader["month_key"]?.ToString(),
+                    "yyyy-MM",
+                    CultureInfo.InvariantCulture,
+                    DateTimeStyles.None,
+                    out var month))
+                continue;
+
+            result.Add(new MonthlyWorkDayStats(
+                month,
+                Convert.ToInt32(reader["homeoffice_days"]),
+                Convert.ToInt32(reader["vacation_days"]),
+                Convert.ToInt32(reader["am_days"])));
+        }
+
+        return result;
+    }
+
     public List<BreakRecord> GetBreaks(string day)
     {
         var list = new List<BreakRecord>();
