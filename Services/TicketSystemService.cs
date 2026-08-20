@@ -357,7 +357,7 @@ public class TicketSystemService : IDisposable
 
         try
         {
-            _logger.Info($"[ZnunyReply] ticketId={ticketId} recipientResolved=true replyLength={body.Length} action=send");
+            _logger.Info($"[ZnunyReply] ticketId={ticketId} recipientResolved=true recipientFormat=bare-address replyLength={body.Length} action=send");
             var sessionId = await CreateSessionAsync();
             var originalSubject = originalCustomerArticle?.Subject ?? string.Empty;
             var subjectSource = string.IsNullOrWhiteSpace(originalSubject) ? ticketTitle : originalSubject;
@@ -442,9 +442,7 @@ public class TicketSystemService : IDisposable
         {
             var address = new MailAddress(value.Trim());
             if (!address.Address.Contains("@", StringComparison.Ordinal) || address.Address.EndsWith("@", StringComparison.Ordinal)) return false;
-            normalized = string.IsNullOrWhiteSpace(address.DisplayName)
-                ? address.Address
-                : $"{address.DisplayName} <{address.Address}>";
+            normalized = address.Address;
             return true;
         }
         catch (FormatException)
