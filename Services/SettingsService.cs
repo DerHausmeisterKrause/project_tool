@@ -171,6 +171,7 @@ public class SettingsService
         settings.TicketSystemCreatePriority = string.IsNullOrWhiteSpace(settings.TicketSystemCreatePriority) ? "3 normal" : settings.TicketSystemCreatePriority.Trim();
         settings.TicketSystemCreateType = settings.TicketSystemCreateType?.Trim() ?? string.Empty;
         settings.TicketSystemCreateCustomerUser = settings.TicketSystemCreateCustomerUser?.Trim() ?? string.Empty;
+        settings.TicketSystemReplyTemplate ??= string.Empty;
         settings.TicketSystemDynamicFieldOptionsRoute = string.Equals(settings.TicketSystemDynamicFieldOptionsRoute?.Trim(), "/DynamicField/Options", StringComparison.OrdinalIgnoreCase)
             ? "/Ticket/DynamicField/{FieldName}/Options"
             : NormalizeRoute(settings.TicketSystemDynamicFieldOptionsRoute, "/Ticket/DynamicField/{FieldName}/Options");

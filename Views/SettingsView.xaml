@@ -290,7 +290,27 @@
                     </StackPanel>
                 </Border>
 
-                <!-- 10. Dynamic fields -->
+                <!-- 10. Ticket replies -->
+                <Border Style="{StaticResource CardStyle}">
+                    <StackPanel>
+                        <TextBlock Text="Znuny / OTRS – Antworten" Style="{StaticResource SettingsCardTitleStyle}"/>
+                        <TextBlock Text="Antwortvorlage" Style="{StaticResource SettingsLabelStyle}"/>
+                        <TextBox Text="{Binding TicketSystemReplyTemplate, Mode=TwoWay, UpdateSourceTrigger=LostFocus}"
+                                 AcceptsReturn="True"
+                                 TextWrapping="Wrap"
+                                 VerticalScrollBarVisibility="Auto"
+                                 MinHeight="140"
+                                 MaxHeight="260"
+                                 MaxLength="10000"
+                                 MaxWidth="560"
+                                 HorizontalAlignment="Stretch"
+                                 Margin="0,0,0,8"/>
+                        <TextBlock Text="Diese Vorlage wird beim Klick auf „Antworten“ eingefügt. Der Text kann vor jedem Versand frei angepasst werden. Leer lassen, wenn Antworten weiterhin mit einem leeren Textfeld beginnen sollen."
+                                   Style="{StaticResource SettingsHelpStyle}"/>
+                    </StackPanel>
+                </Border>
+
+                <!-- 11. Dynamic fields -->
                 <Border Style="{StaticResource CardStyle}">
                     <StackPanel>
                         <TextBlock Text="Znuny / OTRS – Zeitbuchung &amp; Dynamic Fields" Style="{StaticResource SettingsCardTitleStyle}"/>
@@ -313,7 +333,7 @@
                     </StackPanel>
                 </Border>
 
-                <!-- 11. Working hours -->
+                <!-- 12. Working hours -->
                 <Border Style="{StaticResource CardStyle}">
                     <StackPanel>
                         <TextBlock Text="Sollstunden / Arbeitszeit" Style="{StaticResource SettingsCardTitleStyle}"/>

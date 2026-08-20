@@ -62,6 +62,7 @@ public class AppSettings
     public string TicketSystemCreatePriority { get; set; } = "3 normal";
     public string TicketSystemCreateType { get; set; } = string.Empty;
     public string TicketSystemCreateCustomerUser { get; set; } = string.Empty;
+    public string TicketSystemReplyTemplate { get; set; } = string.Empty;
     public string TicketSystemDynamicFieldOptionsRoute { get; set; } = "/Ticket/DynamicField/{FieldName}/Options";
     public string TicketSystemCostCenterFieldName { get; set; } = "KostenstelleID";
     public string TicketSystemOrderFieldName { get; set; } = "AuftragsID";

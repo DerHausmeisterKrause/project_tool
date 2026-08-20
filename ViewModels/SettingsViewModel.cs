@@ -91,6 +91,7 @@ public class SettingsViewModel : ObservableObject
     public string TicketSystemCreatePriority { get => _settings.Current.TicketSystemCreatePriority; set { _settings.Current.TicketSystemCreatePriority = value; Save(); } }
     public string TicketSystemCreateType { get => _settings.Current.TicketSystemCreateType; set { _settings.Current.TicketSystemCreateType = value; Save(); } }
     public string TicketSystemCreateCustomerUser { get => _settings.Current.TicketSystemCreateCustomerUser; set { _settings.Current.TicketSystemCreateCustomerUser = value; Save(); } }
+    public string TicketSystemReplyTemplate { get => _settings.Current.TicketSystemReplyTemplate; set { _settings.Current.TicketSystemReplyTemplate = value ?? string.Empty; Save(); } }
     public string TicketSystemDynamicFieldOptionsRoute { get => _settings.Current.TicketSystemDynamicFieldOptionsRoute; set { _settings.Current.TicketSystemDynamicFieldOptionsRoute = value; Save(); } }
     public string TicketSystemCostCenterFieldName { get => _settings.Current.TicketSystemCostCenterFieldName; set { _settings.Current.TicketSystemCostCenterFieldName = value; Save(); } }
     public string TicketSystemOrderFieldName { get => _settings.Current.TicketSystemOrderFieldName; set { _settings.Current.TicketSystemOrderFieldName = value; Save(); } }

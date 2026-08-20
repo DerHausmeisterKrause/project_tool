@@ -261,6 +261,7 @@ public class TodayViewModel : ObservableObject
             if (Set(ref _isTicketReplyMode, value))
             {
                 Raise(nameof(ShowTicketArticleView));
+                BeginTicketReplyCommand.RaiseCanExecuteChanged();
                 SendTicketReplyCommand.RaiseCanExecuteChanged();
             }
         }
@@ -517,7 +518,7 @@ public class TodayViewModel : ObservableObject
             candidate => candidate != null && !IsCandidateAssignmentRunning);
         CreateTicketFromLocalTaskCommand = new RelayCommand(async () => await CreateTicketFromLocalTaskAsync(), () => CanCreateTicketFromSelectedTask);
         RefreshTicketArticlesCommand = new RelayCommand(async () => await RefreshTicketArticlesAsync(), () => HasZnunyTicket && !IsTicketConversationLoading);
-        BeginTicketReplyCommand = new RelayCommand(BeginTicketReply, () => HasZnunyTicket && HasSelectedTicketArticle && !string.IsNullOrWhiteSpace(TicketReplyRecipient) && !IsTicketConversationLoading);
+        BeginTicketReplyCommand = new RelayCommand(BeginTicketReply, () => HasZnunyTicket && HasSelectedTicketArticle && !IsTicketReplyMode && !string.IsNullOrWhiteSpace(TicketReplyRecipient) && !IsTicketConversationLoading);
         CancelTicketReplyCommand = new RelayCommand(CancelTicketReply, () => !IsSendingTicketReply);
         SendTicketReplyCommand = new RelayCommand(async () => await SendTicketReplyAsync(), () => IsTicketReplyMode && !IsSendingTicketReply && !string.IsNullOrWhiteSpace(TicketReplyText) && !string.IsNullOrWhiteSpace(TicketReplyRecipient));
 
@@ -1324,12 +1325,14 @@ public class TodayViewModel : ObservableObject
 
     private void BeginTicketReply()
     {
+        if (IsTicketReplyMode) return;
         if (string.IsNullOrWhiteSpace(TicketReplyRecipient))
         {
             TicketConversationMessage = "Für dieses Ticket konnte keine eindeutige Empfängeradresse ermittelt werden. Bitte antworten Sie über Znuny.";
             return;
         }
-        TicketReplyText = string.Empty;
+        var template = _settings.Current.TicketSystemReplyTemplate ?? string.Empty;
+        TicketReplyText = template.Length <= 10000 ? template : template[..10000];
         IsTicketReplyMode = true;
         SendTicketReplyCommand.RaiseCanExecuteChanged();
     }
