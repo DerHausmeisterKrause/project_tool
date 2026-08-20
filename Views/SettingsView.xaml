@@ -304,8 +304,13 @@
                                  MaxLength="10000"
                                  MaxWidth="560"
                                  HorizontalAlignment="Stretch"
+                                 ToolTip="Variablen werden beim Klick auf „Antworten“ automatisch ersetzt."
                                  Margin="0,0,0,8"/>
                         <TextBlock Text="Diese Vorlage wird beim Klick auf „Antworten“ eingefügt. Der Text kann vor jedem Versand frei angepasst werden. Leer lassen, wenn Antworten weiterhin mit einem leeren Textfeld beginnen sollen."
+                                   Style="{StaticResource SettingsHelpStyle}"/>
+                        <TextBlock Text="Verfügbare Variablen:&#10;$Customer – Vor- und Nachname des Ticket-Erstellers&#10;$CustomerFirstName – Vorname&#10;$CustomerLastName – Nachname&#10;$TicketNumber – Ticketnummer&#10;$TicketTitle – Ticketbetreff&#10;$Date – aktuelles Datum"
+                                   Style="{StaticResource SettingsHelpStyle}"/>
+                        <TextBlock Text="Beispiel:&#10;Hallo $Customer,&#10;&#10;vielen Dank für Ihre Nachricht zu Ticket $TicketNumber."
                                    Style="{StaticResource SettingsHelpStyle}"/>
                     </StackPanel>
                 </Border>

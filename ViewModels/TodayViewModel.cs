@@ -241,6 +241,9 @@ public class TodayViewModel : ObservableObject
     public string TicketConversationMessage { get => _ticketConversationMessage; private set => Set(ref _ticketConversationMessage, value); }
     private TicketArticleItem? _ticketReplySourceArticle;
     private string _ticketTitle = string.Empty;
+    private string _ticketNumber = string.Empty;
+    private string _ticketReplyTemplateWarning = string.Empty;
+    public string TicketReplyTemplateWarning { get => _ticketReplyTemplateWarning; private set => Set(ref _ticketReplyTemplateWarning, value); }
     private string _ticketReplyRecipient = string.Empty;
     public string TicketReplyRecipient
     {
@@ -1281,6 +1284,7 @@ public class TodayViewModel : ObservableObject
             _ticketReplySourceArticle = context.ReplySourceArticle;
             TicketReplyRecipient = context.ReplyRecipient;
             _ticketTitle = context.TicketTitle;
+            _ticketNumber = context.TicketNumber;
             var requestedArticleId = !string.IsNullOrWhiteSpace(preferredArticleId) ? preferredArticleId : previousArticleId;
             SelectedTicketArticle = TicketArticles.FirstOrDefault(article => string.Equals(article.ArticleId, requestedArticleId, StringComparison.OrdinalIgnoreCase))
                                     ?? (selectNewestWhenPreferredMissing ? TicketArticles.LastOrDefault() : TicketArticles.FirstOrDefault());
@@ -1312,6 +1316,8 @@ public class TodayViewModel : ObservableObject
         _ticketReplySourceArticle = null;
         TicketReplyRecipient = string.Empty;
         _ticketTitle = string.Empty;
+        _ticketNumber = string.Empty;
+        TicketReplyTemplateWarning = string.Empty;
         TicketConversationMessage = string.Empty;
         TicketReplyText = string.Empty;
         IsTicketReplyMode = false;
@@ -1331,8 +1337,16 @@ public class TodayViewModel : ObservableObject
             TicketConversationMessage = "Für dieses Ticket konnte keine eindeutige Empfängeradresse ermittelt werden. Bitte antworten Sie über Znuny.";
             return;
         }
-        var template = _settings.Current.TicketSystemReplyTemplate ?? string.Empty;
-        TicketReplyText = template.Length <= 10000 ? template : template[..10000];
+        var templateContext = TicketReplyTemplateRenderer.CreateContext(
+            _ticketReplySourceArticle,
+            _ticketNumber,
+            _ticketTitle,
+            _germanTime.GetLocalNow(_settings.Current.CalendarTimeZoneId).Date);
+        var result = TicketReplyTemplateRenderer.Render(_settings.Current.TicketSystemReplyTemplate, templateContext);
+        TicketReplyText = result.Text;
+        TicketReplyTemplateWarning = result.HasUnresolvedVariables
+            ? "Einige Vorlagenvariablen konnten nicht automatisch aufgelöst werden. Bitte prüfen Sie die Antwort vor dem Senden."
+            : string.Empty;
         IsTicketReplyMode = true;
         SendTicketReplyCommand.RaiseCanExecuteChanged();
     }
@@ -1341,6 +1355,7 @@ public class TodayViewModel : ObservableObject
     {
         if (IsSendingTicketReply) return;
         TicketReplyText = string.Empty;
+        TicketReplyTemplateWarning = string.Empty;
         IsTicketReplyMode = false;
         TicketConversationMessage = string.Empty;
     }
@@ -1366,6 +1381,7 @@ public class TodayViewModel : ObservableObject
             if (!result.Success) return;
 
             TicketReplyText = string.Empty;
+            TicketReplyTemplateWarning = string.Empty;
             IsTicketReplyMode = false;
             await LoadTicketBookingContextAsync(
                 task,

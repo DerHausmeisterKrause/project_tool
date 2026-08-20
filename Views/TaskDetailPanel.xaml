@@ -46,6 +46,8 @@
                                 <TextBlock TextWrapping="Wrap"><Run Text="An: " FontWeight="SemiBold"/><Run Text="{Binding TicketReplyRecipient, Mode=OneWay}"/></TextBlock>
                                 <TextBox Text="{Binding TicketReplyText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" MinHeight="220" MaxHeight="380"
                                          MaxLength="10000" AcceptsReturn="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" Margin="0,8,0,0"/>
+                                <TextBlock Text="{Binding TicketReplyTemplateWarning, Mode=OneWay}" Foreground="#FBBF24" TextWrapping="Wrap" Margin="0,6,0,0"
+                                           Visibility="{Binding TicketReplyTemplateWarning, Mode=OneWay, Converter={StaticResource StringEmptyToVisibilityConverter}}"/>
                                 <WrapPanel Margin="0,8,0,0">
                                     <Button Content="Antwort senden" Command="{Binding SendTicketReplyCommand}"/>
                                     <Button Content="Abbrechen" Style="{StaticResource SecondaryButtonStyle}" Command="{Binding CancelTicketReplyCommand}"/>
