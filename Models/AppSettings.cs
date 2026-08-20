@@ -7,7 +7,11 @@ public class AppSettings
     public const string InitialInstalledVersion = "2.1.0";
     public const string DefaultTicketSystemTicketUpdateRoute = "/Ticket/{TicketID}/Update";
     public const string LegacyTicketSystemTicketUpdateRoute = "/Ticket/Update";
+    public const string DefaultTicketSystemTicketCreateRoute = "/TicketCreate";
+    public const string LegacyTicketSystemTicketCreateRoute = "/Ticket";
     public bool DynamicIslandEnabled { get; set; } = true;
+    public string LogLevel { get; set; } = "Warning";
+    public bool NotificationSoundEnabled { get; set; } = true;
     public bool CheckForUpdatesOnStartup { get; set; } = true;
     public bool AutoInstallUpdatesOnStartup { get; set; } = true;
     public string InstalledVersion { get; set; } = string.Empty;
@@ -44,7 +48,6 @@ public class AppSettings
     public int TicketSystemAgentId { get; set; } = 0;
     public int TicketSystemCandidateUserId { get; set; } = 1;
     public string TicketSystemCandidateKeywords { get; set; } = string.Empty;
-    public string TicketSystemCandidateSearchMode { get; set; } = "Auto";
     public string TicketSystemTicketSearchRoute { get; set; } = "/Ticket";
     public string TicketSystemTicketSearchMethod { get; set; } = "GET";
     public string TicketSystemTicketSearchAuthMode { get; set; } = "Session";
@@ -52,6 +55,14 @@ public class AppSettings
     public string TicketSystemTicketGetMethod { get; set; } = "GET";
     public string TicketSystemTicketGetAuthMode { get; set; } = "Session";
     public string TicketSystemTicketUpdateRoute { get; set; } = DefaultTicketSystemTicketUpdateRoute;
+    public string TicketSystemTicketCreateRoute { get; set; } = DefaultTicketSystemTicketCreateRoute;
+    public string TicketSystemTicketCreateMethod { get; set; } = "POST";
+    public string TicketSystemCreateQueue { get; set; } = string.Empty;
+    public string TicketSystemCreateState { get; set; } = "open";
+    public string TicketSystemCreatePriority { get; set; } = "3 normal";
+    public string TicketSystemCreateType { get; set; } = string.Empty;
+    public string TicketSystemCreateCustomerUser { get; set; } = string.Empty;
+    public string TicketSystemReplyTemplate { get; set; } = string.Empty;
     public string TicketSystemDynamicFieldOptionsRoute { get; set; } = "/Ticket/DynamicField/{FieldName}/Options";
     public string TicketSystemCostCenterFieldName { get; set; } = "KostenstelleID";
     public string TicketSystemOrderFieldName { get; set; } = "AuftragsID";

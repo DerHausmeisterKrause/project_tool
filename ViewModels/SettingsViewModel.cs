@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Windows;
+using System.Windows.Threading;
 using TaskTool.Infrastructure;
 using TaskTool.Models;
 using TaskTool.Services;
@@ -16,23 +17,29 @@ public class SettingsViewModel : ObservableObject
     private readonly TicketSystemService _ticketSystem;
     private readonly Action? _tasksChanged;
     private readonly UpdateService _updates;
+    private readonly DispatcherTimer _hourlyUpdateTimer;
+    private readonly SemaphoreSlim _updateCheckGate = new(1, 1);
     public string Title => "Einstellungen";
     public string InstalledVersion => _settings.Current.InstalledVersion;
     public bool CheckForUpdatesOnStartup { get => _settings.Current.CheckForUpdatesOnStartup; set { _settings.Current.CheckForUpdatesOnStartup = value; Save(); } }
     public bool AutoInstallUpdatesOnStartup { get => _settings.Current.AutoInstallUpdatesOnStartup; set { _settings.Current.AutoInstallUpdatesOnStartup = value; Save(); } }
+    public string LogLevel { get => _settings.Current.LogLevel; set { _settings.Current.LogLevel = value; Save(); } }
+    public bool NotificationSoundEnabled { get => _settings.Current.NotificationSoundEnabled; set { _settings.Current.NotificationSoundEnabled = value; Save(); } }
     private UpdateState _updateState = UpdateState.Idle;
-    public UpdateState CurrentUpdateState { get => _updateState; set { if (Set(ref _updateState, value)) RaiseUpdateCommands(); } }
+    public UpdateState CurrentUpdateState { get => _updateState; set { if (Set(ref _updateState, value)) { RaiseUpdateCommands(); RaiseUpdateBanner(); } } }
     private string _updateStatus = "Noch nicht geprüft";
     public string UpdateStatus { get => _updateStatus; set => Set(ref _updateStatus, value); }
     private string _lastUpdateCheck = "Noch nicht geprüft";
     public string LastUpdateCheck { get => _lastUpdateCheck; set => Set(ref _lastUpdateCheck, value); }
     private string _availableVersion = "–";
-    public string AvailableVersion { get => _availableVersion; set => Set(ref _availableVersion, value); }
+    public string AvailableVersion { get => _availableVersion; set { if (Set(ref _availableVersion, value)) RaiseUpdateBanner(); } }
     private string _releaseNotes = string.Empty;
     public string ReleaseNotes { get => _releaseNotes; set => Set(ref _releaseNotes, value); }
     private int _updateProgress;
     public int UpdateProgress { get => _updateProgress; set => Set(ref _updateProgress, value); }
     private UpdateInfo? _availableUpdate;
+    public bool IsUpdateAvailable => CurrentUpdateState == UpdateState.UpdateAvailable && _availableUpdate != null;
+    public string UpdateBannerText => IsUpdateAvailable ? $"Update {AvailableVersion} verfügbar" : string.Empty;
 
     public bool OutlookSyncEnabled { get => _settings.Current.OutlookSyncEnabled; set { _settings.Current.OutlookSyncEnabled = value; Save(); } }
     public string OutlookCategoryName { get => _settings.Current.OutlookCategoryName; set { _settings.Current.OutlookCategoryName = value; Save(); } }
@@ -70,7 +77,6 @@ public class SettingsViewModel : ObservableObject
     public int TicketSystemAgentId { get => _settings.Current.TicketSystemAgentId; set { _settings.Current.TicketSystemAgentId = value; Save(); } }
     public int TicketSystemCandidateUserId { get => _settings.Current.TicketSystemCandidateUserId; set { _settings.Current.TicketSystemCandidateUserId = value; Save(); } }
     public string TicketSystemCandidateKeywords { get => _settings.Current.TicketSystemCandidateKeywords; set { _settings.Current.TicketSystemCandidateKeywords = value; Save(); } }
-    public string TicketSystemCandidateSearchMode { get => _settings.Current.TicketSystemCandidateSearchMode; set { _settings.Current.TicketSystemCandidateSearchMode = value; Save(); } }
     public string TicketSystemTicketSearchRoute { get => _settings.Current.TicketSystemTicketSearchRoute; set { _settings.Current.TicketSystemTicketSearchRoute = value; Save(); } }
     public string TicketSystemTicketSearchMethod { get => _settings.Current.TicketSystemTicketSearchMethod; set { _settings.Current.TicketSystemTicketSearchMethod = value; Save(); } }
     public string TicketSystemTicketSearchAuthMode { get => _settings.Current.TicketSystemTicketSearchAuthMode; set { _settings.Current.TicketSystemTicketSearchAuthMode = value; Save(); } }
@@ -78,6 +84,14 @@ public class SettingsViewModel : ObservableObject
     public string TicketSystemTicketGetMethod { get => _settings.Current.TicketSystemTicketGetMethod; set { _settings.Current.TicketSystemTicketGetMethod = value; Save(); } }
     public string TicketSystemTicketGetAuthMode { get => _settings.Current.TicketSystemTicketGetAuthMode; set { _settings.Current.TicketSystemTicketGetAuthMode = value; Save(); } }
     public string TicketSystemTicketUpdateRoute { get => _settings.Current.TicketSystemTicketUpdateRoute; set { _settings.Current.TicketSystemTicketUpdateRoute = value; Save(); } }
+    public string TicketSystemTicketCreateRoute { get => _settings.Current.TicketSystemTicketCreateRoute; set { _settings.Current.TicketSystemTicketCreateRoute = value; Save(); } }
+    public string TicketSystemTicketCreateMethod { get => _settings.Current.TicketSystemTicketCreateMethod; set { _settings.Current.TicketSystemTicketCreateMethod = value; Save(); } }
+    public string TicketSystemCreateQueue { get => _settings.Current.TicketSystemCreateQueue; set { _settings.Current.TicketSystemCreateQueue = value; Save(); } }
+    public string TicketSystemCreateState { get => _settings.Current.TicketSystemCreateState; set { _settings.Current.TicketSystemCreateState = value; Save(); } }
+    public string TicketSystemCreatePriority { get => _settings.Current.TicketSystemCreatePriority; set { _settings.Current.TicketSystemCreatePriority = value; Save(); } }
+    public string TicketSystemCreateType { get => _settings.Current.TicketSystemCreateType; set { _settings.Current.TicketSystemCreateType = value; Save(); } }
+    public string TicketSystemCreateCustomerUser { get => _settings.Current.TicketSystemCreateCustomerUser; set { _settings.Current.TicketSystemCreateCustomerUser = value; Save(); } }
+    public string TicketSystemReplyTemplate { get => _settings.Current.TicketSystemReplyTemplate; set { _settings.Current.TicketSystemReplyTemplate = value ?? string.Empty; Save(); } }
     public string TicketSystemDynamicFieldOptionsRoute { get => _settings.Current.TicketSystemDynamicFieldOptionsRoute; set { _settings.Current.TicketSystemDynamicFieldOptionsRoute = value; Save(); } }
     public string TicketSystemCostCenterFieldName { get => _settings.Current.TicketSystemCostCenterFieldName; set { _settings.Current.TicketSystemCostCenterFieldName = value; Save(); } }
     public string TicketSystemOrderFieldName { get => _settings.Current.TicketSystemOrderFieldName; set { _settings.Current.TicketSystemOrderFieldName = value; Save(); } }
@@ -127,11 +141,11 @@ public class SettingsViewModel : ObservableObject
     public bool DynamicIslandEnabled { get => _settings.Current.DynamicIslandEnabled; set { _settings.Current.DynamicIslandEnabled = value; Save(); } }
 
     public List<string> OutlookSyncModes { get; } = new() { "Manual", "Periodic" };
+    public List<string> LogLevels { get; } = new() { "Info", "Warning", "Error" };
     public List<string> CalendarTimeZones { get; } = new() { "Europe/Berlin", "Europe/London", "UTC", "Europe/Vienna", "Europe/Zurich" };
     public List<string> TicketSystemSearchMethods { get; } = new() { "POST", "GET" };
     public List<string> TicketSystemAuthModes { get; } = new() { "Session", "Direct" };
     public List<string> TicketSystemTicketGetAuthModes { get; } = new() { "Session", "Direct" };
-    public List<string> TicketSystemCandidateSearchModes { get; } = new() { "Auto", "ServerFilter", "LocalFilter" };
     public List<int> SegmentDurationOptions { get; } = new() { 15, 30, 45, 60, 90, 120, 180, 240 };
 
     public RelayCommand TestReminderCommand { get; }
@@ -153,6 +167,8 @@ public class SettingsViewModel : ObservableObject
         _ticketSystem = ticketSystem;
         _updates = updates;
         _tasksChanged = tasksChanged;
+        _hourlyUpdateTimer = new DispatcherTimer { Interval = TimeSpan.FromHours(1) };
+        _hourlyUpdateTimer.Tick += async (_, _) => await RunHourlyUpdateCheckAsync();
         TestReminderCommand = new RelayCommand(() => _notifications.ShowTestNotification());
         RefreshOutlookCalendarCommand = new RelayCommand(async () => await _outlookCalendar.TriggerSyncAsync("manual-button"));
         TestOutlookConnectionCommand = new RelayCommand(TestOutlookConnection);
@@ -163,6 +179,14 @@ public class SettingsViewModel : ObservableObject
         InstallUpdateCommand = new RelayCommand(async () => await InstallUpdateAsync(), () => CurrentUpdateState == UpdateState.UpdateAvailable && _availableUpdate != null);
         OpenReleaseCommand = new RelayCommand(() => { if (_availableUpdate != null) UrlLauncher.TryOpen(_availableUpdate.HtmlUrl, out _); }, () => _availableUpdate != null);
     }
+
+    public void StartHourlyUpdateMonitor()
+    {
+        if (!_hourlyUpdateTimer.IsEnabled)
+            _hourlyUpdateTimer.Start();
+    }
+
+    public void StopHourlyUpdateMonitor() => _hourlyUpdateTimer.Stop();
 
     public async Task RunStartupUpdateCheckAsync()
     {
@@ -182,11 +206,21 @@ public class SettingsViewModel : ObservableObject
 
     public void RefreshInstalledVersion() => Raise(nameof(InstalledVersion));
 
-    private async Task CheckForUpdatesAsync(bool automatic)
+    private async Task CheckForUpdatesAsync(bool automatic, bool background = false)
     {
-        CurrentUpdateState = UpdateState.Checking; UpdateStatus = "Updates werden geprüft ...";
+        if (!await _updateCheckGate.WaitAsync(0))
+            return;
+
+        var previousState = CurrentUpdateState;
+        var previousStatus = UpdateStatus;
         try
         {
+            if (!background)
+            {
+                CurrentUpdateState = UpdateState.Checking;
+                UpdateStatus = "Updates werden geprüft ...";
+            }
+
             var result = await _updates.CheckForUpdatesAsync();
             LastUpdateCheck = DateTime.Now.ToString("dd.MM.yyyy HH:mm");
             _availableUpdate = result.Update;
@@ -194,12 +228,44 @@ public class SettingsViewModel : ObservableObject
             ReleaseNotes = result.Update?.ReleaseNotes ?? string.Empty;
             CurrentUpdateState = result.UpdateAvailable ? UpdateState.UpdateAvailable : UpdateState.UpToDate;
             UpdateStatus = result.Message;
+            if (background)
+            {
+                ServiceLocator.Logger.Info($"[UpdateMonitor] action=hourly-check installedVersion={InstalledVersion} remoteVersion={AvailableVersion} updateAvailable={result.UpdateAvailable.ToString().ToLowerInvariant()}");
+            }
         }
         catch (Exception ex)
         {
-            CurrentUpdateState = UpdateState.Failed; UpdateStatus = automatic ? "Automatische Prüfung fehlgeschlagen." : $"Updateprüfung fehlgeschlagen: {ex.Message}";
+            if (background)
+            {
+                CurrentUpdateState = previousState;
+                UpdateStatus = previousStatus;
+                ServiceLocator.Logger.Warning($"[UpdateMonitor] hourlyCheckFailed message='{ex.Message}'");
+            }
+            else
+            {
+                CurrentUpdateState = UpdateState.Failed;
+                UpdateStatus = automatic ? "Automatische Prüfung fehlgeschlagen." : $"Updateprüfung fehlgeschlagen: {ex.Message}";
+            }
         }
-        RaiseUpdateCommands();
+        finally
+        {
+            _updateCheckGate.Release();
+            RaiseUpdateCommands();
+            RaiseUpdateBanner();
+        }
+    }
+
+    private async Task RunHourlyUpdateCheckAsync()
+    {
+        if (CurrentUpdateState is UpdateState.Checking or UpdateState.Downloading or UpdateState.ReadyToInstall or UpdateState.Installing)
+            return;
+        await CheckForUpdatesAsync(automatic: true, background: true);
+    }
+
+    private void RaiseUpdateBanner()
+    {
+        Raise(nameof(IsUpdateAvailable));
+        Raise(nameof(UpdateBannerText));
     }
 
     private Task InstallUpdateAsync() => InstallUpdateAsync(false);
