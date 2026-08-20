@@ -11,8 +11,57 @@
                     <TextBlock Text="Task Details" FontSize="13" Foreground="{StaticResource MutedTextBrush}"/>
                     <TextBlock Text="{Binding SelectedTask.Title}" FontSize="24" FontWeight="Bold" Margin="0,4,0,10" TextWrapping="Wrap"/>
 
-                    <TextBlock Text="Beschreibung" FontWeight="SemiBold" Foreground="{StaticResource TextBrush}" Margin="0,0,0,4"/>
-                    <TextBox Text="{Binding SelectedTask.Description, UpdateSourceTrigger=PropertyChanged}" MinHeight="220" MaxHeight="380" AcceptsReturn="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto"/>
+                    <StackPanel Visibility="{Binding ShowLocalTaskDescription, Converter={StaticResource BooleanToVisibilityConverter}}">
+                        <TextBlock Text="Beschreibung" FontWeight="SemiBold" Foreground="{StaticResource TextBrush}" Margin="0,0,0,4"/>
+                        <TextBox Text="{Binding SelectedTask.Description, UpdateSourceTrigger=PropertyChanged}" MinHeight="220" MaxHeight="380" AcceptsReturn="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto"/>
+                    </StackPanel>
+
+                    <StackPanel Visibility="{Binding HasZnunyTicket, Converter={StaticResource BooleanToVisibilityConverter}}">
+                        <DockPanel Margin="0,0,0,8">
+                            <Button DockPanel.Dock="Right" Content="Nachrichten aktualisieren" Style="{StaticResource SecondaryButtonStyle}"
+                                    Command="{Binding RefreshTicketArticlesCommand}" Margin="8,0,0,0"/>
+                            <TextBlock Text="Ticket-Nachrichten" FontWeight="SemiBold" FontSize="16" VerticalAlignment="Center"/>
+                        </DockPanel>
+                        <TextBlock Text="Nachricht" Foreground="{StaticResource MutedTextBrush}" Margin="0,0,0,3"/>
+                        <ComboBox Style="{StaticResource DarkComboBoxStyle}" ItemsSource="{Binding TicketArticles}"
+                                  SelectedItem="{Binding SelectedTicketArticle}" DisplayMemberPath="DisplayText" HorizontalAlignment="Stretch"/>
+                        <TextBlock Text="{Binding TicketConversationMessage}" Foreground="{StaticResource MutedTextBrush}"
+                                   TextWrapping="Wrap" Margin="0,6,0,0"/>
+
+                        <StackPanel Visibility="{Binding HasSelectedTicketArticle, Converter={StaticResource BooleanToVisibilityConverter}}">
+                            <StackPanel Visibility="{Binding ShowTicketArticleView, Converter={StaticResource BooleanToVisibilityConverter}}">
+                                <TextBlock Margin="0,10,0,2" TextWrapping="Wrap">
+                                    <Run Text="Von: " FontWeight="SemiBold"/><Run Text="{Binding SelectedTicketArticle.FromDisplay}"/>
+                                </TextBlock>
+                                <TextBlock Foreground="{StaticResource MutedTextBrush}" TextWrapping="Wrap">
+                                    <Run Text="{Binding SelectedTicketArticle.CreatedDisplay}"/><Run Text=" · "/><Run Text="{Binding SelectedTicketArticle.TypeText}"/>
+                                </TextBlock>
+                                <TextBox Text="{Binding SelectedTicketArticle.Body}" IsReadOnly="True" MinHeight="220" MaxHeight="380"
+                                         AcceptsReturn="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" Margin="0,8,0,0"/>
+                                <Button Content="Antworten" HorizontalAlignment="Left" Margin="0,8,0,0" Command="{Binding BeginTicketReplyCommand}"/>
+                            </StackPanel>
+
+                            <StackPanel Visibility="{Binding IsTicketReplyMode, Converter={StaticResource BooleanToVisibilityConverter}}">
+                                <TextBlock Text="Antwort schreiben" FontWeight="SemiBold" FontSize="16" Margin="0,10,0,6"/>
+                                <TextBlock TextWrapping="Wrap"><Run Text="An: " FontWeight="SemiBold"/><Run Text="{Binding TicketReplyRecipient}"/></TextBlock>
+                                <TextBox Text="{Binding TicketReplyText, UpdateSourceTrigger=PropertyChanged}" MinHeight="220" MaxHeight="380"
+                                         MaxLength="10000" AcceptsReturn="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" Margin="0,8,0,0"/>
+                                <WrapPanel Margin="0,8,0,0">
+                                    <Button Content="Antwort senden" Command="{Binding SendTicketReplyCommand}"/>
+                                    <Button Content="Abbrechen" Style="{StaticResource SecondaryButtonStyle}" Command="{Binding CancelTicketReplyCommand}"/>
+                                </WrapPanel>
+                            </StackPanel>
+                        </StackPanel>
+
+                        <Expander Header="Lokale Task-Beschreibung" Margin="0,12,0,0"
+                                  Visibility="{Binding HasPlenaroLocalOrigin, Converter={StaticResource BooleanToVisibilityConverter}}">
+                            <StackPanel Margin="0,8,0,0">
+                                <TextBox Text="{Binding SelectedTask.Description, UpdateSourceTrigger=PropertyChanged}" MinHeight="140" MaxHeight="300"
+                                         AcceptsReturn="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto"/>
+                                <Button Content="Speichern" Width="94" HorizontalAlignment="Left" Margin="0,8,0,0" Command="{Binding SaveCommand}"/>
+                            </StackPanel>
+                        </Expander>
+                    </StackPanel>
 
                     <TextBlock Text="Ticket URL" FontWeight="SemiBold" Foreground="{StaticResource TextBrush}" Margin="0,8,0,4"/>
                     <Grid>
@@ -26,7 +75,8 @@
                     </Grid>
 
                     <WrapPanel Margin="0,8,0,0">
-                        <Button Content="Speichern" Width="94" Command="{Binding SaveCommand}"/>
+                        <Button Content="Speichern" Width="94" Command="{Binding SaveCommand}"
+                                Visibility="{Binding ShowLocalTaskDescription, Converter={StaticResource BooleanToVisibilityConverter}}"/>
                         <Button Content="Erledigt" Width="94" Style="{StaticResource SuccessButtonStyle}" Command="{Binding DoneCommand}"/>
                         <Button Content="Zurück zu Aktuell" Width="120" Style="{StaticResource SecondaryButtonStyle}" Command="{Binding ReopenCommand}"/>
                         <Button Content="Als Ticket erstellen" Width="150" Style="{StaticResource SecondaryButtonStyle}"

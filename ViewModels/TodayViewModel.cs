@@ -37,6 +37,7 @@ public class TodayViewModel : ObservableObject
     public ObservableCollection<TicketTimeBooking> TicketTimeBookings { get; } = new();
     public ObservableCollection<TicketFieldOption> CostCenterOptions { get; } = new();
     public ObservableCollection<TicketFieldOption> OrderOptions { get; } = new();
+    public ObservableCollection<TicketArticleItem> TicketArticles { get; } = new();
     public ObservableCollection<string> TimeOptions { get; } = new(Enumerable.Range(0, 96).Select(i => TimeSpan.FromMinutes(i * 15).ToString(@"hh\:mm")));
     public IReadOnlyList<string> CurrentTaskSortFields { get; } = new[] { "Zuletzt bearbeitet", "Erstellungsdatum" };
     public IReadOnlyList<string> CurrentTaskSortDirections { get; } = new[] { "Neueste zuerst", "Älteste zuerst" };
@@ -52,22 +53,32 @@ public class TodayViewModel : ObservableObject
             var previousTaskId = _selectedTask?.Id;
             if (Set(ref _selectedTask, value))
             {
-                if (previousTaskId != value?.Id)
+                var taskChanged = previousTaskId != value?.Id;
+                if (taskChanged)
+                {
                     TicketBookingNote = string.Empty;
+                    ResetTicketConversation();
+                }
                 LoadSegments();
                 Raise(nameof(IsTaskSelected));
                 Raise(nameof(HasZnunyTicket));
+                Raise(nameof(ShowLocalTaskDescription));
+                Raise(nameof(HasPlenaroLocalOrigin));
                 Raise(nameof(ShowCreateTicketFromSelectedTask));
                 Raise(nameof(CanCreateTicketFromSelectedTask));
                 RaiseCommandStates();
                 UpdateTimerDisplay();
                 LoadTicketBookingHistory();
-                _ = LoadTicketBookingContextAsync(value);
+                _ = LoadTicketBookingContextAsync(value, preserveArticleSelection: !taskChanged);
             }
         }
     }
 
     public bool IsTaskSelected => SelectedTask != null;
+    public bool ShowLocalTaskDescription => SelectedTask != null && !SelectedTask.IsZnunyTask;
+    public bool HasPlenaroLocalOrigin => SelectedTask?.IsZnunyTask == true
+        && (SelectedTask.Tags ?? string.Empty).Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Any(tag => string.Equals(tag, "PlenaroLocalOrigin", StringComparison.OrdinalIgnoreCase));
 
     private string _quickAddText = string.Empty;
     public string QuickAddText { get => _quickAddText; set => Set(ref _quickAddText, value); }
@@ -196,6 +207,88 @@ public class TodayViewModel : ObservableObject
 
     private string _ticketBookingNote = string.Empty;
     public string TicketBookingNote { get => _ticketBookingNote; set => Set(ref _ticketBookingNote, value); }
+
+    private TicketArticleItem? _selectedTicketArticle;
+    public TicketArticleItem? SelectedTicketArticle
+    {
+        get => _selectedTicketArticle;
+        set
+        {
+            if (Set(ref _selectedTicketArticle, value))
+            {
+                Raise(nameof(HasSelectedTicketArticle));
+                BeginTicketReplyCommand.RaiseCanExecuteChanged();
+            }
+        }
+    }
+    public bool HasSelectedTicketArticle => SelectedTicketArticle != null;
+
+    private bool _isTicketConversationLoading;
+    public bool IsTicketConversationLoading
+    {
+        get => _isTicketConversationLoading;
+        private set
+        {
+            if (Set(ref _isTicketConversationLoading, value))
+            {
+                RefreshTicketArticlesCommand.RaiseCanExecuteChanged();
+                BeginTicketReplyCommand.RaiseCanExecuteChanged();
+            }
+        }
+    }
+
+    private string _ticketConversationMessage = string.Empty;
+    public string TicketConversationMessage { get => _ticketConversationMessage; private set => Set(ref _ticketConversationMessage, value); }
+    private TicketArticleItem? _ticketReplySourceArticle;
+    private string _ticketTitle = string.Empty;
+    private string _ticketReplyRecipient = string.Empty;
+    public string TicketReplyRecipient
+    {
+        get => _ticketReplyRecipient;
+        private set
+        {
+            if (Set(ref _ticketReplyRecipient, value))
+                BeginTicketReplyCommand.RaiseCanExecuteChanged();
+        }
+    }
+
+    private bool _isTicketReplyMode;
+    public bool IsTicketReplyMode
+    {
+        get => _isTicketReplyMode;
+        private set
+        {
+            if (Set(ref _isTicketReplyMode, value))
+            {
+                Raise(nameof(ShowTicketArticleView));
+                SendTicketReplyCommand.RaiseCanExecuteChanged();
+            }
+        }
+    }
+    public bool ShowTicketArticleView => !IsTicketReplyMode;
+    private string _ticketReplyText = string.Empty;
+    public string TicketReplyText
+    {
+        get => _ticketReplyText;
+        set
+        {
+            if (Set(ref _ticketReplyText, value))
+                SendTicketReplyCommand.RaiseCanExecuteChanged();
+        }
+    }
+    private bool _isSendingTicketReply;
+    public bool IsSendingTicketReply
+    {
+        get => _isSendingTicketReply;
+        private set
+        {
+            if (Set(ref _isSendingTicketReply, value))
+            {
+                SendTicketReplyCommand.RaiseCanExecuteChanged();
+                CancelTicketReplyCommand.RaiseCanExecuteChanged();
+            }
+        }
+    }
 
     private bool _isTicketBooking;
     public bool IsTicketBooking
@@ -342,6 +435,10 @@ public class TodayViewModel : ObservableObject
     public RelayCommand RefreshCandidateTicketsCommand { get; }
     public RelayCommand<ZnunyCandidateTicket> AssignCandidateToMeCommand { get; }
     public RelayCommand CreateTicketFromLocalTaskCommand { get; }
+    public RelayCommand RefreshTicketArticlesCommand { get; }
+    public RelayCommand BeginTicketReplyCommand { get; }
+    public RelayCommand CancelTicketReplyCommand { get; }
+    public RelayCommand SendTicketReplyCommand { get; }
 
     public RelayCommand<TaskItem> SelectTaskCommand { get; }
     public RelayCommand<TaskItem> StartTaskCommand { get; }
@@ -419,6 +516,10 @@ public class TodayViewModel : ObservableObject
             async candidate => await AssignCandidateToMeAsync(candidate),
             candidate => candidate != null && !IsCandidateAssignmentRunning);
         CreateTicketFromLocalTaskCommand = new RelayCommand(async () => await CreateTicketFromLocalTaskAsync(), () => CanCreateTicketFromSelectedTask);
+        RefreshTicketArticlesCommand = new RelayCommand(async () => await RefreshTicketArticlesAsync(), () => HasZnunyTicket && !IsTicketConversationLoading);
+        BeginTicketReplyCommand = new RelayCommand(BeginTicketReply, () => HasZnunyTicket && HasSelectedTicketArticle && !string.IsNullOrWhiteSpace(TicketReplyRecipient) && !IsTicketConversationLoading);
+        CancelTicketReplyCommand = new RelayCommand(CancelTicketReply, () => !IsSendingTicketReply);
+        SendTicketReplyCommand = new RelayCommand(async () => await SendTicketReplyAsync(), () => IsTicketReplyMode && !IsSendingTicketReply && !string.IsNullOrWhiteSpace(TicketReplyText) && !string.IsNullOrWhiteSpace(TicketReplyRecipient));
 
         SelectTaskCommand = new RelayCommand<TaskItem>(task => SelectedTask = task, task => task != null);
         StartTaskCommand = new RelayCommand<TaskItem>(StartTaskFromCard);
@@ -532,6 +633,9 @@ public class TodayViewModel : ObservableObject
         BookTimeInTicketSystemCommand.RaiseCanExecuteChanged();
         RefreshTicketFieldOptionsCommand.RaiseCanExecuteChanged();
         CreateTicketFromLocalTaskCommand.RaiseCanExecuteChanged();
+        RefreshTicketArticlesCommand.RaiseCanExecuteChanged();
+        BeginTicketReplyCommand.RaiseCanExecuteChanged();
+        SendTicketReplyCommand.RaiseCanExecuteChanged();
         AddSegmentCommand.RaiseCanExecuteChanged();
         SaveSegmentCommand.RaiseCanExecuteChanged();
         DeleteSegmentCommand.RaiseCanExecuteChanged();
@@ -955,6 +1059,8 @@ public class TodayViewModel : ObservableObject
             if (result.Success)
             {
                 Raise(nameof(HasZnunyTicket));
+                Raise(nameof(ShowLocalTaskDescription));
+                Raise(nameof(HasPlenaroLocalOrigin));
                 Raise(nameof(ShowCreateTicketFromSelectedTask));
                 Raise(nameof(CanCreateTicketFromSelectedTask));
                 RaiseCommandStates();
@@ -1143,16 +1249,23 @@ public class TodayViewModel : ObservableObject
         RetryTicketTimeBookingCommand.RaiseCanExecuteChanged();
     }
 
-    private async Task LoadTicketBookingContextAsync(TaskItem? task)
+    private async Task LoadTicketBookingContextAsync(
+        TaskItem? task,
+        bool preserveArticleSelection = true,
+        string preferredArticleId = "",
+        bool selectNewestWhenPreferredMissing = false)
     {
+        var previousArticleId = preserveArticleSelection ? SelectedTicketArticle?.ArticleId ?? string.Empty : string.Empty;
         CostCenterOptions.Clear();
         OrderOptions.Clear();
         SelectedCostCenter = null;
         SelectedOrder = null;
         TicketBookingInformation = string.Empty;
-        if (task == null || !task.Tags.Contains("ZnunyTicketID:", StringComparison.OrdinalIgnoreCase))
+        if (task == null || !task.IsZnunyTask)
             return;
 
+        IsTicketConversationLoading = true;
+        TicketConversationMessage = "Ticket-Nachrichten werden geladen …";
         try
         {
             var context = await _ticketSystem.GetTicketBookingContextAsync(task);
@@ -1162,11 +1275,107 @@ public class TodayViewModel : ObservableObject
             SelectedCostCenter = EnsureCurrentOption(CostCenterOptions, context.CostCenterValue);
             SelectedOrder = EnsureCurrentOption(OrderOptions, context.OrderValue);
             TicketBookingInformation = context.Information;
+            TicketArticles.Clear();
+            foreach (var article in context.Articles) TicketArticles.Add(article);
+            _ticketReplySourceArticle = context.ReplySourceArticle;
+            TicketReplyRecipient = context.ReplyRecipient;
+            _ticketTitle = context.TicketTitle;
+            var requestedArticleId = !string.IsNullOrWhiteSpace(preferredArticleId) ? preferredArticleId : previousArticleId;
+            SelectedTicketArticle = TicketArticles.FirstOrDefault(article => string.Equals(article.ArticleId, requestedArticleId, StringComparison.OrdinalIgnoreCase))
+                                    ?? (selectNewestWhenPreferredMissing ? TicketArticles.LastOrDefault() : TicketArticles.FirstOrDefault());
+            TicketConversationMessage = TicketArticles.Count == 0
+                ? "Für dieses Ticket wurden keine fachlichen Nachrichten gefunden."
+                : string.IsNullOrWhiteSpace(TicketReplyRecipient)
+                    ? "Für dieses Ticket konnte keine eindeutige Empfängeradresse ermittelt werden. Bitte antworten Sie über Znuny."
+                    : string.Empty;
         }
         catch (Exception ex)
         {
             if (SelectedTask?.Id == task.Id)
+            {
                 TicketBookingInformation = $"Ticketdaten konnten nicht geladen werden: {ex.Message}";
+                TicketConversationMessage = $"Ticket-Nachrichten konnten nicht geladen werden: {ex.Message}";
+            }
+        }
+        finally
+        {
+            if (SelectedTask?.Id == task.Id)
+                IsTicketConversationLoading = false;
+        }
+    }
+
+    private void ResetTicketConversation()
+    {
+        TicketArticles.Clear();
+        SelectedTicketArticle = null;
+        _ticketReplySourceArticle = null;
+        TicketReplyRecipient = string.Empty;
+        _ticketTitle = string.Empty;
+        TicketConversationMessage = string.Empty;
+        TicketReplyText = string.Empty;
+        IsTicketReplyMode = false;
+    }
+
+    private async Task RefreshTicketArticlesAsync()
+    {
+        if (SelectedTask == null || !SelectedTask.IsZnunyTask || IsTicketConversationLoading) return;
+        await LoadTicketBookingContextAsync(SelectedTask, preserveArticleSelection: true);
+    }
+
+    private void BeginTicketReply()
+    {
+        if (string.IsNullOrWhiteSpace(TicketReplyRecipient))
+        {
+            TicketConversationMessage = "Für dieses Ticket konnte keine eindeutige Empfängeradresse ermittelt werden. Bitte antworten Sie über Znuny.";
+            return;
+        }
+        TicketReplyText = string.Empty;
+        IsTicketReplyMode = true;
+        SendTicketReplyCommand.RaiseCanExecuteChanged();
+    }
+
+    private void CancelTicketReply()
+    {
+        if (IsSendingTicketReply) return;
+        TicketReplyText = string.Empty;
+        IsTicketReplyMode = false;
+        TicketConversationMessage = string.Empty;
+    }
+
+    private async Task SendTicketReplyAsync()
+    {
+        if (SelectedTask == null || IsSendingTicketReply
+            || string.IsNullOrWhiteSpace(TicketReplyText) || string.IsNullOrWhiteSpace(TicketReplyRecipient)) return;
+        var task = SelectedTask;
+        IsSendingTicketReply = true;
+        TicketConversationMessage = "Antwort wird gesendet …";
+        try
+        {
+            var result = await _ticketSystem.SendTicketReplyAsync(
+                task,
+                _ticketReplySourceArticle,
+                TicketReplyRecipient,
+                _ticketTitle,
+                TicketReplyText);
+            if (SelectedTask?.Id != task.Id) return;
+            TicketConversationMessage = result.Message;
+            StatusMessage = result.Message;
+            if (!result.Success) return;
+
+            TicketReplyText = string.Empty;
+            IsTicketReplyMode = false;
+            await LoadTicketBookingContextAsync(
+                task,
+                preserveArticleSelection: false,
+                preferredArticleId: result.ArticleId,
+                selectNewestWhenPreferredMissing: true);
+            if (SelectedTask?.Id == task.Id)
+                TicketConversationMessage = "Antwort wurde gesendet.";
+        }
+        finally
+        {
+            if (SelectedTask?.Id == task.Id)
+                IsSendingTicketReply = false;
         }
     }
 

@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http;
+using System.Net.Mail;
 using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
@@ -313,6 +314,9 @@ public class TicketSystemService : IDisposable
         var information = fieldsMissing ? "Kostenstelle/Auftrag konnten nicht aus OTRS geladen werden." : string.Empty;
         LogDynamicFieldSelection(ticket.TicketID, costField, costCenterValue, costOptions);
         LogDynamicFieldSelection(ticket.TicketID, orderField, orderValue, orderOptions);
+        var articles = ticket.ToArticleItems();
+        var (replySource, replyRecipient) = ResolveReplyRecipient(articles, ticket.CustomerUser);
+        _logger.Info($"[ZnunyConversation] ticketId={ticket.TicketID} articleCount={articles.Count} selectedArticleId='{articles.FirstOrDefault()?.ArticleId ?? string.Empty}'");
 
         return new TicketBookingContext(
             ticket.TicketID,
@@ -321,7 +325,132 @@ public class TicketSystemService : IDisposable
             orderValue,
             costOptions,
             orderOptions,
-            information);
+            information,
+            articles,
+            replySource,
+            replyRecipient,
+            ticket.Title);
+    }
+
+    public async Task<TicketReplyResult> SendTicketReplyAsync(
+        TaskItem task,
+        TicketArticleItem? originalCustomerArticle,
+        string recipient,
+        string ticketTitle,
+        string replyText)
+    {
+        var ticketId = ExtractZnunyTicketIdFromTask(task);
+        if (string.IsNullOrWhiteSpace(ticketId))
+            return new TicketReplyResult(false, "Der ausgewählte Task besitzt keine eindeutige Znuny-TicketID.");
+        var configError = ValidateConfiguration(requireAgentId: false);
+        if (!string.IsNullOrWhiteSpace(configError))
+            return new TicketReplyResult(false, configError);
+        if (!TryNormalizeMailAddress(recipient, out var safeRecipient))
+            return new TicketReplyResult(false, "Für dieses Ticket konnte keine eindeutige Empfängeradresse ermittelt werden. Bitte antworten Sie über Znuny.");
+        var body = (replyText ?? string.Empty).Trim();
+        if (body.Length == 0)
+            return new TicketReplyResult(false, "Bitte geben Sie einen Antworttext ein.");
+        if (body.Length > 10000)
+            body = body[..10000];
+        if (!await _syncGate.WaitAsync(0))
+            return new TicketReplyResult(false, "Es läuft bereits eine Znuny-Aktion. Bitte versuchen Sie es gleich erneut.");
+
+        try
+        {
+            _logger.Info($"[ZnunyReply] ticketId={ticketId} recipientResolved=true replyLength={body.Length} action=send");
+            var sessionId = await CreateSessionAsync();
+            var originalSubject = originalCustomerArticle?.Subject ?? string.Empty;
+            var subjectSource = string.IsNullOrWhiteSpace(originalSubject) ? ticketTitle : originalSubject;
+            var subject = Regex.IsMatch(subjectSource, @"^\s*re\s*:", RegexOptions.IgnoreCase)
+                ? subjectSource.Trim()
+                : $"Re: {subjectSource.Trim()}";
+            if (string.Equals(subject, "Re: ", StringComparison.Ordinal))
+                subject = "Re: Ticketanfrage";
+            var payload = new Dictionary<string, object?>
+            {
+                ["SessionID"] = sessionId,
+                ["TicketID"] = ticketId,
+                ["Article"] = new Dictionary<string, object?>
+                {
+                    ["CommunicationChannel"] = "Email",
+                    ["SenderType"] = "agent",
+                    ["IsVisibleForCustomer"] = 1,
+                    ["ArticleSend"] = 1,
+                    ["To"] = safeRecipient,
+                    ["Subject"] = subject,
+                    ["Body"] = body,
+                    ["ContentType"] = "text/plain; charset=utf-8"
+                }
+            };
+            var route = ResolveTicketUpdateRoute(ticketId);
+            using var request = new HttpRequestMessage(HttpMethod.Post, Combine(_settings.Current.TicketSystemApiUrl, route))
+            {
+                Content = new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json")
+            };
+            var response = await SendZnunyAsync(request, "TicketUpdateReply", "[ZnunyTicketUpdateResponse]", logBody: false);
+            EnsureTicketUpdateResponseIsInterpretable(response);
+            var articleId = ExtractFirstValueRecursive(response.Body, "ArticleID");
+            _logger.Info($"[ZnunyReply] ticketId={ticketId} articleId='{articleId}' action=completed");
+            return new TicketReplyResult(true, "Antwort wurde gesendet.", articleId);
+        }
+        catch (ZnunyApiException ex) when ((int)ex.StatusCode >= 500)
+        {
+            LogZnunyError(ex);
+            return new TicketReplyResult(false, "Der Versand konnte nicht eindeutig bestätigt werden. Bitte prüfen Sie den Ticketverlauf, bevor Sie erneut senden.", ConfirmationUncertain: true);
+        }
+        catch (ZnunyApiException ex)
+        {
+            LogZnunyError(ex);
+            return new TicketReplyResult(false, $"Antwort konnte nicht gesendet werden: {ex.ErrorMessage}");
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException)
+        {
+            _logger.Warning($"[ZnunyReply] ticketId={ticketId} replyLength={body.Length} action=unconfirmed message='{LogValue(ex.Message)}'");
+            return new TicketReplyResult(false, "Der Versand konnte nicht eindeutig bestätigt werden. Bitte prüfen Sie den Ticketverlauf, bevor Sie erneut senden.", ConfirmationUncertain: true);
+        }
+        catch (Exception ex)
+        {
+            _logger.Error($"[ZnunyReply] ticketId={ticketId} replyLength={body.Length} action=failed message='{LogValue(ex.Message)}'");
+            return new TicketReplyResult(false, $"Antwort konnte nicht gesendet werden: {ex.Message}");
+        }
+        finally
+        {
+            _syncGate.Release();
+        }
+    }
+
+    private static (TicketArticleItem? source, string recipient) ResolveReplyRecipient(
+        IReadOnlyList<TicketArticleItem> articles,
+        string customerUser)
+    {
+        var customerArticles = articles
+            .Where(article => article.SenderType.Contains("customer", StringComparison.OrdinalIgnoreCase))
+            .ToList();
+        var source = customerArticles.FirstOrDefault(article => article.CommunicationChannel.Contains("email", StringComparison.OrdinalIgnoreCase))
+                     ?? customerArticles.FirstOrDefault();
+        if (source != null && TryNormalizeMailAddress(source.ReplyTo, out var replyTo)) return (source, replyTo);
+        if (source != null && TryNormalizeMailAddress(source.From, out var from)) return (source, from);
+        return TryNormalizeMailAddress(customerUser, out var fallback) ? (source, fallback) : (source, string.Empty);
+    }
+
+    private static bool TryNormalizeMailAddress(string? value, out string normalized)
+    {
+        normalized = string.Empty;
+        if (string.IsNullOrWhiteSpace(value))
+            return false;
+        try
+        {
+            var address = new MailAddress(value.Trim());
+            if (!address.Address.Contains("@", StringComparison.Ordinal) || address.Address.EndsWith("@", StringComparison.Ordinal)) return false;
+            normalized = string.IsNullOrWhiteSpace(address.DisplayName)
+                ? address.Address
+                : $"{address.DisplayName} <{address.Address}>";
+            return true;
+        }
+        catch (FormatException)
+        {
+            return false;
+        }
     }
 
     public void InvalidateDynamicFieldOptionsCache()
@@ -2066,6 +2195,53 @@ public class TicketSystemService : IDisposable
         public string FindArticleIdContaining(string marker)
             => Articles.FirstOrDefault(article => article.Body.Contains(marker, StringComparison.OrdinalIgnoreCase))?.ArticleId ?? string.Empty;
 
+        public IReadOnlyList<TicketArticleItem> ToArticleItems()
+        {
+            var relevant = Articles
+                .Where(article => !article.IsSystemArticle && !string.IsNullOrWhiteSpace(article.Body))
+                .OrderBy(article => article.CreatedSort)
+                .ThenBy(article => article.ArticleId, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+            return relevant.Select((article, index) =>
+            {
+                var typeText = GetArticleTypeText(article);
+                var subject = string.IsNullOrWhiteSpace(article.Subject) ? "Ohne Betreff" : article.Subject.Trim();
+                if (subject.Length > 80) subject = subject[..77] + "…";
+                var created = article.CreatedLocal?.ToString("dd.MM.yyyy HH:mm") ?? "Zeit unbekannt";
+                return new TicketArticleItem
+                {
+                    ArticleId = article.ArticleId,
+                    CreatedLocal = article.CreatedLocal,
+                    Subject = article.Subject,
+                    Body = article.Body,
+                    SenderType = article.SenderType,
+                    CommunicationChannel = article.Channel,
+                    From = article.From,
+                    To = article.To,
+                    ReplyTo = article.ReplyTo,
+                    MessageId = article.MessageId,
+                    IsVisibleForCustomer = article.IsVisibleForCustomer,
+                    TypeText = typeText,
+                    DisplayText = $"{index + 1} · {created} · {typeText} · {subject}"
+                };
+            }).ToList();
+        }
+
+        private static string GetArticleTypeText(ZnunyArticle article)
+        {
+            var customer = article.SenderType.Contains("customer", StringComparison.OrdinalIgnoreCase);
+            var agent = article.SenderType.Contains("agent", StringComparison.OrdinalIgnoreCase);
+            var email = article.Channel.Contains("email", StringComparison.OrdinalIgnoreCase);
+            var internalNote = article.Channel.Contains("internal", StringComparison.OrdinalIgnoreCase)
+                               || article.Channel.Contains("note", StringComparison.OrdinalIgnoreCase);
+            if (agent && internalNote) return "Interne Notiz";
+            if (customer && email) return "Kunde · E-Mail";
+            if (customer) return "Kunde";
+            if (agent && email) return "Agent · E-Mail";
+            if (agent) return "Agent";
+            return string.IsNullOrWhiteSpace(article.Channel) ? "Nachricht" : article.Channel;
+        }
+
         private IReadOnlyList<ZnunyArticle> Articles { get; init; } = Array.Empty<ZnunyArticle>();
 
         private static bool IsClosedValue(string value)
@@ -2199,7 +2375,12 @@ public class TicketSystemService : IDisposable
                         FirstString(element, "CreateTime", "Created"),
                         NormalizeArticleText(FirstString(element, "Subject"), string.Empty),
                         NormalizeArticleBody(rawBody, contentType),
-                        FirstString(element, "CommunicationChannel", "ArticleType", "ArticleTypeID"));
+                        FirstString(element, "CommunicationChannel", "ArticleType", "ArticleTypeID"),
+                        FirstString(element, "From"),
+                        FirstString(element, "To"),
+                        FirstString(element, "ReplyTo", "Reply-To"),
+                        FirstString(element, "MessageID", "MessageId"),
+                        ParseBoolean(element, "IsVisibleForCustomer"));
                 })
                 .ToList();
         }
@@ -2226,11 +2407,36 @@ public class TicketSystemService : IDisposable
             return text.Length <= maximumLength ? text : text[..maximumLength].TrimEnd() + "\n[…]";
         }
 
-        private sealed record ZnunyArticle(string ArticleId, string SenderType, string Created, string Subject, string Body, string Channel)
+        private static bool ParseBoolean(JsonElement element, string propertyName)
+        {
+            if (!TryGetPropertyCaseInsensitive(element, propertyName, out var value)) return false;
+            return value.ValueKind switch
+            {
+                JsonValueKind.True => true,
+                JsonValueKind.Number => value.TryGetInt32(out var number) && number != 0,
+                JsonValueKind.String => value.GetString() is { } text
+                                        && (text == "1" || bool.TryParse(text, out var parsed) && parsed),
+                _ => false
+            };
+        }
+
+        private sealed record ZnunyArticle(
+            string ArticleId,
+            string SenderType,
+            string Created,
+            string Subject,
+            string Body,
+            string Channel,
+            string From,
+            string To,
+            string ReplyTo,
+            string MessageId,
+            bool IsVisibleForCustomer)
         {
             public DateTime CreatedSort => DateTime.TryParse(Created, CultureInfo.InvariantCulture, DateTimeStyles.AssumeLocal, out var parsed)
                 ? parsed
                 : DateTime.MaxValue;
+            public DateTime? CreatedLocal => CreatedSort == DateTime.MaxValue ? null : CreatedSort;
 
             public bool IsSystemArticle
                 => SenderType.Contains("system", StringComparison.OrdinalIgnoreCase)
