@@ -10,3 +10,7 @@ public class WorkDayRecord
     public bool IsHo { get; set; }
     public string HomeOfficeOutlookEntryId { get; set; } = string.Empty;
 }
+
+public sealed record SyncedCalendarMarkers(string Day, string OutlookDayType, bool OutlookIsHo);
+
+public sealed record EffectiveDayMarkers(string DayType, bool IsHo);

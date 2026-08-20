@@ -2,194 +2,357 @@
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              Background="{StaticResource BgBrush}">
-    <Grid Background="{StaticResource BgBrush}" HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
-        <ScrollViewer VerticalScrollBarVisibility="Auto" Background="Transparent">
-            <StackPanel>
+    <UserControl.Resources>
+        <Style x:Key="SettingsCardTitleStyle" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="18"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Margin" Value="0,0,0,12"/>
+        </Style>
+        <Style x:Key="SettingsLabelStyle" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{StaticResource MutedTextBrush}"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+            <Setter Property="Margin" Value="0,0,16,8"/>
+        </Style>
+        <Style x:Key="SettingsHelpStyle" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{StaticResource MutedTextBrush}"/>
+            <Setter Property="FontSize" Value="11"/>
+            <Setter Property="TextWrapping" Value="Wrap"/>
+            <Setter Property="Margin" Value="0,0,0,8"/>
+        </Style>
+        <Style x:Key="SettingsTextBoxStyle" TargetType="TextBox">
+            <Setter Property="MaxWidth" Value="360"/>
+            <Setter Property="HorizontalAlignment" Value="Stretch"/>
+            <Setter Property="Margin" Value="0,0,0,8"/>
+        </Style>
+        <Style x:Key="SettingsLongTextBoxStyle" TargetType="TextBox" BasedOn="{StaticResource SettingsTextBoxStyle}">
+            <Setter Property="MaxWidth" Value="560"/>
+        </Style>
+        <Style x:Key="SettingsComboStyle" TargetType="ComboBox" BasedOn="{StaticResource DarkComboBoxStyle}">
+            <Setter Property="MaxWidth" Value="360"/>
+            <Setter Property="HorizontalAlignment" Value="Stretch"/>
+            <Setter Property="Margin" Value="0,0,0,8"/>
+        </Style>
+    </UserControl.Resources>
+
+    <Grid Background="{StaticResource BgBrush}">
+        <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Background="Transparent">
+            <StackPanel Grid.IsSharedSizeScope="True">
+                <!-- 1. General -->
                 <Border Style="{StaticResource CardStyle}">
                     <StackPanel>
-                        <TextBlock Text="Updates" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,10"/>
-                        <TextBlock><Run Text="Installierte Version: "/><Run Text="{Binding InstalledVersion, Mode=OneWay}"/></TextBlock>
-                        <TextBlock><Run Text="Letzte Prüfung: "/><Run Text="{Binding LastUpdateCheck}"/></TextBlock>
-                        <TextBlock><Run Text="Verfügbare Version: "/><Run Text="{Binding AvailableVersion}"/></TextBlock>
-                        <CheckBox Content="Beim Start automatisch nach Updates suchen" IsChecked="{Binding CheckForUpdatesOnStartup}" Margin="0,8,0,8"/>
-                        <CheckBox Content="Verfügbare Updates automatisch installieren" IsChecked="{Binding AutoInstallUpdatesOnStartup}" Margin="0,0,0,8"/>
-                        <ProgressBar Minimum="0" Maximum="100" Value="{Binding UpdateProgress}" Height="8" Margin="0,0,0,6"/>
-                        <TextBlock Text="{Binding UpdateStatus}" Foreground="#FBBF24" TextWrapping="Wrap"/>
-                        <TextBlock Text="Release Notes" FontWeight="SemiBold" Margin="0,8,0,3"/>
-                        <TextBox Text="{Binding ReleaseNotes, Mode=OneWay}" IsReadOnly="True" AcceptsReturn="True" TextWrapping="Wrap" MaxHeight="160" VerticalScrollBarVisibility="Auto"/>
-                        <WrapPanel Margin="0,8,0,0">
-                            <Button Content="Nach Updates suchen" Width="180" Command="{Binding CheckForUpdatesCommand}"/>
-                            <Button Content="Update installieren" Width="170" Command="{Binding InstallUpdateCommand}"/>
-                            <Button Content="Release auf GitHub öffnen" Width="210" Style="{StaticResource SecondaryButtonStyle}" Command="{Binding OpenReleaseCommand}"/>
+                        <TextBlock Text="Allgemein &amp; Benachrichtigungen" Style="{StaticResource SettingsCardTitleStyle}"/>
+                        <CheckBox Content="Dynamic Island aktiv" IsChecked="{Binding DynamicIslandEnabled}" Margin="0,0,0,8"/>
+                        <CheckBox Content="Ton bei Benachrichtigungen abspielen" IsChecked="{Binding NotificationSoundEnabled}" Margin="0,0,0,4"/>
+                        <TextBlock Text="Spielt einen kurzen Windows-Benachrichtigungston ab, sobald ein Popup angezeigt wird."
+                                   Style="{StaticResource SettingsHelpStyle}" Margin="24,0,0,10"/>
+                        <Grid>
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="240"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions><RowDefinition/><RowDefinition/><RowDefinition/></Grid.RowDefinitions>
+                            <TextBlock Grid.Row="0" Text="Log-Level" Style="{StaticResource SettingsLabelStyle}"/>
+                            <StackPanel Grid.Row="0" Grid.Column="1" MaxWidth="360" HorizontalAlignment="Stretch">
+                                <ComboBox Style="{StaticResource SettingsComboStyle}" ItemsSource="{Binding LogLevels}" SelectedItem="{Binding LogLevel}"/>
+                                <TextBlock Text="Info: Alle Meldungen · Warning: Warnungen und Fehler · Error: Nur Fehler" Style="{StaticResource SettingsHelpStyle}"/>
+                            </StackPanel>
+                            <TextBlock Grid.Row="1" Text="Reminder Vorlauf (Minuten)" Style="{StaticResource SettingsLabelStyle}"/>
+                            <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding ReminderLeadMinutes}" Width="120" HorizontalAlignment="Left" Margin="0,0,0,8"/>
+                            <TextBlock Grid.Row="2" Text="Datum/Zeit-Format" Style="{StaticResource SettingsLabelStyle}"/>
+                            <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding DateTimeFormat}" Style="{StaticResource SettingsTextBoxStyle}"/>
+                        </Grid>
+                        <Button Content="Reminder testen" Width="170" HorizontalAlignment="Left" Command="{Binding TestReminderCommand}"/>
+                    </StackPanel>
+                </Border>
+
+                <!-- 2. Today -->
+                <Border Style="{StaticResource CardStyle}">
+                    <StackPanel>
+                        <TextBlock Text="Heute &amp; Aufgaben" Style="{StaticResource SettingsCardTitleStyle}"/>
+                        <CheckBox Content="Bereits vergangene Termine und Aufgaben ausblenden" IsChecked="{Binding HidePastTodayItems}"/>
+                        <TextBlock Text="Vergangene Termine und Task-Segmente werden automatisch aus „Heute“ entfernt. Aufgaben ohne weitere heutige Segmente erscheinen wieder unter „Aktuelle Aufgaben“."
+                                   Style="{StaticResource SettingsHelpStyle}" Margin="24,4,0,0"/>
+                    </StackPanel>
+                </Border>
+
+                <!-- 3. Planning -->
+                <Border Style="{StaticResource CardStyle}">
+                    <StackPanel>
+                        <TextBlock Text="Planung" Style="{StaticResource SettingsCardTitleStyle}"/>
+                        <Grid>
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="240"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                            <TextBlock Text="Standarddauer neuer Segmente" Style="{StaticResource SettingsLabelStyle}"/>
+                            <StackPanel Grid.Column="1" Orientation="Horizontal" Margin="0,0,0,8">
+                                <ComboBox Width="120" Style="{StaticResource DarkComboBoxStyle}" ItemsSource="{Binding SegmentDurationOptions}" SelectedItem="{Binding DefaultSegmentDurationMinutes}"/>
+                                <TextBlock Text="Minuten" VerticalAlignment="Center" Margin="8,0,0,0"/>
+                            </StackPanel>
+                        </Grid>
+                        <CheckBox Content="Interne Aufgaben-Segmente zusätzlich im Kalender anzeigen" IsChecked="{Binding ShowInternalTaskSegmentsInCalendar}" Margin="0,0,0,4"/>
+                        <TextBlock Text="Bei aktiver Outlook-Synchronisierung können geplante Segmente sonst doppelt erscheinen." Style="{StaticResource SettingsHelpStyle}" Margin="24,0,0,0"/>
+                    </StackPanel>
+                </Border>
+
+                <!-- 4. Outlook -->
+                <Border Style="{StaticResource CardStyle}">
+                    <StackPanel>
+                        <TextBlock Text="Outlook &amp; Kalender" Style="{StaticResource SettingsCardTitleStyle}"/>
+                        <CheckBox Content="Outlook Sync aktiv" IsChecked="{Binding OutlookSyncEnabled}" Margin="0,0,0,8"/>
+                        <CheckBox Content="Outlook Kalender anzeigen" IsChecked="{Binding OutlookCalendarEnabled}" Margin="0,0,0,8"/>
+                        <CheckBox Content="Konfliktwarnungen anzeigen" IsChecked="{Binding OutlookConflictWarningsEnabled}" Margin="0,0,0,8"/>
+                        <CheckBox Content="Teams-Button anzeigen" IsChecked="{Binding OutlookTeamsButtonEnabled}" Margin="0,0,0,8"/>
+                        <CheckBox Content="Ganztagstermine als Tagesmarker interpretieren" IsChecked="{Binding OutlookInterpretAllDayAsMarkers}" Margin="0,0,0,8"/>
+                        <CheckBox Content="Wochenende anzeigen" IsChecked="{Binding ShowWeekendInWeekView}" Margin="0,0,0,12"/>
+                        <Grid>
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="240"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions><RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/></Grid.RowDefinitions>
+                            <TextBlock Grid.Row="0" Text="Kalender-Zeitzone" Style="{StaticResource SettingsLabelStyle}"/>
+                            <ComboBox Grid.Row="0" Grid.Column="1" Style="{StaticResource SettingsComboStyle}" ItemsSource="{Binding CalendarTimeZones}" SelectedItem="{Binding CalendarTimeZoneId}"/>
+                            <TextBlock Grid.Row="1" Text="Kalender Sync-Modus" Style="{StaticResource SettingsLabelStyle}"/>
+                            <ComboBox Grid.Row="1" Grid.Column="1" Style="{StaticResource SettingsComboStyle}" ItemsSource="{Binding OutlookSyncModes}" SelectedItem="{Binding OutlookCalendarSyncMode}"/>
+                            <TextBlock Grid.Row="2" Text="Sync-Intervall (Minuten)" Style="{StaticResource SettingsLabelStyle}"/>
+                            <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding OutlookCalendarSyncIntervalMinutes}" Width="120" HorizontalAlignment="Left" Margin="0,0,0,8"/>
+                            <TextBlock Grid.Row="3" Text="Rückblick (Tage)" Style="{StaticResource SettingsLabelStyle}"/>
+                            <TextBox Grid.Row="3" Grid.Column="1" Text="{Binding OutlookCalendarRangePastDays}" Width="120" HorizontalAlignment="Left" Margin="0,0,0,8"/>
+                            <TextBlock Grid.Row="4" Text="Vorschau (Tage)" Style="{StaticResource SettingsLabelStyle}"/>
+                            <TextBox Grid.Row="4" Grid.Column="1" Text="{Binding OutlookCalendarRangeFutureDays}" Width="120" HorizontalAlignment="Left" Margin="0,0,0,8"/>
+                            <TextBlock Grid.Row="5" Text="Outlook Kategorie" Style="{StaticResource SettingsLabelStyle}"/>
+                            <TextBox Grid.Row="5" Grid.Column="1" Text="{Binding OutlookCategoryName}" Style="{StaticResource SettingsTextBoxStyle}"/>
+                        </Grid>
+                        <WrapPanel Margin="0,4,0,0">
+                            <Button Content="Jetzt synchronisieren" Width="170" Style="{StaticResource SecondaryButtonStyle}" Command="{Binding RefreshOutlookCalendarCommand}"/>
+                            <Button Content="Verbindung testen" Width="170" Style="{StaticResource SecondaryButtonStyle}" Command="{Binding TestOutlookConnectionCommand}"/>
                         </WrapPanel>
                     </StackPanel>
                 </Border>
 
+                <!-- 5. Homeoffice -->
                 <Border Style="{StaticResource CardStyle}">
                     <StackPanel>
-                        <TextBlock Text="Heute-Ansicht" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,10"/>
-                        <CheckBox Content="Bereits vergangene Termine und Aufgaben ausblenden"
-                                  IsChecked="{Binding HidePastTodayItems}"/>
-                        <TextBlock Text="Vergangene Termine und Task-Segmente werden automatisch aus „Heute“ entfernt. Aufgaben ohne weitere heutige Segmente erscheinen wieder unter „Aktuelle Aufgaben“."
-                                   Foreground="{StaticResource MutedTextBrush}"
-                                   TextWrapping="Wrap"
-                                   Margin="24,4,0,0"/>
+                        <TextBlock Text="Homeoffice" Style="{StaticResource SettingsCardTitleStyle}"/>
+                        <Grid>
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="240"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions><RowDefinition/><RowDefinition/></Grid.RowDefinitions>
+                            <TextBlock Grid.Row="0" Text="E-Mail Empfänger 1" Style="{StaticResource SettingsLabelStyle}"/>
+                            <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding HomeOfficeMailRecipient1, UpdateSourceTrigger=LostFocus}" Style="{StaticResource SettingsTextBoxStyle}"/>
+                            <TextBlock Grid.Row="1" Text="E-Mail Empfänger 2" Style="{StaticResource SettingsLabelStyle}"/>
+                            <StackPanel Grid.Row="1" Grid.Column="1" MaxWidth="360" HorizontalAlignment="Stretch">
+                                <TextBox Text="{Binding HomeOfficeMailRecipient2, UpdateSourceTrigger=LostFocus}" Style="{StaticResource SettingsTextBoxStyle}"/>
+                                <TextBlock Text="Optional" Style="{StaticResource SettingsHelpStyle}"/>
+                            </StackPanel>
+                        </Grid>
                     </StackPanel>
                 </Border>
 
+                <!-- 6. Updates -->
                 <Border Style="{StaticResource CardStyle}">
                     <StackPanel>
-                        <TextBlock Text="Homeoffice" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,10"/>
-                        <TextBlock Text="E-Mail Empfänger 1" Foreground="{StaticResource MutedTextBrush}"/>
-                        <TextBox Width="420" HorizontalAlignment="Left" Text="{Binding HomeOfficeMailRecipient1, UpdateSourceTrigger=LostFocus}"/>
-                        <TextBlock Text="E-Mail Empfänger 2 (optional)" Foreground="{StaticResource MutedTextBrush}" Margin="0,8,0,0"/>
-                        <TextBox Width="420" HorizontalAlignment="Left" Text="{Binding HomeOfficeMailRecipient2, UpdateSourceTrigger=LostFocus}"/>
+                        <TextBlock Text="Updates" Style="{StaticResource SettingsCardTitleStyle}"/>
+                        <Grid Margin="0,0,0,8">
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="240"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions><RowDefinition/><RowDefinition/><RowDefinition/></Grid.RowDefinitions>
+                            <TextBlock Grid.Row="0" Text="Installierte Version" Style="{StaticResource SettingsLabelStyle}"/>
+                            <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding InstalledVersion, Mode=OneWay}" VerticalAlignment="Center" Margin="0,0,0,8"/>
+                            <TextBlock Grid.Row="1" Text="Letzte Prüfung" Style="{StaticResource SettingsLabelStyle}"/>
+                            <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding LastUpdateCheck}" VerticalAlignment="Center" Margin="0,0,0,8"/>
+                            <TextBlock Grid.Row="2" Text="Verfügbare Version" Style="{StaticResource SettingsLabelStyle}"/>
+                            <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding AvailableVersion}" VerticalAlignment="Center" Margin="0,0,0,8"/>
+                        </Grid>
+                        <CheckBox Content="Beim Start automatisch nach Updates suchen" IsChecked="{Binding CheckForUpdatesOnStartup}" Margin="0,0,0,8"/>
+                        <CheckBox Content="Verfügbare Updates beim Start automatisch installieren" IsChecked="{Binding AutoInstallUpdatesOnStartup}" Margin="0,0,0,8"/>
+                        <ProgressBar Minimum="0" Maximum="100" Value="{Binding UpdateProgress}" Height="8" Margin="0,0,0,6"/>
+                        <TextBlock Text="{Binding UpdateStatus}" Foreground="#FBBF24" TextWrapping="Wrap"/>
+                        <TextBlock Text="Release Notes" FontWeight="SemiBold" Margin="0,10,0,4"/>
+                        <TextBox Text="{Binding ReleaseNotes, Mode=OneWay}" IsReadOnly="True" AcceptsReturn="True" TextWrapping="Wrap" MaxHeight="160" VerticalScrollBarVisibility="Auto"/>
+                        <WrapPanel Margin="0,8,0,0">
+                            <Button Content="Nach Updates suchen" Width="170" Command="{Binding CheckForUpdatesCommand}"/>
+                            <Button Content="Update installieren" Width="170" Command="{Binding InstallUpdateCommand}"/>
+                            <Button Content="GitHub öffnen" Width="150" Style="{StaticResource SecondaryButtonStyle}" Command="{Binding OpenReleaseCommand}"/>
+                        </WrapPanel>
                     </StackPanel>
                 </Border>
 
+                <!-- 7. Znuny connection -->
                 <Border Style="{StaticResource CardStyle}">
                     <StackPanel>
-                        <TextBlock Text="Segmentplanung" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,10"/>
-                        <TextBlock Text="Standarddauer für neue Segmente" Foreground="{StaticResource MutedTextBrush}"/>
-                        <StackPanel Orientation="Horizontal">
-                            <ComboBox Width="120" Style="{StaticResource DarkComboBoxStyle}"
-                                      ItemsSource="{Binding SegmentDurationOptions}"
-                                      SelectedItem="{Binding DefaultSegmentDurationMinutes}"/>
-                            <TextBlock Text="Minuten" VerticalAlignment="Center" Margin="8,0,0,0"/>
-                        </StackPanel>
+                        <TextBlock Text="Znuny / OTRS – Verbindung" Style="{StaticResource SettingsCardTitleStyle}"/>
+                        <Grid>
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="240"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions><RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/></Grid.RowDefinitions>
+                            <TextBlock Grid.Row="0" Text="Server / Web URL" Style="{StaticResource SettingsLabelStyle}"/>
+                            <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding TicketSystemWebUrl, UpdateSourceTrigger=PropertyChanged}" Style="{StaticResource SettingsLongTextBoxStyle}" ToolTip="Beispiel: https://SERVER/index.pl"/>
+                            <TextBlock Grid.Row="1" Text="API URL" Style="{StaticResource SettingsLabelStyle}"/>
+                            <StackPanel Grid.Row="1" Grid.Column="1" MaxWidth="560" HorizontalAlignment="Stretch">
+                                <TextBox Text="{Binding TicketSystemApiUrl, UpdateSourceTrigger=PropertyChanged}" Style="{StaticResource SettingsLongTextBoxStyle}"/>
+                                <TextBlock Text="Beispiel: https://SERVER/nph-genericinterface.pl/Webservice/GenericTicketConnectorREST" Style="{StaticResource SettingsHelpStyle}"/>
+                            </StackPanel>
+                            <TextBlock Grid.Row="2" Text="Benutzername" Style="{StaticResource SettingsLabelStyle}"/>
+                            <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding TicketSystemUsername, UpdateSourceTrigger=PropertyChanged}" Style="{StaticResource SettingsTextBoxStyle}"/>
+                            <TextBlock Grid.Row="3" Text="Passwort" Style="{StaticResource SettingsLabelStyle}"/>
+                            <TextBox x:Name="TicketSystemPasswordTextBox" Grid.Row="3" Grid.Column="1"
+                                     Text="{Binding TicketSystemPassword, UpdateSourceTrigger=LostFocus}" Style="{StaticResource SettingsTextBoxStyle}"
+                                     GotKeyboardFocus="TicketSystemPasswordTextBox_GotKeyboardFocus"
+                                     PreviewMouseLeftButtonDown="TicketSystemPasswordTextBox_PreviewMouseLeftButtonDown"
+                                     LostKeyboardFocus="TicketSystemPasswordTextBox_LostKeyboardFocus"
+                                     ToolTip="Verschlüsselt gespeichert. Beim Bearbeiten sichtbar; nach dem Speichern maskiert."/>
+                            <TextBlock Grid.Row="4" Text="Agenten-ID" Style="{StaticResource SettingsLabelStyle}"/>
+                            <StackPanel Grid.Row="4" Grid.Column="1">
+                                <TextBox Text="{Binding TicketSystemAgentId, UpdateSourceTrigger=PropertyChanged}" Width="120" HorizontalAlignment="Left" Margin="0,0,0,4"/>
+                                <TextBlock Text="Interne numerische Agenten-ID für Owner und Responsible." Style="{StaticResource SettingsHelpStyle}"/>
+                            </StackPanel>
+                        </Grid>
+                        <WrapPanel Margin="0,4,0,0">
+                            <Button Content="Verbindung testen" Width="170" Style="{StaticResource SecondaryButtonStyle}" Command="{Binding TestTicketSystemConnectionCommand}"/>
+                            <Button Content="API-Routen testen" Width="170" Style="{StaticResource SecondaryButtonStyle}" Command="{Binding TestTicketSystemRoutesCommand}"/>
+                        </WrapPanel>
                     </StackPanel>
                 </Border>
 
+                <!-- 8. Znuny synchronization -->
                 <Border Style="{StaticResource CardStyle}">
                     <StackPanel>
-                        <TextBlock Text="Einstellungen" FontSize="24" FontWeight="SemiBold" Margin="0,0,0,10"/>
-                        <CheckBox Content="Outlook Sync aktiv" IsChecked="{Binding OutlookSyncEnabled}" Margin="0,0,0,8"/>
-                        <CheckBox Content="Outlook Kalender anzeigen" IsChecked="{Binding OutlookCalendarEnabled}" Margin="0,0,0,8"/>
-                        <CheckBox Content="Konflikte warnen" IsChecked="{Binding OutlookConflictWarningsEnabled}" Margin="0,0,0,8"/>
-                        <CheckBox Content="Teams-Button anzeigen" IsChecked="{Binding OutlookTeamsButtonEnabled}" Margin="0,0,0,8"/>
-                        <CheckBox Content="Ganztagstermine als Tagesmarker interpretieren" IsChecked="{Binding OutlookInterpretAllDayAsMarkers}" Margin="0,0,0,8"/>
-                        <CheckBox Content="Wochenende anzeigen" IsChecked="{Binding ShowWeekendInWeekView}" Margin="0,0,0,8"/>
-                        <CheckBox Content="Interne Aufgaben-Segmente zusätzlich im Kalender anzeigen" IsChecked="{Binding ShowInternalTaskSegmentsInCalendar}" Margin="0,0,0,4"/>
-                        <TextBlock Text="Bei aktiver Outlook-Synchronisierung können geplante Segmente sonst doppelt erscheinen."
-                                   Foreground="{StaticResource MutedTextBrush}" TextWrapping="Wrap" Margin="24,0,0,8"/>
-                        <TextBlock Text="Kalender-Zeitzone" Foreground="{StaticResource MutedTextBrush}"/>
-                        <ComboBox Width="220" Style="{StaticResource DarkComboBoxStyle}" ItemsSource="{Binding CalendarTimeZones}" SelectedItem="{Binding CalendarTimeZoneId}" Margin="0,0,0,8"/>
-                        <TextBlock Text="Outlook Kalender Sync-Modus" Foreground="{StaticResource MutedTextBrush}"/>
-                        <ComboBox Width="220" Style="{StaticResource DarkComboBoxStyle}" ItemsSource="{Binding OutlookSyncModes}" SelectedItem="{Binding OutlookCalendarSyncMode}" Margin="0,0,0,8"/>
-                        <TextBlock Text="Sync Intervall (Minuten)" Foreground="{StaticResource MutedTextBrush}"/>
-                        <TextBox Text="{Binding OutlookCalendarSyncIntervalMinutes}" Width="120" Margin="0,0,0,8"/>
-                        <TextBlock Text="Zeitfenster Rückblick (Tage)" Foreground="{StaticResource MutedTextBrush}"/>
-                        <TextBox Text="{Binding OutlookCalendarRangePastDays}" Width="120" Margin="0,0,0,8"/>
-                        <TextBlock Text="Zeitfenster Vorschau (Tage)" Foreground="{StaticResource MutedTextBrush}"/>
-                        <TextBox Text="{Binding OutlookCalendarRangeFutureDays}" Width="120" Margin="0,0,0,8"/>
-                        <Button Content="Outlook Kalender jetzt synchronisieren" Width="260" Style="{StaticResource SecondaryButtonStyle}" Margin="0,0,0,8" Command="{Binding RefreshOutlookCalendarCommand}"/>
-                        <Button Content="Outlook Verbindung testen" Width="220" Style="{StaticResource SecondaryButtonStyle}" Margin="0,0,0,12" Command="{Binding TestOutlookConnectionCommand}"/>
-                        <CheckBox Content="Dynamic Island aktiv" IsChecked="{Binding DynamicIslandEnabled}" Margin="0,0,0,12"/>
-                        <TextBlock Text="Outlook Kategorie" Foreground="{StaticResource MutedTextBrush}"/>
-                        <TextBox Text="{Binding OutlookCategoryName}" Width="260"/>
-                        <TextBlock Text="Reminder Vorlauf Minuten" Foreground="{StaticResource MutedTextBrush}"/>
-                        <TextBox Text="{Binding ReminderLeadMinutes}" Width="120"/>
-                        <Button Content="Reminder testen" Width="220" Margin="0,8,0,0" Command="{Binding TestReminderCommand}"/>
-                        <TextBlock Text="Datum/Zeit Format" Foreground="{StaticResource MutedTextBrush}"/>
-                        <TextBox Text="{Binding DateTimeFormat}" Width="220"/>
-                    </StackPanel>
-                </Border>
-
-                <Border Style="{StaticResource CardStyle}">
-                    <StackPanel>
-                        <TextBlock Text="Znuny / OTRS Ticketsystem" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,10"/>
-                        <TextBlock Text="Server URL / Webseite" Foreground="{StaticResource MutedTextBrush}"/>
-                        <TextBox Text="{Binding TicketSystemWebUrl, UpdateSourceTrigger=PropertyChanged}" Width="560" ToolTip="Beispiel: https://SERVER/index.pl"/>
-                        <TextBlock Text="API URL (GenericTicketConnectorREST)" Foreground="{StaticResource MutedTextBrush}"/>
-                        <TextBox Text="{Binding TicketSystemApiUrl, UpdateSourceTrigger=PropertyChanged}" Width="560" ToolTip="https://SERVER/nph-genericinterface.pl/Webservice/GenericTicketConnectorREST"/>
-                        <TextBlock Text="Beispiel: https://SERVER/nph-genericinterface.pl/Webservice/GenericTicketConnectorREST" Foreground="{StaticResource MutedTextBrush}" TextWrapping="Wrap" Margin="0,0,0,8"/>
-                        <TextBlock Text="Benutzername" Foreground="{StaticResource MutedTextBrush}"/>
-                        <TextBox Text="{Binding TicketSystemUsername, UpdateSourceTrigger=PropertyChanged}" Width="320"/>
-                        <TextBlock Text="Passwort (verschlüsselt gespeichert)" Foreground="{StaticResource MutedTextBrush}"/>
-                        <TextBox x:Name="TicketSystemPasswordTextBox"
-                                 Text="{Binding TicketSystemPassword, UpdateSourceTrigger=LostFocus}"
-                                 Width="320"
-                                 GotKeyboardFocus="TicketSystemPasswordTextBox_GotKeyboardFocus"
-                                 PreviewMouseLeftButtonDown="TicketSystemPasswordTextBox_PreviewMouseLeftButtonDown"
-                                 LostKeyboardFocus="TicketSystemPasswordTextBox_LostKeyboardFocus"
-                                 ToolTip="Beim Bearbeiten sichtbar; nach dem Speichern wird das Passwort maskiert angezeigt."/>
-                        <TextBlock Text="Znuny Agenten-ID" Foreground="{StaticResource MutedTextBrush}"/>
-                        <TextBox Text="{Binding TicketSystemAgentId, UpdateSourceTrigger=PropertyChanged}" Width="120"/>
-                        <TextBlock Text="Interne numerische Agenten-ID für Owner- und Responsible-Suche. Sie kann in Znuny unter Admin → Agenten bzw. in der URL des geöffneten Agenten gefunden werden." Foreground="{StaticResource MutedTextBrush}" TextWrapping="Wrap" Margin="0,0,0,8"/>
-                        <TextBlock Text="Neue Aufgaben / Ticket-Vorschläge" FontSize="16" FontWeight="SemiBold" Margin="0,8,0,6"/>
-                        <TextBlock Text="Quell-Benutzer-ID" Foreground="{StaticResource MutedTextBrush}"/>
-                        <TextBox Text="{Binding TicketSystemCandidateUserId, UpdateSourceTrigger=LostFocus}" Width="120"/>
-                        <TextBlock Text="Standard: OTRS, Admin (UserID 1). Besitzer und Verantwortlicher werden berücksichtigt." Foreground="{StaticResource MutedTextBrush}" TextWrapping="Wrap"/>
-                        <TextBlock Text="Schlüsselwörter (Zeile, Komma oder Semikolon als Trennzeichen)" Foreground="{StaticResource MutedTextBrush}" Margin="0,6,0,0"/>
-                        <TextBox Text="{Binding TicketSystemCandidateKeywords, UpdateSourceTrigger=LostFocus}" AcceptsReturn="True" Width="560" Height="90" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto"/>
-                        <TextBlock Text="Candidate-Suchmodus" Foreground="{StaticResource MutedTextBrush}" Margin="0,6,0,0"/>
-                        <ComboBox Width="160" Style="{StaticResource DarkComboBoxStyle}" ItemsSource="{Binding TicketSystemCandidateSearchModes}" SelectedItem="{Binding TicketSystemCandidateSearchMode}"/>
-                        <TextBlock Text="TicketSearch Route" Foreground="{StaticResource MutedTextBrush}"/>
-                        <TextBox Text="{Binding TicketSystemTicketSearchRoute, UpdateSourceTrigger=PropertyChanged}" Width="220"/>
-                        <TextBlock Text="TicketSearch HTTP-Methode" Foreground="{StaticResource MutedTextBrush}"/>
-                        <ComboBox Width="120" Style="{StaticResource DarkComboBoxStyle}" ItemsSource="{Binding TicketSystemSearchMethods}" SelectedItem="{Binding TicketSystemTicketSearchMethod}"/>
-                        <TextBlock Text="TicketSearch Authentifizierung" Foreground="{StaticResource MutedTextBrush}"/>
-                        <ComboBox Width="120" Style="{StaticResource DarkComboBoxStyle}" ItemsSource="{Binding TicketSystemAuthModes}" SelectedItem="{Binding TicketSystemTicketSearchAuthMode}"/>
-                        <TextBlock Text="TicketGet Route Template" Foreground="{StaticResource MutedTextBrush}"/>
-                        <TextBox Text="{Binding TicketSystemTicketGetRouteTemplate, UpdateSourceTrigger=PropertyChanged}" Width="220"/>
-                        <TextBlock Text="TicketGet HTTP-Methode" Foreground="{StaticResource MutedTextBrush}"/>
-                        <TextBox Text="{Binding TicketSystemTicketGetMethod}" Width="120" IsReadOnly="True"/>
-                        <TextBlock Text="TicketGet Authentifizierung" Foreground="{StaticResource MutedTextBrush}"/>
-                        <ComboBox Width="120" Style="{StaticResource DarkComboBoxStyle}" ItemsSource="{Binding TicketSystemTicketGetAuthModes}" SelectedItem="{Binding TicketSystemTicketGetAuthMode}"/>
-                        <TextBlock Text="TicketUpdate Route" Foreground="{StaticResource MutedTextBrush}"/>
-                        <TextBox Text="{Binding TicketSystemTicketUpdateRoute, UpdateSourceTrigger=PropertyChanged}" Width="320"
-                                 ToolTip="REST-Route für TicketUpdate. {TicketID} wird automatisch durch die interne Znuny-Ticket-ID ersetzt. Standard: /Ticket/{TicketID}/Update"/>
-                        <TextBlock Text="DynamicField-Options Route (read-only)" Foreground="{StaticResource MutedTextBrush}"/>
-                        <TextBox Text="{Binding TicketSystemDynamicFieldOptionsRoute, UpdateSourceTrigger=PropertyChanged}" Width="360" ToolTip="/Ticket/DynamicField/{FieldName}/Options"/>
-                        <TextBlock Text="DynamicField: Kostenstelle (interner Name)" Foreground="{StaticResource MutedTextBrush}"/>
-                        <TextBox Text="{Binding TicketSystemCostCenterFieldName, UpdateSourceTrigger=PropertyChanged}" Width="320"/>
-                        <TextBlock Text="Kostenstellen-Optionen (Key=Anzeigetext;...)" Foreground="{StaticResource MutedTextBrush}"/>
-                        <TextBox Text="{Binding TicketSystemCostCenterOptions, UpdateSourceTrigger=PropertyChanged}" Width="560" ToolTip="Beispiel: 4711=Kostenstelle 4711;815=Kostenstelle 815"/>
-                        <TextBlock Text="DynamicField: Auftrag (interner Name)" Foreground="{StaticResource MutedTextBrush}"/>
-                        <TextBox Text="{Binding TicketSystemOrderFieldName, UpdateSourceTrigger=PropertyChanged}" Width="320"/>
-                        <TextBlock Text="Auftrags-Optionen (Key=Anzeigetext;...)" Foreground="{StaticResource MutedTextBrush}"/>
-                        <TextBox Text="{Binding TicketSystemOrderOptions, UpdateSourceTrigger=PropertyChanged}" Width="560" ToolTip="Beispiel: 123456=Auftrag 123456"/>
-                        <TextBlock Text="TicketGet liefert die aktuellen DynamicField-Werte, aber üblicherweise keine vollständigen Optionslisten. Ohne zusätzlichen GenericInterface-Metadaten-Endpunkt werden die obigen konfigurierbaren Key/Anzeigetext-Listen verwendet; die Weboberfläche wird nicht gescrapt."
-                                   Foreground="{StaticResource MutedTextBrush}" TextWrapping="Wrap" Margin="0,0,0,8"/>
-                        <TextBlock Text="Bei älteren OTRS/Znuny-6.x-GenericTicketConnectorREST-Konfigurationen verwendet TicketSearch GET /Ticket." Foreground="{StaticResource MutedTextBrush}" TextWrapping="Wrap" Margin="0,0,0,8"/>
-                        <TextBlock Text="Synchronisationsintervall (Minuten)" Foreground="{StaticResource MutedTextBrush}"/>
-                        <TextBox Text="{Binding TicketSystemSyncIntervalMinutes, UpdateSourceTrigger=PropertyChanged}" Width="120"/>
-                        <CheckBox Content="Nur offene Tickets synchronisieren" IsChecked="{Binding TicketSystemOnlyOpenTickets}" Margin="0,8,0,4"/>
+                        <TextBlock Text="Znuny / OTRS – Synchronisierung" Style="{StaticResource SettingsCardTitleStyle}"/>
+                        <Grid>
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="240"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions><RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/></Grid.RowDefinitions>
+                            <TextBlock Grid.Row="0" Text="TicketSearch Route" Style="{StaticResource SettingsLabelStyle}"/>
+                            <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding TicketSystemTicketSearchRoute, UpdateSourceTrigger=PropertyChanged}" Style="{StaticResource SettingsTextBoxStyle}"/>
+                            <TextBlock Grid.Row="1" Text="TicketSearch HTTP-Methode" Style="{StaticResource SettingsLabelStyle}"/>
+                            <ComboBox Grid.Row="1" Grid.Column="1" Style="{StaticResource SettingsComboStyle}" ItemsSource="{Binding TicketSystemSearchMethods}" SelectedItem="{Binding TicketSystemTicketSearchMethod}"/>
+                            <TextBlock Grid.Row="2" Text="TicketSearch Authentifizierung" Style="{StaticResource SettingsLabelStyle}"/>
+                            <ComboBox Grid.Row="2" Grid.Column="1" Style="{StaticResource SettingsComboStyle}" ItemsSource="{Binding TicketSystemAuthModes}" SelectedItem="{Binding TicketSystemTicketSearchAuthMode}"/>
+                            <TextBlock Grid.Row="3" Text="TicketGet Route" Style="{StaticResource SettingsLabelStyle}"/>
+                            <TextBox Grid.Row="3" Grid.Column="1" Text="{Binding TicketSystemTicketGetRouteTemplate, UpdateSourceTrigger=PropertyChanged}" Style="{StaticResource SettingsTextBoxStyle}"/>
+                            <TextBlock Grid.Row="4" Text="TicketGet HTTP-Methode" Style="{StaticResource SettingsLabelStyle}"/>
+                            <TextBox Grid.Row="4" Grid.Column="1" Text="{Binding TicketSystemTicketGetMethod}" Width="120" HorizontalAlignment="Left" IsReadOnly="True" Margin="0,0,0,8"/>
+                            <TextBlock Grid.Row="5" Text="TicketGet Authentifizierung" Style="{StaticResource SettingsLabelStyle}"/>
+                            <ComboBox Grid.Row="5" Grid.Column="1" Style="{StaticResource SettingsComboStyle}" ItemsSource="{Binding TicketSystemTicketGetAuthModes}" SelectedItem="{Binding TicketSystemTicketGetAuthMode}"/>
+                            <TextBlock Grid.Row="6" Text="TicketUpdate Route" Style="{StaticResource SettingsLabelStyle}"/>
+                            <TextBox Grid.Row="6" Grid.Column="1" Text="{Binding TicketSystemTicketUpdateRoute, UpdateSourceTrigger=PropertyChanged}" Style="{StaticResource SettingsLongTextBoxStyle}" ToolTip="Standard: /Ticket/{TicketID}/Update"/>
+                            <TextBlock Grid.Row="7" Text="Sync-Intervall (Minuten)" Style="{StaticResource SettingsLabelStyle}"/>
+                            <TextBox Grid.Row="7" Grid.Column="1" Text="{Binding TicketSystemSyncIntervalMinutes, UpdateSourceTrigger=PropertyChanged}" Width="120" HorizontalAlignment="Left" Margin="0,0,0,8"/>
+                        </Grid>
+                        <CheckBox Content="Nur offene Tickets synchronisieren" IsChecked="{Binding TicketSystemOnlyOpenTickets}" Margin="0,4,0,4"/>
                         <CheckBox Content="Geschlossene Tickets anzeigen / übernehmen" IsChecked="{Binding TicketSystemShowClosedTickets}" Margin="0,0,0,4"/>
                         <CheckBox Content="Tickets berücksichtigen, bei denen ich Owner bin" IsChecked="{Binding TicketSystemIncludeOwner}" Margin="0,0,0,4"/>
-                        <CheckBox Content="Tickets berücksichtigen, bei denen ich Responsible bin" IsChecked="{Binding TicketSystemIncludeResponsible}" Margin="0,0,0,8"/>
+                        <CheckBox Content="Tickets berücksichtigen, bei denen ich Responsible bin" IsChecked="{Binding TicketSystemIncludeResponsible}" Margin="0,0,0,4"/>
                         <CheckBox Content="Bei neu zugewiesenen Tickets benachrichtigen" IsChecked="{Binding NotifyOnNewAssignedTickets}" Margin="0,0,0,8"/>
                         <CheckBox Content="Anmeldedaten im Ticketsystem automatisch ausfüllen" IsChecked="{Binding TicketSystemAutofillCredentials}" Margin="0,0,0,4"/>
                         <CheckBox Content="Automatisch anmelden" IsChecked="{Binding TicketSystemAutoLogin}" Margin="0,0,0,8"/>
-                        <TextBlock Text="Autofill wird ausschließlich auf der exakt konfigurierten HTTPS-Domain ausgeführt. Das Passwort bleibt verschlüsselt gespeichert und wird nicht protokolliert."
-                                   Foreground="{StaticResource MutedTextBrush}" TextWrapping="Wrap" Margin="0,0,0,8"/>
-                        <TextBlock Text="Der Sync nutzt SessionCreate, TicketSearch mit OwnerIDs/ResponsibleIDs und TicketGet. API-Tokens werden für diesen Connector nicht verwendet. SessionGet wird im normalen Sync nicht benötigt."
-                                   Foreground="{StaticResource MutedTextBrush}" TextWrapping="Wrap" Margin="0,0,0,8"/>
-                        <StackPanel Orientation="Horizontal" Margin="0,0,0,0">
-                            <Button Content="Znuny-Verbindung testen" Width="220" Style="{StaticResource SecondaryButtonStyle}" Command="{Binding TestTicketSystemConnectionCommand}" Margin="0,0,8,0"/>
-                            <Button Content="API-Routen testen" Width="180" Style="{StaticResource SecondaryButtonStyle}" Command="{Binding TestTicketSystemRoutesCommand}" Margin="0,0,8,0"/>
-                            <Button Content="Znuny Tickets jetzt synchronisieren" Width="300" Style="{StaticResource SecondaryButtonStyle}" Command="{Binding ImportTicketSystemTasksCommand}"/>
-                        </StackPanel>
+                        <TextBlock Text="Autofill wird ausschließlich auf der konfigurierten HTTPS-Domain ausgeführt. Das Passwort bleibt verschlüsselt und wird nicht protokolliert." Style="{StaticResource SettingsHelpStyle}"/>
+
+                        <TextBlock Text="Neue Aufgaben / Ticket-Vorschläge" FontSize="16" FontWeight="SemiBold" Margin="0,12,0,8"/>
+                        <Grid>
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="240"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions><RowDefinition/><RowDefinition/></Grid.RowDefinitions>
+                            <TextBlock Grid.Row="0" Text="Candidate Benutzer" Style="{StaticResource SettingsLabelStyle}"/>
+                            <StackPanel Grid.Row="0" Grid.Column="1">
+                                <TextBox Text="{Binding TicketSystemCandidateUserId, UpdateSourceTrigger=LostFocus}" Width="120" HorizontalAlignment="Left" Margin="0,0,0,4"/>
+                                <TextBlock Text="Standard: OTRS, Admin (UserID 1). Besitzer UND Verantwortlicher müssen diesem Benutzer entsprechen." Style="{StaticResource SettingsHelpStyle}"/>
+                            </StackPanel>
+                            <TextBlock Grid.Row="1" Text="Schlüsselwörter" Style="{StaticResource SettingsLabelStyle}" VerticalAlignment="Top"/>
+                            <StackPanel Grid.Row="1" Grid.Column="1" MaxWidth="560" HorizontalAlignment="Stretch">
+                                <TextBox Text="{Binding TicketSystemCandidateKeywords, UpdateSourceTrigger=LostFocus}" AcceptsReturn="True" Height="90" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" Style="{StaticResource SettingsLongTextBoxStyle}"/>
+                                <TextBlock Text="Zeile, Komma oder Semikolon als Trennzeichen." Style="{StaticResource SettingsHelpStyle}"/>
+                            </StackPanel>
+                        </Grid>
+                        <Button Content="Tickets jetzt synchronisieren" Width="200" HorizontalAlignment="Left" Style="{StaticResource SecondaryButtonStyle}" Command="{Binding ImportTicketSystemTasksCommand}"/>
                         <TextBlock Text="{Binding TicketSystemStatus}" Foreground="#FBBF24" TextWrapping="Wrap" Margin="0,4,0,0"/>
                     </StackPanel>
                 </Border>
 
+                <!-- 9. Ticket creation -->
                 <Border Style="{StaticResource CardStyle}">
                     <StackPanel>
-                        <TextBlock Text="Sollstunden pro Wochentag (Minuten)" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,10"/>
+                        <TextBlock Text="Znuny / OTRS – Ticket-Erstellung" Style="{StaticResource SettingsCardTitleStyle}"/>
                         <Grid>
-                            <Grid.ColumnDefinitions><ColumnDefinition Width="180"/><ColumnDefinition Width="120"/></Grid.ColumnDefinitions>
-                            <TextBlock Grid.Row="0" Grid.Column="0" Text="Montag"/><TextBox Grid.Row="0" Grid.Column="1" Text="{Binding MondayTargetMinutes}"/>
-                            <TextBlock Grid.Row="1" Grid.Column="0" Text="Dienstag"/><TextBox Grid.Row="1" Grid.Column="1" Text="{Binding TuesdayTargetMinutes}"/>
-                            <TextBlock Grid.Row="2" Grid.Column="0" Text="Mittwoch"/><TextBox Grid.Row="2" Grid.Column="1" Text="{Binding WednesdayTargetMinutes}"/>
-                            <TextBlock Grid.Row="3" Grid.Column="0" Text="Donnerstag"/><TextBox Grid.Row="3" Grid.Column="1" Text="{Binding ThursdayTargetMinutes}"/>
-                            <TextBlock Grid.Row="4" Grid.Column="0" Text="Freitag"/><TextBox Grid.Row="4" Grid.Column="1" Text="{Binding FridayTargetMinutes}"/>
-                            <TextBlock Grid.Row="5" Grid.Column="0" Text="Samstag"/><TextBox Grid.Row="5" Grid.Column="1" Text="{Binding SaturdayTargetMinutes}"/>
-                            <TextBlock Grid.Row="6" Grid.Column="0" Text="Sonntag"/><TextBox Grid.Row="6" Grid.Column="1" Text="{Binding SundayTargetMinutes}"/>
-                            <Grid.RowDefinitions>
-                                <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/>
-                                <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/>
-                            </Grid.RowDefinitions>
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="240"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions><RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/></Grid.RowDefinitions>
+                            <TextBlock Grid.Row="0" Text="TicketCreate Route" Style="{StaticResource SettingsLabelStyle}"/>
+                            <StackPanel Grid.Row="0" Grid.Column="1" MaxWidth="360" HorizontalAlignment="Stretch">
+                                <TextBox Text="{Binding TicketSystemTicketCreateRoute, UpdateSourceTrigger=PropertyChanged}" Style="{StaticResource SettingsTextBoxStyle}" ToolTip="Standard: /TicketCreate"/>
+                                <TextBlock Text="Standardroute: /TicketCreate" Style="{StaticResource SettingsHelpStyle}"/>
+                            </StackPanel>
+                            <TextBlock Grid.Row="1" Text="HTTP-Methode" Style="{StaticResource SettingsLabelStyle}"/>
+                            <ComboBox Grid.Row="1" Grid.Column="1" Style="{StaticResource SettingsComboStyle}" ItemsSource="{Binding TicketSystemSearchMethods}" SelectedItem="{Binding TicketSystemTicketCreateMethod}"/>
+                            <TextBlock Grid.Row="2" Text="Standard Queue" Style="{StaticResource SettingsLabelStyle}"/>
+                            <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding TicketSystemCreateQueue, UpdateSourceTrigger=PropertyChanged}" Style="{StaticResource SettingsTextBoxStyle}"/>
+                            <TextBlock Grid.Row="3" Text="Standard Status" Style="{StaticResource SettingsLabelStyle}"/>
+                            <TextBox Grid.Row="3" Grid.Column="1" Text="{Binding TicketSystemCreateState, UpdateSourceTrigger=PropertyChanged}" Style="{StaticResource SettingsTextBoxStyle}" ToolTip="Standard: open"/>
+                            <TextBlock Grid.Row="4" Text="Standard Priorität" Style="{StaticResource SettingsLabelStyle}"/>
+                            <TextBox Grid.Row="4" Grid.Column="1" Text="{Binding TicketSystemCreatePriority, UpdateSourceTrigger=PropertyChanged}" Style="{StaticResource SettingsTextBoxStyle}" ToolTip="Standard: 3 normal"/>
+                            <TextBlock Grid.Row="5" Text="Standard Typ" Style="{StaticResource SettingsLabelStyle}"/>
+                            <TextBox Grid.Row="5" Grid.Column="1" Text="{Binding TicketSystemCreateType, UpdateSourceTrigger=PropertyChanged}" Style="{StaticResource SettingsTextBoxStyle}"/>
+                            <TextBlock Grid.Row="6" Text="Standard CustomerUser" Style="{StaticResource SettingsLabelStyle}" VerticalAlignment="Top"/>
+                            <StackPanel Grid.Row="6" Grid.Column="1" MaxWidth="360" HorizontalAlignment="Stretch">
+                                <TextBox Text="{Binding TicketSystemCreateCustomerUser, UpdateSourceTrigger=PropertyChanged}" Style="{StaticResource SettingsTextBoxStyle}"/>
+                                <TextBlock Text="Beispiel: m.mustermann" Style="{StaticResource SettingsHelpStyle}"/>
+                            </StackPanel>
+                        </Grid>
+                        <TextBlock Text="Neu erstellte Tickets werden dem konfigurierten Agenten als Besitzer und Verantwortlicher zugeordnet. Der CustomerUser wird nicht automatisch vorbelegt."
+                                   Style="{StaticResource SettingsHelpStyle}" Margin="0,4,0,0"/>
+                    </StackPanel>
+                </Border>
+
+                <!-- 10. Ticket replies -->
+                <Border Style="{StaticResource CardStyle}">
+                    <StackPanel>
+                        <TextBlock Text="Znuny / OTRS – Antworten" Style="{StaticResource SettingsCardTitleStyle}"/>
+                        <TextBlock Text="Antwortvorlage" Style="{StaticResource SettingsLabelStyle}"/>
+                        <TextBox Text="{Binding TicketSystemReplyTemplate, Mode=TwoWay, UpdateSourceTrigger=LostFocus}"
+                                 AcceptsReturn="True"
+                                 TextWrapping="Wrap"
+                                 VerticalScrollBarVisibility="Auto"
+                                 MinHeight="140"
+                                 MaxHeight="260"
+                                 MaxLength="10000"
+                                 MaxWidth="560"
+                                 HorizontalAlignment="Stretch"
+                                 ToolTip="Variablen werden beim Klick auf „Antworten“ automatisch ersetzt."
+                                 Margin="0,0,0,8"/>
+                        <TextBlock Text="Diese Vorlage wird beim Klick auf „Antworten“ eingefügt. Der Text kann vor jedem Versand frei angepasst werden. Leer lassen, wenn Antworten weiterhin mit einem leeren Textfeld beginnen sollen."
+                                   Style="{StaticResource SettingsHelpStyle}"/>
+                        <TextBlock Text="Verfügbare Variablen:&#10;$Customer – Vor- und Nachname des Ticket-Erstellers&#10;$CustomerFirstName – Vorname&#10;$CustomerLastName – Nachname&#10;$TicketNumber – Ticketnummer&#10;$TicketTitle – Ticketbetreff&#10;$Date – aktuelles Datum"
+                                   Style="{StaticResource SettingsHelpStyle}"/>
+                        <TextBlock Text="Beispiel:&#10;Hallo $Customer,&#10;&#10;vielen Dank für Ihre Nachricht zu Ticket $TicketNumber."
+                                   Style="{StaticResource SettingsHelpStyle}"/>
+                    </StackPanel>
+                </Border>
+
+                <!-- 11. Dynamic fields -->
+                <Border Style="{StaticResource CardStyle}">
+                    <StackPanel>
+                        <TextBlock Text="Znuny / OTRS – Zeitbuchung &amp; Dynamic Fields" Style="{StaticResource SettingsCardTitleStyle}"/>
+                        <Grid>
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="240"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions><RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/></Grid.RowDefinitions>
+                            <TextBlock Grid.Row="0" Text="DynamicField-Options Route" Style="{StaticResource SettingsLabelStyle}"/>
+                            <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding TicketSystemDynamicFieldOptionsRoute, UpdateSourceTrigger=PropertyChanged}" Style="{StaticResource SettingsLongTextBoxStyle}" ToolTip="/Ticket/DynamicField/{FieldName}/Options"/>
+                            <TextBlock Grid.Row="1" Text="Kostenstelle – Feldname" Style="{StaticResource SettingsLabelStyle}"/>
+                            <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding TicketSystemCostCenterFieldName, UpdateSourceTrigger=PropertyChanged}" Style="{StaticResource SettingsTextBoxStyle}"/>
+                            <TextBlock Grid.Row="2" Text="Kostenstellen-Optionen" Style="{StaticResource SettingsLabelStyle}"/>
+                            <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding TicketSystemCostCenterOptions, UpdateSourceTrigger=PropertyChanged}" Style="{StaticResource SettingsLongTextBoxStyle}" ToolTip="Beispiel: 4711=Kostenstelle 4711;815=Kostenstelle 815"/>
+                            <TextBlock Grid.Row="3" Text="Auftrag – Feldname" Style="{StaticResource SettingsLabelStyle}"/>
+                            <TextBox Grid.Row="3" Grid.Column="1" Text="{Binding TicketSystemOrderFieldName, UpdateSourceTrigger=PropertyChanged}" Style="{StaticResource SettingsTextBoxStyle}"/>
+                            <TextBlock Grid.Row="4" Text="Auftrags-Optionen" Style="{StaticResource SettingsLabelStyle}"/>
+                            <TextBox Grid.Row="4" Grid.Column="1" Text="{Binding TicketSystemOrderOptions, UpdateSourceTrigger=PropertyChanged}" Style="{StaticResource SettingsLongTextBoxStyle}" ToolTip="Beispiel: 123456=Auftrag 123456"/>
+                        </Grid>
+                        <TextBlock Text="TicketGet liefert aktuelle DynamicField-Werte, üblicherweise aber keine vollständigen Optionslisten. Deshalb werden die konfigurierten Key-/Anzeigetext-Listen verwendet."
+                                   Style="{StaticResource SettingsHelpStyle}" Margin="0,4,0,0"/>
+                    </StackPanel>
+                </Border>
+
+                <!-- 12. Working hours -->
+                <Border Style="{StaticResource CardStyle}">
+                    <StackPanel>
+                        <TextBlock Text="Sollstunden / Arbeitszeit" Style="{StaticResource SettingsCardTitleStyle}"/>
+                        <TextBlock Text="Sollzeit pro Wochentag in Minuten" Style="{StaticResource SettingsHelpStyle}"/>
+                        <Grid>
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="240"/><ColumnDefinition Width="120"/></Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions><RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/></Grid.RowDefinitions>
+                            <TextBlock Grid.Row="0" Text="Montag" Style="{StaticResource SettingsLabelStyle}"/><TextBox Grid.Row="0" Grid.Column="1" Text="{Binding MondayTargetMinutes}" Margin="0,0,0,8"/>
+                            <TextBlock Grid.Row="1" Text="Dienstag" Style="{StaticResource SettingsLabelStyle}"/><TextBox Grid.Row="1" Grid.Column="1" Text="{Binding TuesdayTargetMinutes}" Margin="0,0,0,8"/>
+                            <TextBlock Grid.Row="2" Text="Mittwoch" Style="{StaticResource SettingsLabelStyle}"/><TextBox Grid.Row="2" Grid.Column="1" Text="{Binding WednesdayTargetMinutes}" Margin="0,0,0,8"/>
+                            <TextBlock Grid.Row="3" Text="Donnerstag" Style="{StaticResource SettingsLabelStyle}"/><TextBox Grid.Row="3" Grid.Column="1" Text="{Binding ThursdayTargetMinutes}" Margin="0,0,0,8"/>
+                            <TextBlock Grid.Row="4" Text="Freitag" Style="{StaticResource SettingsLabelStyle}"/><TextBox Grid.Row="4" Grid.Column="1" Text="{Binding FridayTargetMinutes}" Margin="0,0,0,8"/>
+                            <TextBlock Grid.Row="5" Text="Samstag" Style="{StaticResource SettingsLabelStyle}"/><TextBox Grid.Row="5" Grid.Column="1" Text="{Binding SaturdayTargetMinutes}" Margin="0,0,0,8"/>
+                            <TextBlock Grid.Row="6" Text="Sonntag" Style="{StaticResource SettingsLabelStyle}"/><TextBox Grid.Row="6" Grid.Column="1" Text="{Binding SundayTargetMinutes}" Margin="0,0,0,8"/>
                         </Grid>
                     </StackPanel>
                 </Border>
