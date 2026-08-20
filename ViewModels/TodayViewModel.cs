@@ -49,8 +49,11 @@ public class TodayViewModel : ObservableObject
         get => _selectedTask;
         set
         {
+            var previousTaskId = _selectedTask?.Id;
             if (Set(ref _selectedTask, value))
             {
+                if (previousTaskId != value?.Id)
+                    TicketBookingNote = string.Empty;
                 LoadSegments();
                 Raise(nameof(IsTaskSelected));
                 Raise(nameof(HasZnunyTicket));
@@ -190,6 +193,9 @@ public class TodayViewModel : ObservableObject
 
     private string _ticketBookingInformation = string.Empty;
     public string TicketBookingInformation { get => _ticketBookingInformation; set => Set(ref _ticketBookingInformation, value); }
+
+    private string _ticketBookingNote = string.Empty;
+    public string TicketBookingNote { get => _ticketBookingNote; set => Set(ref _ticketBookingNote, value); }
 
     private bool _isTicketBooking;
     public bool IsTicketBooking
@@ -1207,9 +1213,12 @@ public class TodayViewModel : ObservableObject
                 task,
                 seconds,
                 description,
+                TicketBookingNote,
                 SelectedCostCenter?.Key ?? string.Empty,
                 SelectedOrder?.Key ?? string.Empty);
             StatusMessage = result.Message;
+            if (result.Success)
+                TicketBookingNote = string.Empty;
             LoadTicketBookingHistory();
             UpdateTimerDisplay();
         }

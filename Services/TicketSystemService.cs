@@ -335,6 +335,7 @@ public class TicketSystemService : IDisposable
         TaskItem task,
         long sourceSeconds,
         string shortDescription,
+        string? note,
         string costCenter,
         string order)
     {
@@ -383,6 +384,7 @@ public class TicketSystemService : IDisposable
                 BookedMinutes = bookedMinutes,
                 SourceSeconds = sourceSeconds,
                 ShortDescription = string.IsNullOrWhiteSpace(shortDescription) ? "Zeitbuchung" : shortDescription.Trim(),
+                Note = NormalizeBookingNote(note),
                 CostCenter = costCenter ?? string.Empty,
                 Order = order ?? string.Empty
             };
@@ -395,8 +397,8 @@ public class TicketSystemService : IDisposable
             {
                 Content = new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json")
             };
-            _logger.Info($"[ZnunyTimeBooking] route={route} ticketId={ticketId} taskId={task.Id} bookingId={booking.BookingId} minutes={minutes:0.##} timeUnit={timeUnit:0.####} action=send");
-            var response = await SendZnunyAsync(request, "TicketUpdateTimeBooking", "[ZnunyTicketUpdateResponse]");
+            _logger.Info($"[ZnunyTimeBooking] route={route} ticketId={ticketId} taskId={task.Id} bookingId={booking.BookingId} minutes={minutes:0.##} timeUnit={timeUnit:0.####} notePresent={!string.IsNullOrEmpty(booking.Note)} noteLength={booking.Note.Length} action=send");
+            var response = await SendZnunyAsync(request, "TicketUpdateTimeBooking", "[ZnunyTicketUpdateResponse]", logBody: false);
             EnsureTicketUpdateResponseIsInterpretable(response);
             serverConfirmed = true;
             var articleId = ExtractFirstValueRecursive(response.Body, "ArticleID");
@@ -409,7 +411,7 @@ public class TicketSystemService : IDisposable
             var uncertainServerFailure = booking != null && (int)ex.StatusCode >= 500;
             if (booking != null && !uncertainServerFailure)
                 _tasks.FailTicketTimeBooking(booking);
-            LogZnunyError(ex);
+            _logger.Error($"[ZnunyTimeBooking] ticketId={ticketId} taskId={task.Id} action=api-failed httpStatus={(int)ex.StatusCode} errorCode={LogValue(ex.ErrorCode)} message={LogValue(ex.ErrorMessage)}");
             if (uncertainServerFailure)
                 return new TicketBookingResult(false, true, "Znuny meldete einen Serverfehler nach dem Sendeversuch. Die Booking-ID wird vor einem weiteren Versuch abgeglichen; es erfolgt keine automatische Doppelbuchung.");
             return new TicketBookingResult(false, false, FormatApiError("Zeitbuchung fehlgeschlagen", ex));
@@ -478,7 +480,7 @@ public class TicketSystemService : IDisposable
             {
                 Content = new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json")
             };
-            var response = await SendZnunyAsync(request, "TicketUpdateTimeBookingRetry", "[ZnunyTicketUpdateResponse]");
+            var response = await SendZnunyAsync(request, "TicketUpdateTimeBookingRetry", "[ZnunyTicketUpdateResponse]", logBody: false);
             EnsureTicketUpdateResponseIsInterpretable(response);
             var articleId = ExtractFirstValueRecursive(response.Body, "ArticleID");
             _tasks.CompleteTicketTimeBooking(booking, articleId);
@@ -1374,7 +1376,11 @@ public class TicketSystemService : IDisposable
         TicketTimeBooking booking,
         decimal timeUnit)
     {
-        var body = $"{booking.ShortDescription}\n\n{BookingMarker(booking.BookingId)}";
+        var bodyParts = new List<string> { booking.ShortDescription };
+        if (!string.IsNullOrWhiteSpace(booking.Note))
+            bodyParts.Add($"Notiz:\n{booking.Note}");
+        bodyParts.Add(BookingMarker(booking.BookingId));
+        var body = string.Join("\n\n", bodyParts);
         var payload = new Dictionary<string, object?>
         {
             ["SessionID"] = sessionId,
@@ -1445,6 +1451,12 @@ public class TicketSystemService : IDisposable
     }
 
     private static string BookingMarker(string bookingId) => $"TaskTool-Booking-ID: {bookingId}";
+
+    private static string NormalizeBookingNote(string? note)
+    {
+        var normalized = note?.Trim() ?? string.Empty;
+        return normalized.Length <= 2000 ? normalized : normalized[..2000];
+    }
 
     private static IReadOnlyList<TicketFieldOption> ParseConfiguredOptions(string configured)
     {

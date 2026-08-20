@@ -70,6 +70,10 @@
                             <ComboBox Style="{StaticResource DarkComboBoxStyle}" ItemsSource="{Binding CostCenterOptions}" SelectedItem="{Binding SelectedCostCenter}" DisplayMemberPath="DisplayText"/>
                             <TextBlock Text="Auftrag" Foreground="{StaticResource MutedTextBrush}" Margin="0,8,0,2"/>
                             <ComboBox Style="{StaticResource DarkComboBoxStyle}" ItemsSource="{Binding OrderOptions}" SelectedItem="{Binding SelectedOrder}" DisplayMemberPath="DisplayText"/>
+                            <TextBlock Text="Notiz zur Buchung (optional)" Foreground="{StaticResource MutedTextBrush}" Margin="0,8,0,2"/>
+                            <TextBox Text="{Binding TicketBookingNote, UpdateSourceTrigger=PropertyChanged}"
+                                     AcceptsReturn="True" TextWrapping="Wrap" MinHeight="60" MaxHeight="100" MaxLength="2000"
+                                     VerticalScrollBarVisibility="Auto"/>
                             <TextBlock Text="{Binding TicketBookingInformation}" Foreground="{StaticResource MutedTextBrush}" TextWrapping="Wrap" Margin="0,6,0,0"/>
                             <Button Content="Kostenstellen/Aufträge neu laden" Margin="0,8,0,0" HorizontalAlignment="Stretch"
                                     Style="{StaticResource SecondaryButtonStyle}" Command="{Binding RefreshTicketFieldOptionsCommand}"/>
@@ -98,6 +102,10 @@
                                                     <TextBlock Text="{Binding CostCenter, StringFormat=Kostenstelle: {0}}" Foreground="{StaticResource MutedTextBrush}"/>
                                                     <TextBlock Text="{Binding Order, StringFormat=Auftrag: {0}}" Foreground="{StaticResource MutedTextBrush}"/>
                                                     <TextBlock Text="{Binding ShortDescription}" Foreground="{StaticResource MutedTextBrush}" TextTrimming="CharacterEllipsis"/>
+                                                    <StackPanel Visibility="{Binding Note, Converter={StaticResource StringEmptyToVisibilityConverter}}" Margin="0,6,0,0">
+                                                        <TextBlock Text="Notiz:" FontWeight="SemiBold" Foreground="{StaticResource MutedTextBrush}"/>
+                                                        <TextBlock Text="{Binding Note}" Foreground="{StaticResource MutedTextBrush}" TextWrapping="Wrap"/>
+                                                    </StackPanel>
                                                     <TextBlock Text="{Binding StatusText, Mode=OneWay}" FontWeight="SemiBold" Margin="0,4,0,0"/>
                                                     <Button Content="Buchungsstatus prüfen" HorizontalAlignment="Left" Margin="0,6,0,0"
                                                             Style="{StaticResource SecondaryButtonStyle}"

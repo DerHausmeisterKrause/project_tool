@@ -220,8 +220,8 @@ VALUES ($id,$title,$desc,$url,$start,$end,$status,$priority,$tags,$entry,$ticket
         conn.Open();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = @"INSERT INTO ticket_time_bookings
-(id,task_id,ticket_id,ticket_number,booking_id,article_id,minutes,booked_minutes,source_seconds,booked_at_utc,short_description,cost_center,order_value,status)
-VALUES ($id,$task,$ticket,$number,$booking,$article,$minutes,$bookedMinutes,$seconds,$booked,$description,$cost,$order,$status)";
+(id,task_id,ticket_id,ticket_number,booking_id,article_id,minutes,booked_minutes,source_seconds,booked_at_utc,short_description,note,cost_center,order_value,status)
+VALUES ($id,$task,$ticket,$number,$booking,$article,$minutes,$bookedMinutes,$seconds,$booked,$description,$note,$cost,$order,$status)";
         BindTicketTimeBooking(cmd, booking);
         cmd.ExecuteNonQuery();
     }
@@ -305,6 +305,7 @@ VALUES ($id,$task,$ticket,$number,$booking,$article,$minutes,$bookedMinutes,$sec
                 SourceSeconds = Convert.ToInt64(reader["source_seconds"]),
                 BookedAtUtc = DateTime.Parse(reader["booked_at_utc"].ToString()!, null, System.Globalization.DateTimeStyles.RoundtripKind),
                 ShortDescription = reader["short_description"].ToString() ?? string.Empty,
+                Note = reader["note"].ToString() ?? string.Empty,
                 CostCenter = reader["cost_center"].ToString() ?? string.Empty,
                 Order = reader["order_value"].ToString() ?? string.Empty,
                 Status = reader["status"].ToString() ?? string.Empty
@@ -326,6 +327,7 @@ VALUES ($id,$task,$ticket,$number,$booking,$article,$minutes,$bookedMinutes,$sec
         cmd.Parameters.AddWithValue("$seconds", booking.SourceSeconds);
         cmd.Parameters.AddWithValue("$booked", booking.BookedAtUtc.ToString("O"));
         cmd.Parameters.AddWithValue("$description", booking.ShortDescription);
+        cmd.Parameters.AddWithValue("$note", booking.Note);
         cmd.Parameters.AddWithValue("$cost", booking.CostCenter);
         cmd.Parameters.AddWithValue("$order", booking.Order);
         cmd.Parameters.AddWithValue("$status", booking.Status);
