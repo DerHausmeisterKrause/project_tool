@@ -16,7 +16,9 @@ public class SettingsService
         None = 0,
         TicketUpdateRoute = 1,
         InstalledVersion = 2,
-        SegmentDuration = 4
+        SegmentDuration = 4,
+        LogLevel = 8,
+        TicketCreateRoute = 16
     }
 
     private readonly LoggerService _logger;
@@ -27,6 +29,7 @@ public class SettingsService
     {
         _logger = logger;
         Load();
+        ApplyLoggerMinimumLevel();
     }
 
     public void Load()
@@ -48,6 +51,8 @@ public class SettingsService
             if (!hasSegmentDuration)
                 Current.DefaultSegmentDurationMinutes = 0;
             var changes = Normalize(Current);
+            if (changes.HasFlag(NormalizationChanges.LogLevel))
+                _logger.Warning("Invalid LogLevel in settings.json, fallback='Warning'.");
             if (changes != NormalizationChanges.None)
             {
                 LogMigrations(changes);
@@ -66,6 +71,8 @@ public class SettingsService
     {
         if (changes.HasFlag(NormalizationChanges.TicketUpdateRoute))
             _logger.Info($"[ZnunySettingsMigration] TicketSystemTicketUpdateRoute old='{AppSettings.LegacyTicketSystemTicketUpdateRoute}' new='{AppSettings.DefaultTicketSystemTicketUpdateRoute}'");
+        if (changes.HasFlag(NormalizationChanges.TicketCreateRoute))
+            _logger.Info($"[ZnunySettingsMigration] TicketSystemTicketCreateRoute old='{AppSettings.LegacyTicketSystemTicketCreateRoute}' new='{AppSettings.DefaultTicketSystemTicketCreateRoute}'");
         if (changes.HasFlag(NormalizationChanges.InstalledVersion))
             _logger.Info($"[SettingsMigration] InstalledVersion missing initializedVersion={AppSettings.InitialInstalledVersion}");
     }
@@ -73,12 +80,27 @@ public class SettingsService
     private static NormalizationChanges Normalize(AppSettings settings)
     {
         var changes = NormalizationChanges.None;
+        if (!Enum.TryParse<AppLogLevel>(settings.LogLevel, true, out var logLevel) || !Enum.IsDefined(logLevel))
+        {
+            settings.LogLevel = nameof(AppLogLevel.Warning);
+            changes |= NormalizationChanges.LogLevel;
+        }
+        else
+        {
+            settings.LogLevel = logLevel.ToString();
+        }
         var ticketUpdateRouteMigrated = string.Equals(
             settings.TicketSystemTicketUpdateRoute?.Trim(),
             AppSettings.LegacyTicketSystemTicketUpdateRoute,
             StringComparison.OrdinalIgnoreCase);
         if (ticketUpdateRouteMigrated)
             changes |= NormalizationChanges.TicketUpdateRoute;
+        var ticketCreateRouteMigrated = string.Equals(
+            settings.TicketSystemTicketCreateRoute?.Trim(),
+            AppSettings.LegacyTicketSystemTicketCreateRoute,
+            StringComparison.OrdinalIgnoreCase);
+        if (ticketCreateRouteMigrated)
+            changes |= NormalizationChanges.TicketCreateRoute;
         if (string.IsNullOrWhiteSpace(settings.InstalledVersion))
         {
             settings.InstalledVersion = AppSettings.InitialInstalledVersion;
@@ -129,9 +151,6 @@ public class SettingsService
         settings.TicketSystemAgentId = Math.Max(0, settings.TicketSystemAgentId);
         settings.TicketSystemCandidateUserId = Math.Max(1, settings.TicketSystemCandidateUserId);
         settings.TicketSystemCandidateKeywords = settings.TicketSystemCandidateKeywords?.Trim() ?? string.Empty;
-        settings.TicketSystemCandidateSearchMode = settings.TicketSystemCandidateSearchMode is "ServerFilter" or "LocalFilter"
-            ? settings.TicketSystemCandidateSearchMode
-            : "Auto";
         settings.TicketSystemTicketSearchRoute = NormalizeRoute(settings.TicketSystemTicketSearchRoute, "/Ticket");
         settings.TicketSystemTicketSearchMethod = string.Equals(settings.TicketSystemTicketSearchMethod, "POST", StringComparison.OrdinalIgnoreCase) ? "POST" : "GET";
         settings.TicketSystemTicketSearchAuthMode = string.Equals(settings.TicketSystemTicketSearchAuthMode, "Direct", StringComparison.OrdinalIgnoreCase) ? "Direct" : "Session";
@@ -141,6 +160,17 @@ public class SettingsService
         settings.TicketSystemTicketUpdateRoute = ticketUpdateRouteMigrated
             ? AppSettings.DefaultTicketSystemTicketUpdateRoute
             : NormalizeRoute(settings.TicketSystemTicketUpdateRoute, AppSettings.DefaultTicketSystemTicketUpdateRoute);
+        settings.TicketSystemTicketCreateRoute = ticketCreateRouteMigrated
+            ? AppSettings.DefaultTicketSystemTicketCreateRoute
+            : NormalizeRoute(settings.TicketSystemTicketCreateRoute, AppSettings.DefaultTicketSystemTicketCreateRoute);
+        settings.TicketSystemTicketCreateMethod = string.IsNullOrWhiteSpace(settings.TicketSystemTicketCreateMethod)
+            ? "POST"
+            : settings.TicketSystemTicketCreateMethod.Trim().ToUpperInvariant();
+        settings.TicketSystemCreateQueue = settings.TicketSystemCreateQueue?.Trim() ?? string.Empty;
+        settings.TicketSystemCreateState = string.IsNullOrWhiteSpace(settings.TicketSystemCreateState) ? "open" : settings.TicketSystemCreateState.Trim();
+        settings.TicketSystemCreatePriority = string.IsNullOrWhiteSpace(settings.TicketSystemCreatePriority) ? "3 normal" : settings.TicketSystemCreatePriority.Trim();
+        settings.TicketSystemCreateType = settings.TicketSystemCreateType?.Trim() ?? string.Empty;
+        settings.TicketSystemCreateCustomerUser = settings.TicketSystemCreateCustomerUser?.Trim() ?? string.Empty;
         settings.TicketSystemDynamicFieldOptionsRoute = string.Equals(settings.TicketSystemDynamicFieldOptionsRoute?.Trim(), "/DynamicField/Options", StringComparison.OrdinalIgnoreCase)
             ? "/Ticket/DynamicField/{FieldName}/Options"
             : NormalizeRoute(settings.TicketSystemDynamicFieldOptionsRoute, "/Ticket/DynamicField/{FieldName}/Options");
@@ -197,6 +227,7 @@ public class SettingsService
     {
         try
         {
+            ApplyLoggerMinimumLevel();
             var json = JsonSerializer.Serialize(Current, new JsonSerializerOptions { WriteIndented = true });
             File.WriteAllText(_path, json);
             SettingsChanged?.Invoke();
@@ -210,6 +241,15 @@ public class SettingsService
     }
 
     public event Action? SettingsChanged;
+
+    private void ApplyLoggerMinimumLevel()
+    {
+        var level = Enum.TryParse<AppLogLevel>(Current.LogLevel, true, out var parsed) && Enum.IsDefined(parsed)
+            ? parsed
+            : AppLogLevel.Warning;
+        Current.LogLevel = level.ToString();
+        _logger.SetMinimumLevel(level);
+    }
 
     private string Protect(string value)
     {

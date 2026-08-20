@@ -53,6 +53,14 @@
                         </DataTemplate>
                     </ListBox.ItemTemplate>
                 </ListBox>
+                <Button Command="{Binding NavigateToSettingsCommand}"
+                        Visibility="{Binding SettingsViewModel.IsUpdateAvailable, Converter={StaticResource BooleanToVisibilityConverter}}"
+                        Foreground="#EF4444" FontWeight="SemiBold" FontSize="12"
+                        Background="Transparent" BorderThickness="0" Padding="8,4"
+                        Margin="8,4,8,0" HorizontalContentAlignment="Left"
+                        Cursor="Hand" ToolTip="Update in den Einstellungen anzeigen">
+                    <TextBlock Text="{Binding SettingsViewModel.UpdateBannerText}" TextWrapping="Wrap"/>
+                </Button>
             </StackPanel>
         </Border>
 
