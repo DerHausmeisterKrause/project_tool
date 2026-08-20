@@ -2,6 +2,7 @@ using System;
 using System.Linq;
 using System.Windows;
 using System.Windows.Threading;
+using System.Media;
 using TaskTool.Models;
 using TaskStatus = TaskTool.Models.TaskStatus;
 using TaskTool.Views;
@@ -136,6 +137,22 @@ public class NotificationService : IDisposable
         catch (Exception ex)
         {
             _logger.Error($"Test notification failed: {ex}");
+        }
+    }
+
+    public void PlayNotificationSound(ReminderKind kind)
+    {
+        if (!_settings.Current.NotificationSoundEnabled)
+            return;
+
+        try
+        {
+            SystemSounds.Asterisk.Play();
+            _logger.Info($"[NotificationSound] played=true kind={kind}");
+        }
+        catch (Exception ex)
+        {
+            _logger.Warning($"[NotificationSound] played=false kind={kind} reason='{ex.Message}'");
         }
     }
 

@@ -12,8 +12,10 @@ public class MainViewModel : ObservableObject
     public TodayViewModel TodayViewModel { get; }
     private readonly WeekViewModel _weekViewModel;
     private readonly TicketSystemViewModel _ticketSystemViewModel;
+    private readonly ReportsViewModel _reportsViewModel;
     private readonly LoggerService _logger;
     public SettingsViewModel SettingsViewModel { get; }
+    public RelayCommand NavigateToSettingsCommand { get; }
 
     private object _selectedView;
     public object SelectedView
@@ -30,6 +32,10 @@ public class MainViewModel : ObservableObject
                 else if (_selectedView is TicketSystemViewModel)
                 {
                     _ticketSystemViewModel.Refresh();
+                }
+                else if (_selectedView is ReportsViewModel)
+                {
+                    _reportsViewModel.Refresh();
                 }
                 Raise(nameof(IsTodaySelected));
             }
@@ -73,7 +79,7 @@ public class MainViewModel : ObservableObject
         _logger.Info($"[TicketOpenInApp] ticketId='{Uri.UnescapeDataString(ticketId)}' ticketNumber='' targetUrl='{uri.Scheme}://{uri.Host}{uri.AbsolutePath}' targetTab=Ticketsystem");
     }
 
-    public MainViewModel(TaskService taskService, WorkDayService workDayService, SettingsService settingsService, NotificationService notifications, OutlookCalendarService outlookCalendar, TicketSystemService ticketSystem, UpdateService updates, HomeOfficeService homeOffice, LoggerService logger)
+    public MainViewModel(TaskService taskService, WorkDayService workDayService, SettingsService settingsService, NotificationService notifications, OutlookCalendarService outlookCalendar, TicketSystemService ticketSystem, UpdateService updates, HomeOfficeService homeOffice, GermanTimeService germanTime, LoggerService logger)
     {
         _logger = logger;
         TodayViewModel = new TodayViewModel(taskService, workDayService, settingsService, outlookCalendar, ticketSystem, homeOffice);
@@ -81,10 +87,11 @@ public class MainViewModel : ObservableObject
         ticketSystem.TasksChanged += TodayViewModel.Refresh;
         ticketSystem.TasksChanged += _weekViewModel.Refresh;
         _ticketSystemViewModel = new TicketSystemViewModel(settingsService);
-        var reports = new ReportsViewModel(taskService);
+        _reportsViewModel = new ReportsViewModel(taskService, workDayService, settingsService, germanTime, logger);
         SettingsViewModel = new SettingsViewModel(settingsService, notifications, outlookCalendar, taskService, ticketSystem, updates);
+        NavigateToSettingsCommand = new RelayCommand(() => SelectedView = SettingsViewModel);
 
-        NavigationItems = new ObservableCollection<object> { TodayViewModel, _weekViewModel, _ticketSystemViewModel, reports, SettingsViewModel };
+        NavigationItems = new ObservableCollection<object> { TodayViewModel, _weekViewModel, _ticketSystemViewModel, _reportsViewModel, SettingsViewModel };
         _selectedView = TodayViewModel;
     }
 }

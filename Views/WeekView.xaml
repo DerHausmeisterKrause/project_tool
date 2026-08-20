@@ -45,7 +45,7 @@
                         <ColumnDefinition Width="*"/>
                     </Grid.ColumnDefinitions>
 
-                    <Border Grid.Row="0" Grid.Column="0" Background="{StaticResource SurfaceAltBrush}" BorderBrush="{StaticResource BorderBrushColor}" BorderThickness="0,0,1,1" Height="58"/>
+                    <Border Grid.Row="0" Grid.Column="0" Background="{StaticResource SurfaceAltBrush}" BorderBrush="{StaticResource BorderBrushColor}" BorderThickness="0,0,1,1" Height="44"/>
 
                     <ItemsControl x:Name="SelectedDayOverlayColumns" Grid.RowSpan="2" Grid.Column="1" ItemsSource="{Binding Days}" IsHitTestVisible="False" Panel.ZIndex="25">
                         <ItemsControl.ItemsPanel>
@@ -130,7 +130,6 @@
                                             <Border Style="{StaticResource BadgeStyle}" Visibility="{Binding IsHo, Converter={StaticResource BooleanToVisibilityConverter}}"><TextBlock Text="HO"/></Border>
                                             <Border Style="{StaticResource BadgeStyle}" Visibility="{Binding IsBr, Converter={StaticResource BooleanToVisibilityConverter}}"><TextBlock Text="BR"/></Border>
                                         </WrapPanel>
-                                        <TextBlock Text="{Binding Summary}" Foreground="{StaticResource MutedTextBrush}" FontSize="11" TextWrapping="Wrap"/>
                                         <ItemsControl ItemsSource="{Binding VisibleAllDayEvents}" Margin="0,4,0,0">
                                             <ItemsControl.ItemsPanel>
                                                 <ItemsPanelTemplate>
