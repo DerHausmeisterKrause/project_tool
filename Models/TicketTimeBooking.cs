@@ -13,6 +13,7 @@ public class TicketTimeBooking
     public long SourceSeconds { get; set; }
     public DateTime BookedAtUtc { get; set; } = DateTime.UtcNow;
     public string ShortDescription { get; set; } = string.Empty;
+    public string Note { get; set; } = string.Empty;
     public string CostCenter { get; set; } = string.Empty;
     public string Order { get; set; } = string.Empty;
     public string Status { get; set; } = "Pending";

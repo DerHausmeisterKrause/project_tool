@@ -17,6 +17,17 @@ public partial class TodayView : UserControl
         DataContextChanged += OnDataContextChanged;
     }
 
+    private void WorkDayHeaderGrid_SizeChanged(object sender, SizeChangedEventArgs e)
+    {
+        var compact = e.NewSize.Width < 620;
+        Grid.SetRow(WorkDayMarkerPanel, compact ? 1 : 0);
+        Grid.SetColumn(WorkDayMarkerPanel, compact ? 0 : 1);
+        Grid.SetColumnSpan(WorkDayMarkerPanel, compact ? 2 : 1);
+        WorkDayMarkerPanel.HorizontalAlignment = compact ? HorizontalAlignment.Left : HorizontalAlignment.Right;
+        WorkDayMarkerPanel.Margin = compact ? new Thickness(0, 12, 0, 0) : new Thickness(0);
+        WorkDayStatisticsPanel.Margin = compact ? new Thickness(0) : new Thickness(0, 0, 24, 0);
+    }
+
     private void OnDataContextChanged(object sender, DependencyPropertyChangedEventArgs e)
     {
         if (e.OldValue is TodayViewModel oldVm)
