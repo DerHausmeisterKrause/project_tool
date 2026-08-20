@@ -352,12 +352,13 @@ public class TicketSystemService : IDisposable
             return new TicketReplyResult(false, "Bitte geben Sie einen Antworttext ein.");
         if (body.Length > 10000)
             body = body[..10000];
+        var htmlBody = ConvertPlainTextReplyToHtml(body);
         if (!await _syncGate.WaitAsync(0))
             return new TicketReplyResult(false, "Es läuft bereits eine Znuny-Aktion. Bitte versuchen Sie es gleich erneut.");
 
         try
         {
-            _logger.Info($"[ZnunyReply] ticketId={ticketId} recipientResolved=true recipientFormat=bare-address replyLength={body.Length} action=send");
+            _logger.Info($"[ZnunyReply] ticketId={ticketId} recipientResolved=true recipientFormat=bare-address replyLength={body.Length} mimeType=text/html appendSignature=true action=send");
             var sessionId = await CreateSessionAsync();
             var originalSubject = originalCustomerArticle?.Subject ?? string.Empty;
             var subjectSource = string.IsNullOrWhiteSpace(originalSubject) ? ticketTitle : originalSubject;
@@ -376,10 +377,13 @@ public class TicketSystemService : IDisposable
                     ["SenderType"] = "agent",
                     ["IsVisibleForCustomer"] = 1,
                     ["ArticleSend"] = 1,
+                    ["AppendSignatureToBody"] = 1,
                     ["To"] = safeRecipient,
                     ["Subject"] = subject,
-                    ["Body"] = body,
-                    ["ContentType"] = "text/plain; charset=utf-8"
+                    ["Body"] = htmlBody,
+                    ["ContentType"] = "text/html; charset=utf-8",
+                    ["MimeType"] = "text/html",
+                    ["Charset"] = "utf-8"
                 }
             };
             var route = ResolveTicketUpdateRoute(ticketId);
@@ -449,6 +453,15 @@ public class TicketSystemService : IDisposable
         {
             return false;
         }
+    }
+
+    private static string ConvertPlainTextReplyToHtml(string text)
+    {
+        var normalized = (text ?? string.Empty)
+            .Replace("\r\n", "\n", StringComparison.Ordinal)
+            .Replace('\r', '\n');
+        var encoded = WebUtility.HtmlEncode(normalized);
+        return encoded.Replace("\n", "<br />\n", StringComparison.Ordinal) + "<br /><br />";
     }
 
     public void InvalidateDynamicFieldOptionsCache()
