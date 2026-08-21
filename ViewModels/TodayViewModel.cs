@@ -941,16 +941,33 @@ public class TodayViewModel : ObservableObject
             var sortByCreated = string.Equals(_settings.Current.CurrentTasksSortField, "Created", StringComparison.OrdinalIgnoreCase);
             ordered = _settings.Current.CurrentTasksSortDescending
                 ? sortByCreated
-                    ? pinnedFirst.ThenByDescending(task => task.CreatedUtc)
-                    : pinnedFirst.ThenByDescending(task => task.UpdatedUtc)
+                    ? pinnedFirst.ThenByDescending(GetEffectiveCreatedUtc)
+                    : pinnedFirst.ThenByDescending(GetEffectiveLastActivityUtc)
                 : sortByCreated
-                    ? pinnedFirst.ThenBy(task => task.CreatedUtc)
-                    : pinnedFirst.ThenBy(task => task.UpdatedUtc);
+                    ? pinnedFirst.ThenBy(GetEffectiveCreatedUtc)
+                    : pinnedFirst.ThenBy(GetEffectiveLastActivityUtc);
         }
 
         foreach (var task in ordered)
             DisplayedTasks.Add(task);
     }
+
+    private static DateTime GetEffectiveCreatedUtc(TaskItem task)
+        => task.IsZnunyTask && !HasLocalOrigin(task) && task.TicketCreatedUtc.HasValue
+            ? task.TicketCreatedUtc.Value
+            : task.CreatedUtc;
+
+    private static DateTime GetEffectiveLastActivityUtc(TaskItem task)
+        => task.IsZnunyTask
+           && task.TicketChangedUtc is DateTime ticketChangedUtc
+           && ticketChangedUtc > task.LocalActivityUtc
+            ? ticketChangedUtc
+            : task.LocalActivityUtc;
+
+    private static bool HasLocalOrigin(TaskItem task)
+        => (task.Tags ?? string.Empty)
+            .Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Contains("PlenaroLocalOrigin", StringComparer.OrdinalIgnoreCase);
 
     private void TogglePinTask(TaskItem? task)
     {
@@ -1440,6 +1457,7 @@ public class TodayViewModel : ObservableObject
             StatusMessage = result.Message;
             if (!result.Success) return;
 
+            ApplyTaskFilters();
             TicketReplyText = string.Empty;
             TicketReplyTemplateWarning = string.Empty;
             IsTicketReplyMode = false;
@@ -1506,7 +1524,10 @@ public class TodayViewModel : ObservableObject
                 SelectedOrder?.Key ?? string.Empty);
             StatusMessage = result.Message;
             if (result.Success)
+            {
                 TicketBookingNote = string.Empty;
+                ApplyTaskFilters();
+            }
             LoadTicketBookingHistory();
             UpdateTimerDisplay();
         }
