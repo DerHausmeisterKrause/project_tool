@@ -105,12 +105,16 @@
         </Border>
 
         <Border Grid.Row="1" Style="{StaticResource CardStyle}">
-            <Grid>
+            <Grid x:Name="WorkDayHeaderGrid" SizeChanged="WorkDayHeaderGrid_SizeChanged">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
                 <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="Auto"/>
                     <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
-                <StackPanel Grid.Column="0" Margin="0,0,24,0">
+                <StackPanel x:Name="WorkDayStatisticsPanel" Grid.Row="0" Grid.Column="0" Margin="0,0,24,0">
                     <TextBlock Text="Arbeitstag heute" FontSize="18" FontWeight="SemiBold"/>
                     <StackPanel Margin="0,4,0,0">
                         <TextBlock Foreground="{StaticResource MutedTextBrush}">
@@ -123,7 +127,7 @@
                         </TextBlock>
                     </StackPanel>
                 </StackPanel>
-                <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
+                <StackPanel x:Name="WorkDayMarkerPanel" Grid.Row="0" Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
                     <Border Background="Transparent" BorderBrush="{StaticResource BorderBrushColor}" BorderThickness="1" CornerRadius="16" Padding="0" Margin="0,0,0,8" HorizontalAlignment="Left">
                         <StackPanel Orientation="Horizontal">
                             <RadioButton GroupName="TodayDayType" Content="Normal" Style="{StaticResource DayMarkerSegmentLeftStyle}"
@@ -134,10 +138,10 @@
                                          IsChecked="{Binding DayType, Converter={StaticResource EqualityConverter}, ConverterParameter=AM}" Command="{Binding SetDayTypeAmCommand}"/>
                         </StackPanel>
                     </Border>
-                    <WrapPanel Margin="8,0,0,0">
+                    <StackPanel Orientation="Horizontal" Margin="8,0,0,0">
                         <ToggleButton Content="HO" Style="{StaticResource DayMarkerChipToggleStyle}" IsChecked="{Binding IsHo, Mode=OneWay}" Command="{Binding ToggleHomeOfficeCommand}"/>
                         <ToggleButton Content="BR" Style="{StaticResource DayMarkerChipToggleStyle}" IsChecked="{Binding IsBr}" Command="{Binding SaveMarkersCommand}"/>
-                    </WrapPanel>
+                    </StackPanel>
                 </StackPanel>
             </Grid>
         </Border>
@@ -297,38 +301,55 @@
                                     </Border.Style>
                                     <Grid>
                                         <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-                                        <StackPanel>
-                                            <TextBlock Text="{Binding Title}" FontSize="18" FontWeight="Bold" TextWrapping="Wrap"/>
-                                            <TextBlock Margin="0,4,0,6" Foreground="{StaticResource MutedTextBrush}" Text="{Binding StartLocal, StringFormat=Start: {0:dd.MM HH:mm}}"/>
-                                            <WrapPanel><Border Style="{StaticResource BadgeStyle}"><TextBlock Text="{Binding Status}"/></Border><TextBlock VerticalAlignment="Center" Text="{Binding TicketMinutesBooked, StringFormat=Ticket: {0} min}"/></WrapPanel>
-                                            <Button Content="Ticket öffnen" Style="{StaticResource LinkButtonStyle}"
+                                        <StackPanel Margin="0,0,16,0">
+                                            <TextBlock Text="{Binding CurrentListTicketNumber, Mode=OneWay}" Foreground="{StaticResource AccentBrush}" FontWeight="SemiBold"
+                                                       Visibility="{Binding ShowCurrentListTicketNumber, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}"/>
+                                            <TextBlock Text="{Binding CurrentListDisplayTitle, Mode=OneWay}" FontSize="18" FontWeight="Bold" TextWrapping="Wrap" Margin="0,3,0,0"/>
+                                            <TextBlock Text="{Binding CurrentListPreviewText, Mode=OneWay}" Foreground="{StaticResource MutedTextBrush}" TextWrapping="Wrap"
+                                                       MaxHeight="58" Margin="0,5,0,0"
+                                                       Visibility="{Binding ShowCurrentListPreview, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}"/>
+                                            <WrapPanel Margin="0,8,0,0">
+                                                <Border Visibility="{Binding ShowCurrentListBadge, Converter={StaticResource BooleanToVisibilityConverter}}">
+                                                    <Border.Style>
+                                                        <Style TargetType="Border" BasedOn="{StaticResource BadgeStyle}">
+                                                            <Style.Triggers>
+                                                                <DataTrigger Binding="{Binding IsCurrentListBadgePlanned}" Value="True">
+                                                                    <Setter Property="Background" Value="#1D4ED8"/>
+                                                                </DataTrigger>
+                                                            </Style.Triggers>
+                                                        </Style>
+                                                    </Border.Style>
+                                                    <TextBlock Text="{Binding CurrentListBadgeText}" Foreground="#DBEAFE"/>
+                                                </Border>
+                                            </WrapPanel>
+                                        </StackPanel>
+                                        <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                                            <Button Content="Ticket öffnen" Width="125" Style="{StaticResource SecondaryButtonStyle}"
                                                     Visibility="{Binding TicketUrl, Converter={StaticResource StringEmptyToVisibilityConverter}}"
                                                     ToolTip="{Binding TicketUrl}"
                                                     Command="{Binding DataContext.OpenTicketUrlCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
                                                     CommandParameter="{Binding TicketUrl}"/>
-                                        </StackPanel>
-                                        <StackPanel Grid.Column="1" Orientation="Horizontal">
-                                            <Button Width="36" Height="36" Padding="0" FontSize="16"
-                                                    Command="{Binding DataContext.TogglePinTaskCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
-                                                    CommandParameter="{Binding}">
-                                                <Button.Style>
-                                                    <Style TargetType="Button" BasedOn="{StaticResource SecondaryButtonStyle}">
-                                                        <Setter Property="Content" Value="📌"/>
-                                                        <Setter Property="Opacity" Value="0.45"/>
-                                                        <Setter Property="ToolTip" Value="Aufgabe anpinnen"/>
-                                                        <Style.Triggers>
-                                                            <DataTrigger Binding="{Binding IsPinned}" Value="True">
-                                                                <Setter Property="Opacity" Value="1"/>
-                                                                <Setter Property="Foreground" Value="{StaticResource AccentBrush}"/>
-                                                                <Setter Property="ToolTip" Value="Anheftung lösen"/>
-                                                            </DataTrigger>
-                                                        </Style.Triggers>
-                                                    </Style>
-                                                </Button.Style>
-                                            </Button>
-                                            <Button Content="▶" Width="36" Height="36" Padding="0" Command="{Binding DataContext.StartTaskCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}" CommandParameter="{Binding}"/>
-                                            <Button Content="■" Width="36" Height="36" Padding="0" Style="{StaticResource SecondaryButtonStyle}" Command="{Binding DataContext.StopTaskCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}" CommandParameter="{Binding}"/>
-                                            <Button Content="✓" Width="36" Height="36" Padding="0" Style="{StaticResource SuccessButtonStyle}" Command="{Binding DataContext.DoneTaskCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}" CommandParameter="{Binding}"/>
+                                            <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                                                <Button Width="52" Height="36" Padding="0" FontSize="16"
+                                                        Command="{Binding DataContext.TogglePinTaskCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
+                                                        CommandParameter="{Binding}">
+                                                    <Button.Style>
+                                                        <Style TargetType="Button" BasedOn="{StaticResource SecondaryButtonStyle}">
+                                                            <Setter Property="Content" Value="📌"/>
+                                                            <Setter Property="Opacity" Value="0.45"/>
+                                                            <Setter Property="ToolTip" Value="Aufgabe anpinnen"/>
+                                                            <Style.Triggers>
+                                                                <DataTrigger Binding="{Binding IsPinned}" Value="True">
+                                                                    <Setter Property="Opacity" Value="1"/>
+                                                                    <Setter Property="Foreground" Value="{StaticResource AccentBrush}"/>
+                                                                    <Setter Property="ToolTip" Value="Anheftung lösen"/>
+                                                                </DataTrigger>
+                                                            </Style.Triggers>
+                                                        </Style>
+                                                    </Button.Style>
+                                                </Button>
+                                                <Button Content="✓" Width="52" Height="36" Padding="0" Style="{StaticResource SuccessButtonStyle}" Command="{Binding DataContext.DoneTaskCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}" CommandParameter="{Binding}"/>
+                                            </StackPanel>
                                         </StackPanel>
                                     </Grid>
                                     <Border.InputBindings><MouseBinding Gesture="LeftClick" Command="{Binding DataContext.SelectTaskCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}" CommandParameter="{Binding}"/></Border.InputBindings>
@@ -363,6 +384,8 @@
                 <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto" Background="Transparent"
                               Visibility="{Binding ShowCandidateTickets, Converter={StaticResource BooleanToVisibilityConverter}}">
                     <StackPanel>
+                        <TextBlock Text="{Binding CandidateStatus}" Foreground="{StaticResource AccentBrush}" Margin="4,8"
+                                   Visibility="{Binding ShowCandidateStatus, Converter={StaticResource BooleanToVisibilityConverter}}"/>
                         <TextBlock Text="{Binding CandidateHint}" Foreground="{StaticResource MutedTextBrush}" TextWrapping="Wrap" Margin="4,8"
                                    Visibility="{Binding ShowCandidateHint, Converter={StaticResource BooleanToVisibilityConverter}}"/>
                         <ItemsControl ItemsSource="{Binding NewTaskCandidates}">
@@ -381,9 +404,14 @@
                                                 </WrapPanel>
                                                 <TextBlock Text="{Binding MatchedKeyword, StringFormat=Treffer: {0}}" Foreground="{StaticResource MutedTextBrush}" Margin="0,4,0,0"/>
                                             </StackPanel>
-                                            <Button Grid.Column="1" Content="Ticket öffnen" Width="125" VerticalAlignment="Center" Style="{StaticResource SecondaryButtonStyle}"
-                                                    Command="{Binding DataContext.OpenTicketUrlCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
-                                                    CommandParameter="{Binding WebUrl}"/>
+                                            <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                                                <Button Content="Mir zuweisen" Width="125"
+                                                        Command="{Binding DataContext.AssignCandidateToMeCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
+                                                        CommandParameter="{Binding}"/>
+                                                <Button Content="Ticket öffnen" Width="125" Style="{StaticResource SecondaryButtonStyle}"
+                                                        Command="{Binding DataContext.OpenTicketUrlCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
+                                                        CommandParameter="{Binding WebUrl}"/>
+                                            </StackPanel>
                                         </Grid>
                                     </Border>
                                 </DataTemplate>

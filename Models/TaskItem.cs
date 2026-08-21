@@ -18,6 +18,15 @@ public class TaskItem
     public bool IsZnunyAssigned { get; set; } = true;
     public bool IsZnunyTask => (Tags ?? string.Empty).Contains("ZnunyTicketID:", StringComparison.OrdinalIgnoreCase);
     public bool IsOperationallyVisible => !IsZnunyTask || IsZnunyAssigned;
+    // Derived presentation state; never persisted.
+    public string CurrentListBadgeText { get; set; } = string.Empty;
+    public bool ShowCurrentListBadge => !string.IsNullOrWhiteSpace(CurrentListBadgeText);
+    public bool IsCurrentListBadgePlanned => string.Equals(CurrentListBadgeText, "Geplant", StringComparison.Ordinal);
+    public string CurrentListTicketNumber { get; set; } = string.Empty;
+    public string CurrentListDisplayTitle { get; set; } = string.Empty;
+    public string CurrentListPreviewText { get; set; } = string.Empty;
+    public bool ShowCurrentListTicketNumber => !string.IsNullOrWhiteSpace(CurrentListTicketNumber);
+    public bool ShowCurrentListPreview => !string.IsNullOrWhiteSpace(CurrentListPreviewText);
     public DateTime CreatedUtc { get; set; } = DateTime.UtcNow;
     public DateTime UpdatedUtc { get; set; } = DateTime.UtcNow;
 }

@@ -12,6 +12,10 @@ public sealed record TicketBookingContext(
     string OrderValue,
     IReadOnlyList<TicketFieldOption> CostCenterOptions,
     IReadOnlyList<TicketFieldOption> OrderOptions,
-    string Information);
+    string Information,
+    IReadOnlyList<TicketArticleItem> Articles,
+    TicketArticleItem? ReplySourceArticle,
+    string ReplyRecipient,
+    string TicketTitle);
 
 public sealed record TicketBookingResult(bool Success, bool PendingReconciliation, string Message);

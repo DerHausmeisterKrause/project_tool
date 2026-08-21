@@ -52,10 +52,12 @@ CREATE TABLE IF NOT EXISTS schema_version (
             MigrateToV9(conn);
             MigrateToV10(conn);
             MigrateToV11(conn);
+            MigrateToV12(conn);
+            MigrateToV13(conn);
 
-            if (currentVersion < 11)
+            if (currentVersion < 13)
             {
-                SetVersion(conn, 11);
+                SetVersion(conn, 13);
             }
         }
         catch (Exception ex)
@@ -214,6 +216,21 @@ CREATE TABLE IF NOT EXISTS ticket_assignment_sync_state (
     private static void MigrateToV11(SqliteConnection conn)
     {
         EnsureColumn(conn, "tasks", "is_znuny_assigned", "INTEGER NOT NULL DEFAULT 1");
+    }
+
+    private static void MigrateToV12(SqliteConnection conn)
+    {
+        Exec(conn, @"CREATE TABLE IF NOT EXISTS calendar_marker_sync (
+    day TEXT PRIMARY KEY,
+    outlook_day_type TEXT NOT NULL DEFAULT 'Normal',
+    outlook_is_ho INTEGER NOT NULL DEFAULT 0,
+    updated_utc TEXT NOT NULL
+);");
+    }
+
+    private static void MigrateToV13(SqliteConnection conn)
+    {
+        EnsureColumn(conn, "ticket_time_bookings", "note", "TEXT NOT NULL DEFAULT ''");
     }
 
     private static void EnsureColumn(SqliteConnection conn, string table, string column, string definition)
