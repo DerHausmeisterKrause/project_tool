@@ -301,10 +301,14 @@
                                     </Border.Style>
                                     <Grid>
                                         <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-                                        <StackPanel>
-                                            <TextBlock Text="{Binding Title}" FontSize="18" FontWeight="Bold" TextWrapping="Wrap"/>
-                                            <TextBlock Margin="0,4,0,6" Foreground="{StaticResource MutedTextBrush}" Text="{Binding StartLocal, StringFormat=Start: {0:dd.MM HH:mm}}"/>
-                                            <WrapPanel>
+                                        <StackPanel Margin="0,0,16,0">
+                                            <TextBlock Text="{Binding CurrentListTicketNumber, Mode=OneWay}" Foreground="{StaticResource AccentBrush}" FontWeight="SemiBold"
+                                                       Visibility="{Binding ShowCurrentListTicketNumber, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}"/>
+                                            <TextBlock Text="{Binding CurrentListDisplayTitle, Mode=OneWay}" FontSize="18" FontWeight="Bold" TextWrapping="Wrap" Margin="0,3,0,0"/>
+                                            <TextBlock Text="{Binding CurrentListPreviewText, Mode=OneWay}" Foreground="{StaticResource MutedTextBrush}" TextWrapping="Wrap"
+                                                       MaxHeight="58" Margin="0,5,0,0"
+                                                       Visibility="{Binding ShowCurrentListPreview, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}"/>
+                                            <WrapPanel Margin="0,8,0,0">
                                                 <Border Visibility="{Binding ShowCurrentListBadge, Converter={StaticResource BooleanToVisibilityConverter}}">
                                                     <Border.Style>
                                                         <Style TargetType="Border" BasedOn="{StaticResource BadgeStyle}">
@@ -317,36 +321,35 @@
                                                     </Border.Style>
                                                     <TextBlock Text="{Binding CurrentListBadgeText}" Foreground="#DBEAFE"/>
                                                 </Border>
-                                                <TextBlock VerticalAlignment="Center" Text="{Binding TicketMinutesBooked, StringFormat=Ticket: {0} min}"/>
                                             </WrapPanel>
-                                            <Button Content="Ticket öffnen" Style="{StaticResource LinkButtonStyle}"
+                                        </StackPanel>
+                                        <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                                            <Button Content="Ticket öffnen" Width="125" Style="{StaticResource SecondaryButtonStyle}"
                                                     Visibility="{Binding TicketUrl, Converter={StaticResource StringEmptyToVisibilityConverter}}"
                                                     ToolTip="{Binding TicketUrl}"
                                                     Command="{Binding DataContext.OpenTicketUrlCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
                                                     CommandParameter="{Binding TicketUrl}"/>
-                                        </StackPanel>
-                                        <StackPanel Grid.Column="1" Orientation="Horizontal">
-                                            <Button Width="36" Height="36" Padding="0" FontSize="16"
-                                                    Command="{Binding DataContext.TogglePinTaskCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
-                                                    CommandParameter="{Binding}">
-                                                <Button.Style>
-                                                    <Style TargetType="Button" BasedOn="{StaticResource SecondaryButtonStyle}">
-                                                        <Setter Property="Content" Value="📌"/>
-                                                        <Setter Property="Opacity" Value="0.45"/>
-                                                        <Setter Property="ToolTip" Value="Aufgabe anpinnen"/>
-                                                        <Style.Triggers>
-                                                            <DataTrigger Binding="{Binding IsPinned}" Value="True">
-                                                                <Setter Property="Opacity" Value="1"/>
-                                                                <Setter Property="Foreground" Value="{StaticResource AccentBrush}"/>
-                                                                <Setter Property="ToolTip" Value="Anheftung lösen"/>
-                                                            </DataTrigger>
-                                                        </Style.Triggers>
-                                                    </Style>
-                                                </Button.Style>
-                                            </Button>
-                                            <Button Content="▶" Width="36" Height="36" Padding="0" Command="{Binding DataContext.StartTaskCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}" CommandParameter="{Binding}"/>
-                                            <Button Content="■" Width="36" Height="36" Padding="0" Style="{StaticResource SecondaryButtonStyle}" Command="{Binding DataContext.StopTaskCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}" CommandParameter="{Binding}"/>
-                                            <Button Content="✓" Width="36" Height="36" Padding="0" Style="{StaticResource SuccessButtonStyle}" Command="{Binding DataContext.DoneTaskCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}" CommandParameter="{Binding}"/>
+                                            <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                                                <Button Width="52" Height="36" Padding="0" FontSize="16"
+                                                        Command="{Binding DataContext.TogglePinTaskCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
+                                                        CommandParameter="{Binding}">
+                                                    <Button.Style>
+                                                        <Style TargetType="Button" BasedOn="{StaticResource SecondaryButtonStyle}">
+                                                            <Setter Property="Content" Value="📌"/>
+                                                            <Setter Property="Opacity" Value="0.45"/>
+                                                            <Setter Property="ToolTip" Value="Aufgabe anpinnen"/>
+                                                            <Style.Triggers>
+                                                                <DataTrigger Binding="{Binding IsPinned}" Value="True">
+                                                                    <Setter Property="Opacity" Value="1"/>
+                                                                    <Setter Property="Foreground" Value="{StaticResource AccentBrush}"/>
+                                                                    <Setter Property="ToolTip" Value="Anheftung lösen"/>
+                                                                </DataTrigger>
+                                                            </Style.Triggers>
+                                                        </Style>
+                                                    </Button.Style>
+                                                </Button>
+                                                <Button Content="✓" Width="52" Height="36" Padding="0" Style="{StaticResource SuccessButtonStyle}" Command="{Binding DataContext.DoneTaskCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}" CommandParameter="{Binding}"/>
+                                            </StackPanel>
                                         </StackPanel>
                                     </Grid>
                                     <Border.InputBindings><MouseBinding Gesture="LeftClick" Command="{Binding DataContext.SelectTaskCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}" CommandParameter="{Binding}"/></Border.InputBindings>

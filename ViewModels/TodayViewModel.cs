@@ -1,5 +1,6 @@
 using System.Linq;
 using System.Collections.ObjectModel;
+using System.Text.RegularExpressions;
 using System.Windows;
 using System.Windows.Threading;
 using TaskTool.Infrastructure;
@@ -762,6 +763,7 @@ public class TodayViewModel : ObservableObject
             task.CurrentListBadgeText = task.Status == TaskStatus.Running
                 ? "Running"
                 : taskIdsWithActiveOrFutureSegments.Contains(task.Id) ? "Geplant" : string.Empty;
+            PopulateCurrentListDisplayValues(task);
         }
         if (!string.IsNullOrWhiteSpace(TaskSearchText))
         {
@@ -798,6 +800,64 @@ public class TodayViewModel : ObservableObject
         RefreshDisplayedTasks();
         _lastTodayVisibilityRefreshMinute = TruncateToMinute(now);
         RefreshTodayAgenda(todaySegments, now);
+    }
+
+    private static void PopulateCurrentListDisplayValues(TaskItem task)
+    {
+        task.CurrentListTicketNumber = ExtractTicketNumber(task);
+        task.CurrentListDisplayTitle = CreateCurrentListDisplayTitle(task.Title, task.CurrentListTicketNumber);
+        task.CurrentListPreviewText = CreateCurrentTaskPreview(task);
+    }
+
+    private static string ExtractTicketNumber(TaskItem task)
+    {
+        if (!task.IsZnunyTask) return string.Empty;
+        foreach (var tag in (task.Tags ?? string.Empty).Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            const string prefix = "ZnunyTicketNumber:";
+            if (tag.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                return tag[prefix.Length..].Trim();
+        }
+        return string.Empty;
+    }
+
+    private static string CreateCurrentListDisplayTitle(string? title, string ticketNumber)
+    {
+        var safeTitle = title ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(ticketNumber)) return safeTitle;
+        var prefix = $"[{ticketNumber}]";
+        if (!safeTitle.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
+            || safeTitle.Length > prefix.Length && !char.IsWhiteSpace(safeTitle[prefix.Length]))
+            return safeTitle;
+        var withoutTicketNumber = safeTitle[prefix.Length..].TrimStart();
+        return string.IsNullOrWhiteSpace(withoutTicketNumber) ? safeTitle : withoutTicketNumber;
+    }
+
+    private static string CreateCurrentTaskPreview(TaskItem task)
+    {
+        var preview = task.Description ?? string.Empty;
+        if (task.IsZnunyTask)
+        {
+            const string messageMarker = "--- Erste Ticket-Nachricht ---";
+            const string informationMarker = "--- Ticketinformationen ---";
+            var messageStart = preview.IndexOf(messageMarker, StringComparison.OrdinalIgnoreCase);
+            if (messageStart >= 0)
+            {
+                messageStart += messageMarker.Length;
+                var informationStart = preview.IndexOf(informationMarker, messageStart, StringComparison.OrdinalIgnoreCase);
+                preview = informationStart >= 0
+                    ? preview[messageStart..informationStart]
+                    : preview[messageStart..];
+            }
+        }
+
+        preview = Regex.Replace(
+                preview.Replace("\r\n", "\n", StringComparison.Ordinal).Replace('\r', '\n'),
+                @"\s+",
+                " ")
+            .Trim();
+        const int maximumLength = 360;
+        return preview.Length <= maximumLength ? preview : preview[..maximumLength].TrimEnd() + "…";
     }
 
     private void RefreshTodayAgenda(List<(TaskItem Task, TaskSegment Segment)>? loadedSegments = null, DateTime? localNow = null)
