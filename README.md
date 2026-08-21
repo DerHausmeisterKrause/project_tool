@@ -2,6 +2,17 @@
 
 Lokale Aufgaben- und Zeitverwaltungs-App mit SQLite und Outlook Busy-Blocker via COM Interop.
 
+## Release Notes
+
+**Plenaro 2.1.0**
+
+- Sortierung von Znuny-Tickets nach echtem Ticket-Erstellungsdatum korrigiert
+- „Zuletzt bearbeitet“ berücksichtigt jetzt tatsächliche Ticket- und Plenaro-Aktivitäten
+- Segment- und Terminplanung zählt jetzt als Bearbeitung
+- Ticketantworten, Zeitbearbeitung und erfolgreiche Zeitbuchungen fließen in die Aktivitätssortierung ein
+- Automatische Synchronisierungen verfälschen die Reihenfolge nicht mehr
+- Angepinnte Aufgaben bleiben unabhängig von der Sortierung weiterhin ganz oben
+
 ## NuGet Pakete
 - `Microsoft.Data.Sqlite` (SQLite-Datei DB)
 - `Microsoft.Office.Interop.Outlook` (COM Interop für Outlook-Termine)

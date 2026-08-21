@@ -394,6 +394,7 @@ public class TicketSystemService : IDisposable
             var response = await SendZnunyAsync(request, "TicketUpdateReply", "[ZnunyTicketUpdateResponse]", logBody: false);
             EnsureTicketUpdateResponseIsInterpretable(response);
             var articleId = ExtractFirstValueRecursive(response.Body, "ArticleID");
+            _tasks.TouchTaskActivity(task.Id);
             _logger.Info($"[ZnunyReply] ticketId={ticketId} articleId='{articleId}' action=completed");
             return new TicketReplyResult(true, "Antwort wurde gesendet.", articleId);
         }
@@ -822,7 +823,7 @@ public class TicketSystemService : IDisposable
                         {
                             if (metadataChanged)
                             {
-                                _tasks.UpdateTask(task);
+                                _tasks.UpdateTask(task, touchLocalActivity: false);
                                 updated++;
                                 hasTaskChanges = true;
                             }
@@ -832,7 +833,8 @@ public class TicketSystemService : IDisposable
                         else
                         {
                             // Use the same persistence path as the manual "Erledigt" action.
-                            _tasks.MarkDone(task);
+                            task.Status = TaskStatus.Done;
+                            _tasks.UpdateTask(task, touchLocalActivity: false);
                             updated++;
                             hasTaskChanges = true;
                             LogAutoComplete(ticket, task, "completed");
@@ -841,7 +843,7 @@ public class TicketSystemService : IDisposable
                     else if (metadataChanged)
                     {
                         // Deliberately preserve Done: reopening in Znuny is not propagated back.
-                        _tasks.UpdateTask(task);
+                        _tasks.UpdateTask(task, touchLocalActivity: false);
                         updated++;
                         hasTaskChanges = true;
                         _logger.Info($"[ZnunyTaskUpdated] ticketId={ticket.TicketID} ticketNumber='{ticket.TicketNumber}' taskId={task.Id}");
@@ -866,7 +868,7 @@ public class TicketSystemService : IDisposable
                     MapTicketToTask(ticket, task);
                     task.IsZnunyAssigned = true;
                     task.Status = ticket.IsClosed ? TaskStatus.Done : TaskStatus.Planned;
-                    _tasks.CreateTask(task);
+                    _tasks.CreateTask(task, isBackgroundImport: true);
                     created++;
                     hasTaskChanges = true;
                     _logger.Info($"[ZnunyTaskCreated] ticketId={ticket.TicketID} ticketNumber='{ticket.TicketNumber}' taskId={task.Id}");
@@ -1460,7 +1462,7 @@ public class TicketSystemService : IDisposable
         return payload;
     }
 
-    private static bool MapTicketToTask(ZnunyTicket ticket, TaskItem task)
+    private bool MapTicketToTask(ZnunyTicket ticket, TaskItem task)
     {
         var preserveLocalContent = (task.Tags ?? string.Empty).Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
             .Contains("PlenaroLocalOrigin", StringComparer.OrdinalIgnoreCase);
@@ -1469,16 +1471,71 @@ public class TicketSystemService : IDisposable
         var tags = preserveLocalContent
             ? AddZnunyTicketTags(task.Tags, ticket.TicketID, ticket.TicketNumber)
             : $"Znuny;ZnunyTicketID:{ticket.TicketID};ZnunyTicketNumber:{ticket.TicketNumber}";
+        var ticketCreatedUtc = ParseZnunyUtc(ticket.Created);
+        var ticketChangedUtc = ParseZnunyUtc(ticket.Changed);
         var changed = !string.Equals(task.Title, title, StringComparison.Ordinal)
                       || !string.Equals(task.Description, description, StringComparison.Ordinal)
                       || !string.Equals(task.TicketUrl, ticket.WebUrl, StringComparison.Ordinal)
-                      || !string.Equals(task.Tags, tags, StringComparison.Ordinal);
+                      || !string.Equals(task.Tags, tags, StringComparison.Ordinal)
+                      || task.TicketCreatedUtc != ticketCreatedUtc
+                      || task.TicketChangedUtc != ticketChangedUtc;
 
         task.Title = title;
         task.Description = description;
         task.TicketUrl = ticket.WebUrl;
         task.Tags = tags;
+        task.TicketCreatedUtc = ticketCreatedUtc;
+        task.TicketChangedUtc = ticketChangedUtc;
         return changed;
+    }
+
+    private DateTime? ParseZnunyUtc(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return null;
+
+        var formats = new[]
+        {
+            "yyyy-MM-dd HH:mm:ss", "yyyy-MM-dd'T'HH:mm:ss", "yyyy-MM-dd'T'HH:mm:ss.FFFFFFFK",
+            "yyyy-MM-dd HH:mm:ssK", "dd.MM.yyyy HH:mm:ss", "dd.MM.yyyy HH:mm"
+        };
+        if (!DateTimeOffset.TryParseExact(value.Trim(), formats, CultureInfo.InvariantCulture,
+                DateTimeStyles.AllowWhiteSpaces, out var withOffset))
+        {
+            if (!DateTime.TryParseExact(value.Trim(), formats, CultureInfo.InvariantCulture,
+                    DateTimeStyles.AllowWhiteSpaces, out var withoutOffset))
+                return null;
+
+            withoutOffset = DateTime.SpecifyKind(withoutOffset, DateTimeKind.Unspecified);
+            try
+            {
+                var zone = TimeZoneInfo.FindSystemTimeZoneById(_settings.Current.CalendarTimeZoneId);
+                return TimeZoneInfo.ConvertTimeToUtc(withoutOffset, zone);
+            }
+            catch (TimeZoneNotFoundException)
+            {
+                _logger.Warning($"[ZnunyDate] timezone='{_settings.Current.CalendarTimeZoneId}' not found; UTC fallback used.");
+                return DateTime.SpecifyKind(withoutOffset, DateTimeKind.Utc);
+            }
+            catch (InvalidTimeZoneException)
+            {
+                _logger.Warning($"[ZnunyDate] timezone='{_settings.Current.CalendarTimeZoneId}' invalid; UTC fallback used.");
+                return DateTime.SpecifyKind(withoutOffset, DateTimeKind.Utc);
+            }
+        }
+
+        // Exact values without an offset are interpreted in CalendarTimeZoneId, not in the machine culture/time zone.
+        if (!Regex.IsMatch(value, @"(?:Z|[+-]\d{2}:?\d{2})\s*$", RegexOptions.IgnoreCase))
+        {
+            var unspecified = DateTime.SpecifyKind(withOffset.DateTime, DateTimeKind.Unspecified);
+            try
+            {
+                return TimeZoneInfo.ConvertTimeToUtc(unspecified,
+                    TimeZoneInfo.FindSystemTimeZoneById(_settings.Current.CalendarTimeZoneId));
+            }
+            catch (TimeZoneNotFoundException) { return DateTime.SpecifyKind(unspecified, DateTimeKind.Utc); }
+            catch (InvalidTimeZoneException) { return DateTime.SpecifyKind(unspecified, DateTimeKind.Utc); }
+        }
+        return withOffset.UtcDateTime;
     }
 
     private void LogAutoComplete(ZnunyTicket ticket, TaskItem task, string action)

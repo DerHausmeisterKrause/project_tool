@@ -54,10 +54,11 @@ CREATE TABLE IF NOT EXISTS schema_version (
             MigrateToV11(conn);
             MigrateToV12(conn);
             MigrateToV13(conn);
+            MigrateToV14(conn);
 
-            if (currentVersion < 13)
+            if (currentVersion < 14)
             {
-                SetVersion(conn, 13);
+                SetVersion(conn, 14);
             }
         }
         catch (Exception ex)
@@ -231,6 +232,19 @@ CREATE TABLE IF NOT EXISTS ticket_assignment_sync_state (
     private static void MigrateToV13(SqliteConnection conn)
     {
         EnsureColumn(conn, "ticket_time_bookings", "note", "TEXT NOT NULL DEFAULT ''");
+    }
+
+    private static void MigrateToV14(SqliteConnection conn)
+    {
+        EnsureColumn(conn, "tasks", "ticket_created_utc", "TEXT NULL");
+        EnsureColumn(conn, "tasks", "ticket_changed_utc", "TEXT NULL");
+        EnsureColumn(conn, "tasks", "local_activity_utc", "TEXT NULL");
+        Exec(conn, @"UPDATE tasks
+SET local_activity_utc = CASE
+    WHEN tags LIKE '%ZnunyTicketID:%' AND tags NOT LIKE '%PlenaroLocalOrigin%' THEN created_utc
+    ELSE updated_utc
+END
+WHERE local_activity_utc IS NULL OR trim(local_activity_utc) = ''; ");
     }
 
     private static void EnsureColumn(SqliteConnection conn, string table, string column, string definition)
