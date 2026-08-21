@@ -128,7 +128,7 @@
                         <TextBlock Text="Homeoffice" Style="{StaticResource SettingsCardTitleStyle}"/>
                         <Grid>
                             <Grid.ColumnDefinitions><ColumnDefinition Width="240"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-                            <Grid.RowDefinitions><RowDefinition/><RowDefinition/></Grid.RowDefinitions>
+                            <Grid.RowDefinitions><RowDefinition/><RowDefinition/><RowDefinition/></Grid.RowDefinitions>
                             <TextBlock Grid.Row="0" Text="E-Mail Empfänger 1" Style="{StaticResource SettingsLabelStyle}"/>
                             <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding HomeOfficeMailRecipient1, UpdateSourceTrigger=LostFocus}" Style="{StaticResource SettingsTextBoxStyle}"/>
                             <TextBlock Grid.Row="1" Text="E-Mail Empfänger 2" Style="{StaticResource SettingsLabelStyle}"/>
@@ -240,7 +240,7 @@
                         <TextBlock Text="Neue Aufgaben / Ticket-Vorschläge" FontSize="16" FontWeight="SemiBold" Margin="0,12,0,8"/>
                         <Grid>
                             <Grid.ColumnDefinitions><ColumnDefinition Width="240"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-                            <Grid.RowDefinitions><RowDefinition/><RowDefinition/></Grid.RowDefinitions>
+                            <Grid.RowDefinitions><RowDefinition/><RowDefinition/><RowDefinition/></Grid.RowDefinitions>
                             <TextBlock Grid.Row="0" Text="Candidate Benutzer" Style="{StaticResource SettingsLabelStyle}"/>
                             <StackPanel Grid.Row="0" Grid.Column="1">
                                 <TextBox Text="{Binding TicketSystemCandidateUserId, UpdateSourceTrigger=LostFocus}" Width="120" HorizontalAlignment="Left" Margin="0,0,0,4"/>
@@ -250,6 +250,11 @@
                             <StackPanel Grid.Row="1" Grid.Column="1" MaxWidth="560" HorizontalAlignment="Stretch">
                                 <TextBox Text="{Binding TicketSystemCandidateKeywords, UpdateSourceTrigger=LostFocus}" AcceptsReturn="True" Height="90" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" Style="{StaticResource SettingsLongTextBoxStyle}"/>
                                 <TextBlock Text="Zeile, Komma oder Semikolon als Trennzeichen." Style="{StaticResource SettingsHelpStyle}"/>
+                            </StackPanel>
+                            <TextBlock Grid.Row="2" Text="Ausschlusswörter" Style="{StaticResource SettingsLabelStyle}" VerticalAlignment="Top"/>
+                            <StackPanel Grid.Row="2" Grid.Column="1" MaxWidth="560" HorizontalAlignment="Stretch">
+                                <TextBox Text="{Binding TicketSystemCandidateExcludeKeywords, UpdateSourceTrigger=LostFocus}" AcceptsReturn="True" Height="90" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" Style="{StaticResource SettingsLongTextBoxStyle}"/>
+                                <TextBlock Text="Sobald eines dieser Wörter im Titel oder in einer Ticket-Nachricht vorkommt, wird das Ticket ausgeschlossen – auch wenn ein Suchwort gefunden wurde. Zeile, Komma oder Semikolon als Trennzeichen." TextWrapping="Wrap" Style="{StaticResource SettingsHelpStyle}"/>
                             </StackPanel>
                         </Grid>
                         <Button Content="Tickets jetzt synchronisieren" Width="200" HorizontalAlignment="Left" Style="{StaticResource SecondaryButtonStyle}" Command="{Binding ImportTicketSystemTasksCommand}"/>

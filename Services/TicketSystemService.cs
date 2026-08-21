@@ -33,6 +33,7 @@ public class TicketSystemService : IDisposable
     private IReadOnlyList<ZnunyCandidateTicket> _candidateTickets = Array.Empty<ZnunyCandidateTicket>();
     private int _lastCandidateUserId;
     private string _lastCandidateKeywords = string.Empty;
+    private string _lastCandidateExcludeKeywords = string.Empty;
 
     public string LastError { get; private set; } = string.Empty;
     public event Action? TasksChanged;
@@ -53,6 +54,7 @@ public class TicketSystemService : IDisposable
         _timer = new System.Threading.Timer(async _ => await RunScheduledSyncAsync(), null, Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
         _lastCandidateUserId = _settings.Current.TicketSystemCandidateUserId;
         _lastCandidateKeywords = _settings.Current.TicketSystemCandidateKeywords;
+        _lastCandidateExcludeKeywords = _settings.Current.TicketSystemCandidateExcludeKeywords;
         HandleSettingsChanged();
     }
 
@@ -62,9 +64,11 @@ public class TicketSystemService : IDisposable
         if (_scheduledSyncStarted)
             _timer.Change(_scheduledSyncHasRun ? TimeSpan.FromMinutes(interval) : TimeSpan.FromSeconds(10), TimeSpan.FromMinutes(interval));
         var candidateSettingsChanged = _lastCandidateUserId != _settings.Current.TicketSystemCandidateUserId
-            || !string.Equals(_lastCandidateKeywords, _settings.Current.TicketSystemCandidateKeywords, StringComparison.Ordinal);
+            || !string.Equals(_lastCandidateKeywords, _settings.Current.TicketSystemCandidateKeywords, StringComparison.Ordinal)
+            || !string.Equals(_lastCandidateExcludeKeywords, _settings.Current.TicketSystemCandidateExcludeKeywords, StringComparison.Ordinal);
         _lastCandidateUserId = _settings.Current.TicketSystemCandidateUserId;
         _lastCandidateKeywords = _settings.Current.TicketSystemCandidateKeywords;
+        _lastCandidateExcludeKeywords = _settings.Current.TicketSystemCandidateExcludeKeywords;
         if (candidateSettingsChanged)
         {
             _ = RefreshCandidateTicketsAsync("settings");
@@ -115,11 +119,22 @@ public class TicketSystemService : IDisposable
 
         var ticketId = candidate.TicketId.Trim();
         var targetAgentId = _settings.Current.TicketSystemAgentId;
+        var totalStopwatch = Stopwatch.StartNew();
+        long sessionMs = 0;
+        long updateMs = 0;
+        long ticketGetMs = 0;
+        long localUpsertMs = 0;
         var serverConfirmed = false;
+        var localUpsertSucceeded = false;
         try
         {
             _logger.Info($"[ZnunySelfAssign] ticketId={ticketId} ticketNumber='{LogValue(candidate.TicketNumber)}' targetAgentId={targetAgentId} action=start");
+            var stepStopwatch = Stopwatch.StartNew();
             var sessionId = await CreateSessionAsync();
+            var sessionHash = HashSessionId(sessionId);
+            sessionMs = stepStopwatch.ElapsedMilliseconds;
+
+            stepStopwatch.Restart();
             var route = ResolveTicketUpdateRoute(ticketId);
             var payload = new Dictionary<string, object?>
             {
@@ -137,9 +152,39 @@ public class TicketSystemService : IDisposable
             };
             var response = await SendZnunyAsync(request, "TicketUpdateSelfAssignment", "[ZnunyTicketUpdateResponse]", logBody: false);
             EnsureTicketUpdateResponseIsInterpretable(response);
-            _pendingManualSelfAssignmentNotificationSuppressions.TryAdd(ticketId, 0);
+            updateMs = stepStopwatch.ElapsedMilliseconds;
             serverConfirmed = true;
+            _pendingManualSelfAssignmentNotificationSuppressions.TryAdd(ticketId, 0);
+            RemoveCandidateLocally(ticketId);
             _logger.Info($"[ZnunySelfAssign] ticketId={ticketId} targetAgentId={targetAgentId} action=updated");
+
+            try
+            {
+                stepStopwatch.Restart();
+                var ticket = await GetTicketAsync(ticketId, sessionId, sessionHash);
+                ticketGetMs = stepStopwatch.ElapsedMilliseconds;
+                if (ticket != null && ticket.OwnerId == targetAgentId && ticket.ResponsibleId == targetAgentId)
+                {
+                    stepStopwatch.Restart();
+                    localUpsertSucceeded = UpsertAssignedTicketLocally(ticket);
+                    localUpsertMs = stepStopwatch.ElapsedMilliseconds;
+                    if (localUpsertSucceeded)
+                        NotifyTasksChanged();
+                }
+                else
+                {
+                    _logger.Warning($"[ZnunySelfAssign] ticketId={ticketId} action=targeted-upsert-skipped reason=assignment-not-yet-visible ownerId={ticket?.OwnerId?.ToString(CultureInfo.InvariantCulture) ?? "unknown"} responsibleId={ticket?.ResponsibleId?.ToString(CultureInfo.InvariantCulture) ?? "unknown"}");
+                }
+            }
+            catch (Exception ex)
+            {
+                ticketGetMs = stepStopwatch.ElapsedMilliseconds;
+                _logger.Warning($"[ZnunySelfAssign] ticketId={ticketId} action=targeted-ticket-get-failed message='{LogValue(ex.Message)}'");
+            }
+
+            return localUpsertSucceeded
+                ? new AssignTicketResult(true, $"Ticket {candidate.TicketNumber} wurde Ihnen zugewiesen.")
+                : new AssignTicketResult(true, $"Ticket {candidate.TicketNumber} wurde Ihnen zugewiesen. Die lokale Aufgabe wird beim nächsten Sync aktualisiert.");
         }
         catch (ZnunyApiException ex) when ((int)ex.StatusCode >= 500)
         {
@@ -167,13 +212,53 @@ public class TicketSystemService : IDisposable
         }
         finally
         {
+            _logger.Info($"[ZnunySelfAssignPerformance] ticketId={ticketId} sessionMs={sessionMs} updateMs={updateMs} ticketGetMs={ticketGetMs} localUpsertMs={localUpsertMs} totalMs={totalStopwatch.ElapsedMilliseconds} serverConfirmed={serverConfirmed.ToString().ToLowerInvariant()} fullSyncTriggered=false");
             _syncGate.Release();
         }
+    }
 
-        if (serverConfirmed)
-            await SyncAssignedTicketsAsync("candidate-self-assign");
+    private bool UpsertAssignedTicketLocally(ZnunyTicket ticket)
+    {
+        var matchingTasks = _tasks.GetAllTasks()
+            .Where(task => string.Equals(ExtractZnunyTicketIdFromTask(task), ticket.TicketID, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+        if (matchingTasks.Count > 1)
+        {
+            _logger.Error($"[ZnunySelfAssign] ticketId={ticket.TicketID} action=targeted-upsert-skipped reason=ambiguous-task-mapping count={matchingTasks.Count}");
+            return false;
+        }
 
-        return new AssignTicketResult(true, $"Ticket {candidate.TicketNumber} wurde Ihnen zugewiesen.");
+        if (matchingTasks.Count == 0)
+        {
+            var task = new TaskItem
+            {
+                IsZnunyAssigned = true,
+                Status = ticket.IsClosed ? TaskStatus.Done : TaskStatus.Planned
+            };
+            MapTicketToTask(ticket, task);
+            _tasks.CreateTask(task, isBackgroundImport: true);
+            _logger.Info($"[ZnunySelfAssign] ticketId={ticket.TicketID} taskId={task.Id} action=targeted-upsert-created");
+            return true;
+        }
+
+        var existingTask = matchingTasks[0];
+        MapTicketToTask(ticket, existingTask);
+        existingTask.IsZnunyAssigned = true;
+        if (ticket.IsClosed)
+            existingTask.Status = TaskStatus.Done;
+        _tasks.UpdateTask(existingTask, touchLocalActivity: false);
+        _logger.Info($"[ZnunySelfAssign] ticketId={ticket.TicketID} taskId={existingTask.Id} action=targeted-upsert-updated");
+        return true;
+    }
+
+    private void RemoveCandidateLocally(string ticketId)
+    {
+        var remaining = _candidateTickets
+            .Where(candidate => !string.Equals(candidate.TicketId, ticketId, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+        if (remaining.Count == _candidateTickets.Count) return;
+        PublishCandidateTickets(remaining, string.Empty);
+        _logger.Info($"[ZnunySelfAssign] ticketId={ticketId} action=candidate-removed-locally");
     }
 
     public async Task<CreateTicketResult> CreateTicketFromLocalTaskAsync(TaskItem task)
@@ -1159,13 +1244,14 @@ public class TicketSystemService : IDisposable
         string reason)
     {
         var stopwatch = Stopwatch.StartNew();
-        var keywords = ParseCandidateKeywords(_settings.Current.TicketSystemCandidateKeywords);
+        var includeKeywords = ParseCandidateKeywords(_settings.Current.TicketSystemCandidateKeywords);
+        var excludeKeywords = ParseCandidateKeywords(_settings.Current.TicketSystemCandidateExcludeKeywords);
         var candidateUserId = _settings.Current.TicketSystemCandidateUserId;
-        _logger.Info($"[ZnunyCandidates] action=refresh-start reason={reason} candidateUserId={candidateUserId} keywordCount={keywords.Count}");
-        if (keywords.Count == 0)
+        _logger.Info($"[ZnunyCandidates] action=refresh-start reason={reason} candidateUserId={candidateUserId} includeKeywordCount={includeKeywords.Count} excludeKeywordCount={excludeKeywords.Count}");
+        if (includeKeywords.Count == 0)
         {
             PublishCandidateTickets(Array.Empty<ZnunyCandidateTicket>(), string.Empty);
-            _logger.Info($"[ZnunyCandidates] source=0 closed=0 wrongAssignment=0 noKeywordMatch=0 matched=0 durationMs={stopwatch.ElapsedMilliseconds}");
+            _logger.Info($"[ZnunyCandidates] source=0 closed=0 wrongAssignment=0 noKeywordMatch=0 excluded=0 matched=0 durationMs={stopwatch.ElapsedMilliseconds}");
             return;
         }
 
@@ -1203,6 +1289,7 @@ public class TicketSystemService : IDisposable
         var closed = 0;
         var wrongAssignment = 0;
         var noKeywordMatch = 0;
+        var excluded = 0;
         foreach (var ticket in loadedTickets.Values.OrderBy(ticket => ticket.TicketID, StringComparer.OrdinalIgnoreCase))
         {
             if (ticket.OwnerId != candidateUserId || ticket.ResponsibleId != candidateUserId)
@@ -1218,11 +1305,19 @@ public class TicketSystemService : IDisposable
                 continue;
             }
 
-            var match = FindCandidateMatch(ticket, keywords);
+            var match = FindCandidateMatch(ticket, includeKeywords);
             if (match.Keyword.Length == 0)
             {
                 noKeywordMatch++;
                 LogCandidateEvaluation(ticket, string.Empty, string.Empty, "no-keyword-match");
+                continue;
+            }
+
+            var exclusionMatch = FindCandidateMatch(ticket, excludeKeywords);
+            if (exclusionMatch.Keyword.Length > 0)
+            {
+                excluded++;
+                LogCandidateEvaluation(ticket, match.Keyword, match.Source, "excluded", exclusionMatch.Keyword, exclusionMatch.Source);
                 continue;
             }
 
@@ -1242,7 +1337,7 @@ public class TicketSystemService : IDisposable
         }
 
         PublishCandidateTickets(matches.OrderByDescending(ticket => ticket.TicketNumber, StringComparer.OrdinalIgnoreCase).ToList(), string.Empty);
-        _logger.Info($"[ZnunyCandidates] source={candidateIds.Count} closed={closed} wrongAssignment={wrongAssignment} noKeywordMatch={noKeywordMatch} matched={matches.Count} durationMs={stopwatch.ElapsedMilliseconds}");
+        _logger.Info($"[ZnunyCandidates] source={candidateIds.Count} closed={closed} wrongAssignment={wrongAssignment} noKeywordMatch={noKeywordMatch} excluded={excluded} matched={matches.Count} durationMs={stopwatch.ElapsedMilliseconds}");
         if (string.Equals(reason, "timer", StringComparison.Ordinal))
             _logger.Info($"[ZnunyCandidates] action=scheduled-refresh matched={matches.Count}");
     }
@@ -1279,12 +1374,21 @@ public class TicketSystemService : IDisposable
         return (string.Empty, string.Empty);
     }
 
-    private void LogCandidateEvaluation(ZnunyTicket ticket, string matchedKeyword, string matchedIn, string result)
+    private void LogCandidateEvaluation(
+        ZnunyTicket ticket,
+        string matchedKeyword,
+        string matchedIn,
+        string result,
+        string excludedKeyword = "",
+        string excludedIn = "")
     {
         var matchDetails = matchedKeyword.Length == 0
             ? string.Empty
             : $" matchedKeyword='{LogValue(matchedKeyword)}' matchedIn='{matchedIn}'";
-        _logger.Info($"[ZnunyCandidateEvaluation] ticketId={ticket.TicketID} ticketNumber='{LogValue(ticket.TicketNumber)}' title='{LogValue(ticket.Title)}' owner='{LogValue(ticket.Owner)}' responsible='{LogValue(ticket.Responsible)}' state='{LogValue(ticket.State)}' ownerId={ticket.OwnerId?.ToString(CultureInfo.InvariantCulture) ?? "unknown"} responsibleId={ticket.ResponsibleId?.ToString(CultureInfo.InvariantCulture) ?? "unknown"}{matchDetails} result={result}");
+        var exclusionDetails = excludedKeyword.Length == 0
+            ? string.Empty
+            : $" excludedKeyword='{LogValue(excludedKeyword)}' excludedIn='{excludedIn}'";
+        _logger.Info($"[ZnunyCandidateEvaluation] ticketId={ticket.TicketID} ticketNumber='{LogValue(ticket.TicketNumber)}' title='{LogValue(ticket.Title)}' owner='{LogValue(ticket.Owner)}' responsible='{LogValue(ticket.Responsible)}' state='{LogValue(ticket.State)}' ownerId={ticket.OwnerId?.ToString(CultureInfo.InvariantCulture) ?? "unknown"} responsibleId={ticket.ResponsibleId?.ToString(CultureInfo.InvariantCulture) ?? "unknown"}{matchDetails}{exclusionDetails} result={result}");
     }
 
     private static string CreateDescriptionPreview(string text)
