@@ -2,6 +2,20 @@
 
 Lokale Aufgaben- und Zeitverwaltungs-App mit SQLite und Outlook Busy-Blocker via COM Interop.
 
+## Release Notes
+
+**Plenaro 2.1.0**
+
+- Neue Ausschlusswörter für „Neue Aufgaben“
+- Tickets können trotz passendem Suchwort gezielt über unerwünschte Begriffe ausgefiltert werden
+- Ausschlussfilter berücksichtigt Titel, Nachrichtenbetreff und Nachrichteninhalt
+- „Mir zuweisen“ deutlich beschleunigt
+- Nach Self-Assign wird nur noch das betroffene Ticket gezielt aktualisiert
+- Unnötiger vollständiger Ticket- und Candidate-Sync nach jeder Zuweisung entfällt
+- Zugewiesene Candidates verschwinden unmittelbar aus „Neue Aufgaben“
+- Zugewiesene Tickets erscheinen ohne langen Vollsync unter „Aktuelle Aufgaben“
+- Bestehende Assignment-Notifications und deren Self-Assign-Unterdrückung bleiben erhalten
+
 ## NuGet Pakete
 - `Microsoft.Data.Sqlite` (SQLite-Datei DB)
 - `Microsoft.Office.Interop.Outlook` (COM Interop für Outlook-Termine)

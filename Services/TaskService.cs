@@ -60,28 +60,44 @@ public class TaskService
         return list;
     }
 
-    public TaskItem CreateTask(TaskItem task)
+    public TaskItem CreateTask(TaskItem task, bool isBackgroundImport = false)
     {
         task.UpdatedUtc = DateTime.UtcNow;
         task.CreatedUtc = DateTime.UtcNow;
+        task.LocalActivityUtc = isBackgroundImport
+            ? task.TicketCreatedUtc ?? task.CreatedUtc
+            : task.CreatedUtc;
         using var conn = new SqliteConnection(_db.ConnectionString);
         conn.Open();
         using var cmd = conn.CreateCommand();
-        cmd.CommandText = @"INSERT INTO tasks (id,title,description,ticket_url,start_local,end_local,status,priority,tags,outlook_entry_id,ticket_minutes_booked,ticket_seconds_booked,is_pinned,is_znuny_assigned,created_utc,updated_utc)
-VALUES ($id,$title,$desc,$url,$start,$end,$status,$priority,$tags,$entry,$ticket,$ticketSeconds,$pinned,$znunyAssigned,$created,$updated)";
+        cmd.CommandText = @"INSERT INTO tasks (id,title,description,ticket_url,start_local,end_local,status,priority,tags,outlook_entry_id,ticket_minutes_booked,ticket_seconds_booked,is_pinned,is_znuny_assigned,created_utc,updated_utc,ticket_created_utc,ticket_changed_utc,local_activity_utc)
+VALUES ($id,$title,$desc,$url,$start,$end,$status,$priority,$tags,$entry,$ticket,$ticketSeconds,$pinned,$znunyAssigned,$created,$updated,$ticketCreated,$ticketChanged,$localActivity)";
         BindTask(cmd, task);
         cmd.ExecuteNonQuery();
         return task;
     }
 
-    public void UpdateTask(TaskItem task)
+    public void UpdateTask(TaskItem task, bool touchLocalActivity = true)
     {
         task.UpdatedUtc = DateTime.UtcNow;
+        if (touchLocalActivity)
+            task.LocalActivityUtc = task.UpdatedUtc;
         using var conn = new SqliteConnection(_db.ConnectionString);
         conn.Open();
         using var cmd = conn.CreateCommand();
-        cmd.CommandText = @"UPDATE tasks SET title=$title,description=$desc,ticket_url=$url,start_local=$start,end_local=$end,status=$status,priority=$priority,tags=$tags,outlook_entry_id=$entry,ticket_minutes_booked=$ticket,ticket_seconds_booked=$ticketSeconds,is_pinned=$pinned,is_znuny_assigned=$znunyAssigned,updated_utc=$updated WHERE id=$id";
+        cmd.CommandText = @"UPDATE tasks SET title=$title,description=$desc,ticket_url=$url,start_local=$start,end_local=$end,status=$status,priority=$priority,tags=$tags,outlook_entry_id=$entry,ticket_minutes_booked=$ticket,ticket_seconds_booked=$ticketSeconds,is_pinned=$pinned,is_znuny_assigned=$znunyAssigned,updated_utc=$updated,ticket_created_utc=$ticketCreated,ticket_changed_utc=$ticketChanged,local_activity_utc=$localActivity WHERE id=$id";
         BindTask(cmd, task);
+        cmd.ExecuteNonQuery();
+    }
+
+    public void TouchTaskActivity(Guid taskId)
+    {
+        using var conn = new SqliteConnection(_db.ConnectionString);
+        conn.Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "UPDATE tasks SET local_activity_utc=$activity WHERE id=$id";
+        cmd.Parameters.AddWithValue("$activity", DateTime.UtcNow.ToString("O"));
+        cmd.Parameters.AddWithValue("$id", taskId.ToString());
         cmd.ExecuteNonQuery();
     }
 
@@ -235,7 +251,8 @@ VALUES ($id,$task,$ticket,$number,$booking,$article,$minutes,$bookedMinutes,$sec
         cmd.Parameters.AddWithValue("$article", articleId ?? string.Empty);
         cmd.Parameters.AddWithValue("$booked", DateTime.UtcNow.ToString("O"));
         cmd.Parameters.AddWithValue("$id", booking.Id.ToString());
-        cmd.ExecuteNonQuery();
+        if (cmd.ExecuteNonQuery() > 0)
+            TouchTaskActivity(booking.TaskId);
     }
 
     public void FailTicketTimeBooking(TicketTimeBooking booking)
@@ -578,6 +595,7 @@ WHERE datetime(end_local) > datetime($now)";
         using var idCmd = conn.CreateCommand();
         idCmd.CommandText = "SELECT last_insert_rowid()";
         segment.Id = Convert.ToInt64(idCmd.ExecuteScalar());
+        TouchTaskActivity(segment.TaskId);
         SegmentsChanged?.Invoke();
     }
 
@@ -593,18 +611,33 @@ WHERE datetime(end_local) > datetime($now)";
         cmd.Parameters.AddWithValue("$n", segment.Note);
         cmd.Parameters.AddWithValue("$id", segment.Id);
         if (cmd.ExecuteNonQuery() > 0)
+        {
+            TouchTaskActivity(segment.TaskId);
             SegmentsChanged?.Invoke();
+        }
     }
 
     public void DeleteSegment(long segmentId)
     {
         using var conn = new SqliteConnection(_db.ConnectionString);
         conn.Open();
+        Guid? taskId = null;
+        using (var lookup = conn.CreateCommand())
+        {
+            lookup.CommandText = "SELECT task_id FROM task_segments WHERE id=$id";
+            lookup.Parameters.AddWithValue("$id", segmentId);
+            if (Guid.TryParse(lookup.ExecuteScalar()?.ToString(), out var parsedTaskId))
+                taskId = parsedTaskId;
+        }
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "DELETE FROM task_segments WHERE id=$id";
         cmd.Parameters.AddWithValue("$id", segmentId);
         if (cmd.ExecuteNonQuery() > 0)
+        {
+            if (taskId.HasValue)
+                TouchTaskActivity(taskId.Value);
             SegmentsChanged?.Invoke();
+        }
     }
 
     public bool SyncSegmentOutlook(TaskSegment segment, string title, string description, string ticketUrl)
@@ -718,9 +751,18 @@ WHERE datetime(end_local) > datetime($now)";
             IsPinned = Convert.ToInt32(reader["is_pinned"]) != 0,
             IsZnunyAssigned = Convert.ToInt32(reader["is_znuny_assigned"]) != 0,
             CreatedUtc = ParseRequiredDateTime(reader["created_utc"].ToString()),
-            UpdatedUtc = ParseRequiredDateTime(reader["updated_utc"].ToString())
+            UpdatedUtc = ParseRequiredDateTime(reader["updated_utc"].ToString()),
+            TicketCreatedUtc = ParseNullableDateTime(reader["ticket_created_utc"]),
+            TicketChangedUtc = ParseNullableDateTime(reader["ticket_changed_utc"]),
+            LocalActivityUtc = ParseNullableDateTime(reader["local_activity_utc"])
+                               ?? ParseRequiredDateTime(reader["created_utc"].ToString())
         };
     }
+
+    private static DateTime? ParseNullableDateTime(object value)
+        => value == DBNull.Value || string.IsNullOrWhiteSpace(value.ToString())
+            ? null
+            : ParseRequiredDateTime(value.ToString()).ToUniversalTime();
 
     private static DateTime ParseRequiredDateTime(string? value)
     {
@@ -755,5 +797,8 @@ WHERE datetime(end_local) > datetime($now)";
         cmd.Parameters.AddWithValue("$znunyAssigned", task.IsZnunyAssigned ? 1 : 0);
         cmd.Parameters.AddWithValue("$created", task.CreatedUtc.ToString("O"));
         cmd.Parameters.AddWithValue("$updated", task.UpdatedUtc.ToString("O"));
+        cmd.Parameters.AddWithValue("$ticketCreated", task.TicketCreatedUtc?.ToString("O") ?? (object)DBNull.Value);
+        cmd.Parameters.AddWithValue("$ticketChanged", task.TicketChangedUtc?.ToString("O") ?? (object)DBNull.Value);
+        cmd.Parameters.AddWithValue("$localActivity", task.LocalActivityUtc.ToString("O"));
     }
 }

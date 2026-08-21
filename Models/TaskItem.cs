@@ -29,4 +29,7 @@ public class TaskItem
     public bool ShowCurrentListPreview => !string.IsNullOrWhiteSpace(CurrentListPreviewText);
     public DateTime CreatedUtc { get; set; } = DateTime.UtcNow;
     public DateTime UpdatedUtc { get; set; } = DateTime.UtcNow;
+    public DateTime? TicketCreatedUtc { get; set; }
+    public DateTime? TicketChangedUtc { get; set; }
+    public DateTime LocalActivityUtc { get; set; } = DateTime.UtcNow;
 }
