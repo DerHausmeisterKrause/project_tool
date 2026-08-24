@@ -39,6 +39,13 @@ public class TodayViewModel : ObservableObject
     public ObservableCollection<TicketFieldOption> CostCenterOptions { get; } = new();
     public ObservableCollection<TicketFieldOption> OrderOptions { get; } = new();
     public ObservableCollection<TicketArticleItem> TicketArticles { get; } = new();
+    public ObservableCollection<WikiSearchResult> WikiResults { get; } = new();
+    private CancellationTokenSource? _wikiSearchCancellation;
+    private IReadOnlyList<string> _wikiKeywords = Array.Empty<string>();
+    public string WikiKeywordsText => string.Join(" · ", _wikiKeywords);
+    public bool HasWikiResults => WikiResults.Count > 0;
+    private string _wikiSearchStatus = string.Empty;
+    public string WikiSearchStatus { get => _wikiSearchStatus; set => Set(ref _wikiSearchStatus, value); }
     public ObservableCollection<string> TimeOptions { get; } = new(Enumerable.Range(0, 96).Select(i => TimeSpan.FromMinutes(i * 15).ToString(@"hh\:mm")));
     public IReadOnlyList<string> CurrentTaskSortFields { get; } = new[] { "Zuletzt bearbeitet", "Erstellungsdatum" };
     public IReadOnlyList<string> CurrentTaskSortDirections { get; } = new[] { "Neueste zuerst", "Älteste zuerst" };
@@ -57,9 +64,11 @@ public class TodayViewModel : ObservableObject
                 var taskChanged = previousTaskId != value?.Id;
                 if (taskChanged)
                 {
+                    _wikiSearchCancellation?.Cancel();
                     TicketBookingNote = string.Empty;
                     ResetTicketConversation();
                 }
+                LoadPersistedWikiResults(value);
                 LoadSegments();
                 Raise(nameof(IsTaskSelected));
                 Raise(nameof(HasZnunyTicket));
@@ -451,6 +460,7 @@ public class TodayViewModel : ObservableObject
     public RelayCommand<TaskItem> DoneTaskCommand { get; }
     public RelayCommand<TaskItem> TogglePinTaskCommand { get; }
     public RelayCommand<string> OpenTicketUrlCommand { get; }
+    public RelayCommand RefreshWikiCommand { get; }
     public RelayCommand<OutlookCalendarEvent> OpenAgendaOutlookEventCommand { get; }
     public RelayCommand<string> OpenAgendaTeamsCommand { get; }
     public RelayCommand<TaskSegment> SaveSegmentCommand { get; }
@@ -522,6 +532,7 @@ public class TodayViewModel : ObservableObject
             candidate => candidate != null && !IsCandidateAssignmentRunning);
         CreateTicketFromLocalTaskCommand = new RelayCommand(async () => await CreateTicketFromLocalTaskAsync(), () => CanCreateTicketFromSelectedTask);
         RefreshTicketArticlesCommand = new RelayCommand(async () => await RefreshTicketArticlesAsync(), () => HasZnunyTicket && !IsTicketConversationLoading);
+        RefreshWikiCommand = new RelayCommand(async () => await SearchWikiAsync(force: true), () => SelectedTask?.IsZnunyTask == true);
         BeginTicketReplyCommand = new RelayCommand(BeginTicketReply, () => HasZnunyTicket && HasSelectedTicketArticle && !IsTicketReplyMode && !string.IsNullOrWhiteSpace(TicketReplyRecipient) && !IsTicketConversationLoading);
         CancelTicketReplyCommand = new RelayCommand(CancelTicketReply, () => !IsSendingTicketReply);
         SendTicketReplyCommand = new RelayCommand(async () => await SendTicketReplyAsync(), () => IsTicketReplyMode && !IsSendingTicketReply && !string.IsNullOrWhiteSpace(TicketReplyText) && !string.IsNullOrWhiteSpace(TicketReplyRecipient));
@@ -1370,6 +1381,7 @@ public class TodayViewModel : ObservableObject
                 : string.IsNullOrWhiteSpace(TicketReplyRecipient)
                     ? "Für dieses Ticket konnte keine eindeutige Empfängeradresse ermittelt werden. Bitte antworten Sie über Znuny."
                     : string.Empty;
+            await SearchWikiAsync(force: false, task, context.TicketTitle, context.Articles.FirstOrDefault()?.Body ?? string.Empty);
         }
         catch (Exception ex)
         {
@@ -1384,6 +1396,31 @@ public class TodayViewModel : ObservableObject
             if (SelectedTask?.Id == task.Id)
                 IsTicketConversationLoading = false;
         }
+    }
+
+    private void LoadPersistedWikiResults(TaskItem? task)
+    {
+        WikiResults.Clear();
+        if (task != null) foreach (var result in ServiceLocator.WikiSearch.LoadResults(task.Id)) WikiResults.Add(result);
+        Raise(nameof(HasWikiResults));
+    }
+
+    private async Task SearchWikiAsync(bool force, TaskItem? expectedTask = null, string? title = null, string? message = null)
+    {
+        var task = expectedTask ?? SelectedTask;
+        if (task?.IsZnunyTask != true || !task.IsZnunyAssigned) return;
+        _wikiSearchCancellation?.Cancel(); _wikiSearchCancellation = new CancellationTokenSource(); var token = _wikiSearchCancellation.Token;
+        title ??= _ticketTitle; message ??= TicketArticles.FirstOrDefault()?.Body ?? string.Empty;
+        _wikiKeywords = new WikiKeywordExtractor().Extract(title, message); Raise(nameof(WikiKeywordsText));
+        WikiSearchStatus = force ? "Wikis werden erneut durchsucht …" : string.Empty;
+        try
+        {
+            var summary = await ServiceLocator.WikiSearch.SearchAsync(task, title, message, force, token);
+            if (SelectedTask?.Id != task.Id || token.IsCancellationRequested) return;
+            LoadPersistedWikiResults(task);
+            if (force) WikiSearchStatus = $"{summary.UpdatedSources} Wikis aktualisiert · {summary.FailedSources} Wikis fehlgeschlagen";
+        }
+        catch (OperationCanceledException) { }
     }
 
     private void ResetTicketConversation()

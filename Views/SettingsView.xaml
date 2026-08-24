@@ -343,6 +343,30 @@
                     </StackPanel>
                 </Border>
 
+                <Border Style="{StaticResource CardStyle}">
+                    <StackPanel>
+                        <TextBlock Text="Wiki / Knowledge Base" Style="{StaticResource SettingsCardTitleStyle}"/>
+                        <TextBlock Text="Wiki-Quellen" FontWeight="SemiBold" Margin="0,0,0,5"/>
+                        <ListBox ItemsSource="{Binding WikiSources}" SelectedItem="{Binding SelectedWikiSource}" DisplayMemberPath="Name" MaxHeight="130"/>
+                        <WrapPanel Margin="0,6,0,10"><Button Content="+ Wiki hinzufügen" Command="{Binding AddWikiSourceCommand}"/><Button Content="Entfernen" Style="{StaticResource SecondaryButtonStyle}" Command="{Binding RemoveWikiSourceCommand}"/></WrapPanel>
+                        <Grid DataContext="{Binding SelectedWikiSource}">
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="240"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions><RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/></Grid.RowDefinitions>
+                            <TextBlock Grid.Row="0" Text="Name" Style="{StaticResource SettingsLabelStyle}"/><TextBox Grid.Row="0" Grid.Column="1" Text="{Binding Name}" Style="{StaticResource SettingsTextBoxStyle}"/>
+                            <TextBlock Grid.Row="1" Text="Typ" Style="{StaticResource SettingsLabelStyle}"/><ComboBox Grid.Row="1" Grid.Column="1" ItemsSource="{Binding DataContext.WikiProviderTypes, RelativeSource={RelativeSource AncestorType=UserControl}}" SelectedItem="{Binding ProviderType}" Style="{StaticResource SettingsComboStyle}"/>
+                            <TextBlock Grid.Row="2" Text="Aktiv" Style="{StaticResource SettingsLabelStyle}"/><CheckBox Grid.Row="2" Grid.Column="1" IsChecked="{Binding Enabled}"/>
+                            <TextBlock Grid.Row="3" Text="Base URL" Style="{StaticResource SettingsLabelStyle}"/><TextBox Grid.Row="3" Grid.Column="1" Text="{Binding BaseUrl}" Style="{StaticResource SettingsLongTextBoxStyle}"/>
+                            <TextBlock Grid.Row="4" Text="Authentifizierung" Style="{StaticResource SettingsLabelStyle}"/><ComboBox Grid.Row="4" Grid.Column="1" ItemsSource="{Binding DataContext.WikiAuthModes, RelativeSource={RelativeSource AncestorType=UserControl}}" SelectedItem="{Binding AuthMode}" Style="{StaticResource SettingsComboStyle}"/>
+                            <TextBlock Grid.Row="5" Text="Benutzer / E-Mail" Style="{StaticResource SettingsLabelStyle}"/><TextBox Grid.Row="5" Grid.Column="1" Text="{Binding Username}" Style="{StaticResource SettingsTextBoxStyle}"/>
+                            <TextBlock Grid.Row="6" Text="Max. Ergebnisse" Style="{StaticResource SettingsLabelStyle}"/><TextBox Grid.Row="6" Grid.Column="1" Text="{Binding MaxResults}" Width="100" HorizontalAlignment="Left"/>
+                            <TextBlock Grid.Row="7" Text="Space Key" Style="{StaticResource SettingsLabelStyle}"/><TextBox Grid.Row="7" Grid.Column="1" Text="{Binding SpaceKey}" Style="{StaticResource SettingsTextBoxStyle}"/>
+                        </Grid>
+                        <TextBlock Text="Token / Passwort / API-Key" Style="{StaticResource SettingsLabelStyle}"/>
+                        <TextBox Text="{Binding WikiSecret, UpdateSourceTrigger=LostFocus}" Style="{StaticResource SettingsTextBoxStyle}"/>
+                        <WrapPanel><Button Content="Speichern" Command="{Binding SaveWikiSourceCommand}"/><Button Content="Verbindung testen / Testsuche" Style="{StaticResource SecondaryButtonStyle}" ToolTip="Nach dem Speichern kann die Suche direkt im Ticket getestet werden."/></WrapPanel>
+                    </StackPanel>
+                </Border>
+
                 <!-- 12. Working hours -->
                 <Border Style="{StaticResource CardStyle}">
                     <StackPanel>
