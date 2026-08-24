@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.Windows;
 using System.Windows.Threading;
 using TaskTool.Infrastructure;
@@ -18,6 +19,16 @@ public class SettingsViewModel : ObservableObject
     private readonly Action? _tasksChanged;
     private readonly UpdateService _updates;
     private readonly DispatcherTimer _hourlyUpdateTimer;
+    public ObservableCollection<WikiSourceSettings> WikiSources { get; }
+    private WikiSourceSettings? _selectedWikiSource;
+    public WikiSourceSettings? SelectedWikiSource { get => _selectedWikiSource; set { if (Set(ref _selectedWikiSource, value)) Raise(nameof(WikiSecret)); } }
+    private const string WikiSecretMask = "••••••••";
+    public string WikiSecret { get => SelectedWikiSource == null || string.IsNullOrEmpty(_settings.GetWikiSecret(SelectedWikiSource)) ? string.Empty : WikiSecretMask; set { if (SelectedWikiSource == null || value == WikiSecretMask) return; _settings.SetWikiSecret(SelectedWikiSource, value ?? string.Empty); } }
+    public List<string> WikiProviderTypes { get; } = new() { "ConfluenceDataCenter", "ConfluenceCloud", "GenericRest", "XWiki" };
+    public List<string> WikiAuthModes { get; } = new() { "BearerToken", "UsernameToken", "Basic", "ApiKey" };
+    public RelayCommand AddWikiSourceCommand { get; }
+    public RelayCommand RemoveWikiSourceCommand { get; }
+    public RelayCommand SaveWikiSourceCommand { get; }
     private readonly SemaphoreSlim _updateCheckGate = new(1, 1);
     public string Title => "Einstellungen";
     public string InstalledVersion => _settings.Current.InstalledVersion;
@@ -168,6 +179,8 @@ public class SettingsViewModel : ObservableObject
         _ticketSystem = ticketSystem;
         _updates = updates;
         _tasksChanged = tasksChanged;
+        WikiSources = new ObservableCollection<WikiSourceSettings>(_settings.Current.WikiSources);
+        SelectedWikiSource = WikiSources.FirstOrDefault();
         _hourlyUpdateTimer = new DispatcherTimer { Interval = TimeSpan.FromHours(1) };
         _hourlyUpdateTimer.Tick += async (_, _) => await RunHourlyUpdateCheckAsync();
         TestReminderCommand = new RelayCommand(() => _notifications.ShowTestNotification());
@@ -179,6 +192,9 @@ public class SettingsViewModel : ObservableObject
         CheckForUpdatesCommand = new RelayCommand(async () => await CheckForUpdatesAsync(false), () => CurrentUpdateState is not (UpdateState.Checking or UpdateState.Downloading or UpdateState.Installing));
         InstallUpdateCommand = new RelayCommand(async () => await InstallUpdateAsync(), () => CurrentUpdateState == UpdateState.UpdateAvailable && _availableUpdate != null);
         OpenReleaseCommand = new RelayCommand(() => { if (_availableUpdate != null) UrlLauncher.TryOpen(_availableUpdate.HtmlUrl, out _); }, () => _availableUpdate != null);
+        AddWikiSourceCommand = new RelayCommand(() => { var source = new WikiSourceSettings { Name = "Neue Wiki-Quelle" }; WikiSources.Add(source); _settings.Current.WikiSources.Add(source); SelectedWikiSource = source; Save(); });
+        RemoveWikiSourceCommand = new RelayCommand(() => { if (SelectedWikiSource == null) return; _settings.Current.WikiSources.Remove(SelectedWikiSource); WikiSources.Remove(SelectedWikiSource); SelectedWikiSource = WikiSources.FirstOrDefault(); Save(); });
+        SaveWikiSourceCommand = new RelayCommand(() => { Save(); Raise(nameof(WikiSecret)); });
     }
 
     public void StartHourlyUpdateMonitor()

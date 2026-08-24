@@ -148,6 +148,15 @@ public class SettingsService
         settings.TicketSystemUsername = settings.TicketSystemUsername?.Trim() ?? string.Empty;
         settings.TicketSystemPasswordEncrypted ??= string.Empty;
         settings.TicketSystemPassword ??= string.Empty;
+        settings.WikiSources ??= new();
+        foreach (var source in settings.WikiSources)
+        {
+            source.Id = string.IsNullOrWhiteSpace(source.Id) ? Guid.NewGuid().ToString() : source.Id.Trim();
+            source.Name = source.Name?.Trim() ?? string.Empty;
+            source.BaseUrl = source.BaseUrl?.Trim() ?? string.Empty;
+            source.SecretEncrypted ??= string.Empty;
+            source.MaxResults = Math.Clamp(source.MaxResults, 1, 20);
+        }
         settings.TicketSystemAgentId = Math.Max(0, settings.TicketSystemAgentId);
         settings.TicketSystemCandidateUserId = Math.Max(1, settings.TicketSystemCandidateUserId);
         settings.TicketSystemCandidateKeywords = settings.TicketSystemCandidateKeywords?.Trim() ?? string.Empty;
@@ -218,6 +227,14 @@ public class SettingsService
     {
         Current.TicketSystemPasswordEncrypted = string.IsNullOrEmpty(password) ? string.Empty : Protect(password);
         Current.TicketSystemPassword = string.Empty;
+    }
+
+    public string GetWikiSecret(WikiSourceSettings source)
+        => string.IsNullOrWhiteSpace(source.SecretEncrypted) ? string.Empty : Unprotect(source.SecretEncrypted);
+
+    public void SetWikiSecret(WikiSourceSettings source, string secret)
+    {
+        source.SecretEncrypted = string.IsNullOrEmpty(secret) ? string.Empty : Protect(secret);
     }
 
     public void Save()
