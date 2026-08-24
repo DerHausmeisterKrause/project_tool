@@ -78,6 +78,7 @@ public class AppSettings
     public bool TicketSystemAutofillCredentials { get; set; } = false;
     public bool TicketSystemAutoLogin { get; set; } = false;
     public List<WikiSourceSettings> WikiSources { get; set; } = new();
+    public string DefaultWikiSourceId { get; set; } = string.Empty;
 
     public int MondayTargetMinutes { get; set; } = 480;
     public int TuesdayTargetMinutes { get; set; } = 480;
@@ -112,6 +113,13 @@ public sealed class WikiSourceSettings
     public string SecretEncrypted { get; set; } = string.Empty;
     public string ApiKeyHeaderName { get; set; } = "X-API-Key";
     public string SpaceKey { get; set; } = string.Empty;
+    public bool SearchAllSpaces { get; set; } = true;
+    public List<string> SpaceKeys { get; set; } = new();
+    public string BrowserHomeUrl { get; set; } = string.Empty;
+    public string BrowserLoginMode { get; set; } = "BrowserSession";
+    public string BrowserUsername { get; set; } = string.Empty;
+    public string BrowserPasswordEncrypted { get; set; } = string.Empty;
+    public bool BrowserAutoSubmit { get; set; }
     public int MaxResults { get; set; } = 5;
     public string HttpMethod { get; set; } = "GET";
     public string SearchUrlTemplate { get; set; } = string.Empty;

@@ -98,7 +98,7 @@
                                             <DockPanel><TextBlock Text="{Binding SourceName}" FontWeight="SemiBold"/><TextBlock Text="{Binding RelevanceText}" DockPanel.Dock="Right" HorizontalAlignment="Right" Foreground="#60A5FA"/></DockPanel>
                                             <TextBlock Text="{Binding Title}" FontWeight="SemiBold" Margin="0,4,0,2" TextWrapping="Wrap"/>
                                             <TextBlock Text="{Binding Excerpt}" Foreground="{StaticResource MutedTextBrush}" TextWrapping="Wrap" MaxHeight="72"/>
-                                            <Button Content="Wiki öffnen" HorizontalAlignment="Left" Margin="0,6,0,0" Command="{Binding DataContext.OpenTicketUrlCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}" CommandParameter="{Binding Url}"/>
+                                            <Button Content="Wiki öffnen" HorizontalAlignment="Left" Margin="0,6,0,0" Command="{Binding DataContext.OpenWikiResultCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}" CommandParameter="{Binding}"/>
                                         </StackPanel>
                                     </Border>
                                 </DataTemplate></ItemsControl.ItemTemplate>

@@ -21,7 +21,8 @@ public abstract class HttpWikiProvider(SettingsService settings) : IWikiProvider
     public abstract string ProviderType { get; }
     protected HttpClient CreateClient(WikiSourceSettings source)
     {
-        var client = new HttpClient(new HttpClientHandler { AllowAutoRedirect = false }) { Timeout = TimeSpan.FromSeconds(10) };
+        var handler = new HttpClientHandler { AllowAutoRedirect = false, UseDefaultCredentials = source.AuthMode.Equals("WindowsIntegrated", StringComparison.OrdinalIgnoreCase) };
+        var client = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(10) };
         client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
         var secret = Settings.GetWikiSecret(source);
         if (source.AuthMode.Equals("BearerToken", StringComparison.OrdinalIgnoreCase))
@@ -48,7 +49,10 @@ public class ConfluenceDataCenterWikiProvider(SettingsService settings) : HttpWi
     public override async Task<IReadOnlyList<WikiProviderResult>> SearchAsync(WikiSourceSettings source, IReadOnlyList<string> terms, int limit, CancellationToken token)
     {
         var cqlTerms = string.Join(" OR ", terms.Select(t => $"siteSearch~'{EscapeCql(t)}'"));
-        var cql = $"type=page AND ({cqlTerms})" + (string.IsNullOrWhiteSpace(source.SpaceKey) ? "" : $" AND space='{EscapeCql(source.SpaceKey)}'");
+        var spaces = source.SearchAllSpaces ? Array.Empty<string>() : source.SpaceKeys.Where(x => !string.IsNullOrWhiteSpace(x)).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+        if (!source.SearchAllSpaces && spaces.Length == 0) throw new InvalidOperationException("Für die eingeschränkte Suche wurden keine Space Keys konfiguriert.");
+        var spaceClause = spaces.Length == 0 ? string.Empty : " AND (" + string.Join(" OR ", spaces.Select(x => $"space='{EscapeCql(x)}'")) + ")";
+        var cql = $"type=page{spaceClause} AND ({cqlTerms})";
         var endpoint = source.BaseUrl.TrimEnd('/') + ApiPath + "?cql=" + Uri.EscapeDataString(cql) + "&limit=" + limit;
         using var client = CreateClient(source);
         using var response = await client.GetAsync(endpoint, token);

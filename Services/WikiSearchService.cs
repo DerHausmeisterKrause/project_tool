@@ -64,6 +64,14 @@ public sealed class WikiSearchService
         cmd.Parameters.AddWithValue("$source", sourceId); cmd.ExecuteNonQuery();
     }
 
+    public void InvalidateSource(string sourceId)
+    {
+        if (string.IsNullOrWhiteSpace(sourceId)) return;
+        using var conn = new SqliteConnection(_database.ConnectionString); conn.Open(); using var tx = conn.BeginTransaction();
+        foreach (var table in new[] { "task_wiki_results", "task_wiki_search_runs" }) { using var cmd = conn.CreateCommand(); cmd.Transaction = tx; cmd.CommandText = $"DELETE FROM {table} WHERE source_id=$source"; cmd.Parameters.AddWithValue("$source", sourceId); cmd.ExecuteNonQuery(); }
+        tx.Commit();
+    }
+
     private bool HasRun(Guid taskId, string sourceId)
     {
         using var conn = new SqliteConnection(_database.ConnectionString); conn.Open(); using var cmd = conn.CreateCommand(); cmd.CommandText = "SELECT 1 FROM task_wiki_search_runs WHERE task_id=$t AND source_id=$s LIMIT 1"; cmd.Parameters.AddWithValue("$t", taskId.ToString()); cmd.Parameters.AddWithValue("$s", sourceId); return cmd.ExecuteScalar() != null;

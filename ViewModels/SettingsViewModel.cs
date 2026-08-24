@@ -28,7 +28,9 @@ public class SettingsViewModel : ObservableObject
     public WikiSourceEditorViewModel? SelectedWikiSource { get => _selectedWikiSource; set => Set(ref _selectedWikiSource, value); }
     private const string WikiSecretMask = "••••••••";
     public List<WikiChoice> WikiProviderTypes { get; } = new() { new("ConfluenceDataCenter", "Confluence Data Center"), new("ConfluenceCloud", "Confluence Cloud"), new("GenericRest", "Generic REST"), new("XWiki", "XWiki") };
-    public List<WikiChoice> WikiAuthModes { get; } = new() { new("BearerToken", "Bearer Token"), new("UsernameToken", "Username + Token / Passwort"), new("Basic", "Basic Auth"), new("ApiKey", "API-Key Header") };
+    public List<WikiChoice> WikiAuthModes { get; } = new() { new("BearerToken", "Bearer Token"), new("UsernameToken", "Username + Token / Passwort"), new("Basic", "Basic Auth"), new("ApiKey", "API-Key Header"), new("WindowsIntegrated", "Windows Integrated") };
+    public List<WikiChoice> WikiBrowserLoginModes { get; } = new() { new("BrowserSession", "Browser Session / Cookies"), new("WindowsIntegrated", "Windows Integrated"), new("UsernamePassword", "Benutzername + Passwort"), new("None", "Keine automatische Anmeldung") };
+    public string CurrentWindowsUser => $"{Environment.UserDomainName}\\{Environment.UserName}";
     private string _wikiSettingsStatus = string.Empty;
     public string WikiSettingsStatus { get => _wikiSettingsStatus; set => Set(ref _wikiSettingsStatus, value); }
     private string _wikiTestSearchTerm = "Linux";
@@ -190,7 +192,7 @@ public class SettingsViewModel : ObservableObject
         _ticketSystem = ticketSystem;
         _updates = updates;
         _tasksChanged = tasksChanged;
-        WikiSources = new ObservableCollection<WikiSourceEditorViewModel>(_settings.Current.WikiSources.Select(x => WikiSourceEditorViewModel.FromModel(x, WikiSecretMask)));
+        WikiSources = new ObservableCollection<WikiSourceEditorViewModel>(_settings.Current.WikiSources.Select(x => WikiSourceEditorViewModel.FromModel(x, WikiSecretMask, x.Id == _settings.Current.DefaultWikiSourceId)));
         SelectedWikiSource = WikiSources.FirstOrDefault();
         _hourlyUpdateTimer = new DispatcherTimer { Interval = TimeSpan.FromHours(1) };
         _hourlyUpdateTimer.Tick += async (_, _) => await RunHourlyUpdateCheckAsync();
@@ -405,6 +407,7 @@ public class SettingsViewModel : ObservableObject
         if (MessageBox.Show($"Wiki '{editor.Name}' wirklich entfernen?", "Wiki entfernen", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes) return;
         var previous = _settings.Current.WikiSources.ToList();
         _settings.Current.WikiSources.RemoveAll(x => string.Equals(x.Id, editor.Id, StringComparison.Ordinal));
+        if (_settings.Current.DefaultWikiSourceId == editor.Id) _settings.Current.DefaultWikiSourceId = _settings.Current.WikiSources.FirstOrDefault(x => x.Enabled)?.Id ?? string.Empty;
         if (!_settings.TrySave()) { _settings.Current.WikiSources = previous; WikiSettingsStatus = "Wiki konnte nicht entfernt werden. Bitte logs.txt prüfen."; return; }
         WikiSources.Remove(editor); SelectedWikiSource = WikiSources.FirstOrDefault();
         NotifySettingsConsumers(); WikiSettingsStatus = $"Wiki '{editor.Name}' wurde entfernt.";
@@ -414,7 +417,7 @@ public class SettingsViewModel : ObservableObject
     {
         var editor = SelectedWikiSource; if (editor == null) return;
         var saved = _settings.Current.WikiSources.FirstOrDefault(x => x.Id == editor.Id);
-        var replacement = saved == null ? new WikiSourceEditorViewModel() : WikiSourceEditorViewModel.FromModel(saved, WikiSecretMask);
+        var replacement = saved == null ? new WikiSourceEditorViewModel() : WikiSourceEditorViewModel.FromModel(saved, WikiSecretMask, saved.Id == _settings.Current.DefaultWikiSourceId);
         var index = WikiSources.IndexOf(editor); WikiSources[index] = replacement; SelectedWikiSource = replacement;
         WikiSettingsStatus = "Nicht gespeicherte Änderungen wurden verworfen.";
     }
@@ -424,25 +427,31 @@ public class SettingsViewModel : ObservableObject
         if (!TryCreateWikiSourceFromEditor(out var source, out var error)) { WikiSettingsStatus = error; return; }
         var previous = _settings.Current.WikiSources.ToList();
         var previousSource = previous.FirstOrDefault(x => x.Id == source.Id);
-        var configurationChanged = previousSource != null && WikiConfigurationFingerprint(previousSource) != WikiConfigurationFingerprint(source);
+        var searchConfigurationChanged = previousSource != null && WikiSearchConfigurationFingerprint(previousSource) != WikiSearchConfigurationFingerprint(source);
+        var apiAccessChanged = previousSource != null && string.Join("|", previousSource.AuthMode, previousSource.Username, previousSource.SecretEncrypted) != string.Join("|", source.AuthMode, source.Username, source.SecretEncrypted);
         var index = _settings.Current.WikiSources.FindIndex(x => x.Id == source.Id);
         if (index >= 0) _settings.Current.WikiSources[index] = source; else _settings.Current.WikiSources.Add(source);
+        if (SelectedWikiSource!.IsDefault || _settings.Current.WikiSources.Count(x => x.Enabled) == 1) { _settings.Current.DefaultWikiSourceId = source.Id; foreach (var editor in WikiSources) editor.IsDefault = editor.Id == source.Id; }
         if (!_settings.TrySave()) { _settings.Current.WikiSources = previous; WikiSettingsStatus = "Wiki konnte nicht gespeichert werden. Bitte logs.txt prüfen."; return; }
         SelectedWikiSource!.SetEncryptedSecret(source.SecretEncrypted); SelectedWikiSource.Secret = string.IsNullOrWhiteSpace(source.SecretEncrypted) ? string.Empty : WikiSecretMask;
-        if (configurationChanged) ServiceLocator.WikiSearch.ResetFailedRunsForSource(source.Id);
+        SelectedWikiSource.SetEncryptedBrowserPassword(source.BrowserPasswordEncrypted); SelectedWikiSource.BrowserPassword = string.IsNullOrWhiteSpace(source.BrowserPasswordEncrypted) ? string.Empty : WikiSecretMask;
+        if (searchConfigurationChanged) ServiceLocator.WikiSearch.InvalidateSource(source.Id);
+        else if (apiAccessChanged) ServiceLocator.WikiSearch.ResetFailedRunsForSource(source.Id);
         NotifySettingsConsumers(); WikiSettingsStatus = $"Wiki '{source.Name}' wurde gespeichert.";
     }
 
-    private static string WikiConfigurationFingerprint(WikiSourceSettings source)
-        => string.Join("|", source.ProviderType, source.BaseUrl.TrimEnd('/'), source.AuthMode, source.Username, source.SecretEncrypted, source.SpaceKey, source.HttpMethod, source.SearchUrlTemplate);
+    private static string WikiSearchConfigurationFingerprint(WikiSourceSettings source)
+        => string.Join("|", source.ProviderType, source.BaseUrl.TrimEnd('/'), source.SearchAllSpaces, string.Join(",", source.SpaceKeys.OrderBy(x => x, StringComparer.OrdinalIgnoreCase)), source.HttpMethod, source.SearchUrlTemplate);
 
     private bool TryCreateWikiSourceFromEditor(out WikiSourceSettings source, out string error)
     {
-        source = SelectedWikiSource?.ToModel() ?? new WikiSourceSettings();
-        if (!WikiSourceValidation.TryValidate(source, out error)) return false;
-        var secret = SelectedWikiSource!.Secret;
+        if (SelectedWikiSource == null) { source = new WikiSourceSettings(); error = "Bitte zuerst eine Wiki-Quelle auswählen."; return false; }
+        source = SelectedWikiSource.ToModel();
+        var secret = SelectedWikiSource.Secret;
         if (!string.Equals(secret, WikiSecretMask, StringComparison.Ordinal)) _settings.SetWikiSecret(source, secret ?? string.Empty);
-        return true;
+        var browserPassword = SelectedWikiSource.BrowserPassword;
+        if (!string.Equals(browserPassword, WikiSecretMask, StringComparison.Ordinal)) _settings.SetWikiBrowserPassword(source, browserPassword ?? string.Empty);
+        return WikiSourceValidation.TryValidate(source, out error);
     }
 
     private async Task TestWikiAsync(bool includeExamples)

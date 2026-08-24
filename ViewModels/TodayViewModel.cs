@@ -460,6 +460,7 @@ public class TodayViewModel : ObservableObject
     public RelayCommand<TaskItem> DoneTaskCommand { get; }
     public RelayCommand<TaskItem> TogglePinTaskCommand { get; }
     public RelayCommand<string> OpenTicketUrlCommand { get; }
+    public RelayCommand<WikiSearchResult> OpenWikiResultCommand { get; }
     public RelayCommand RefreshWikiCommand { get; }
     public RelayCommand<OutlookCalendarEvent> OpenAgendaOutlookEventCommand { get; }
     public RelayCommand<string> OpenAgendaTeamsCommand { get; }
@@ -543,6 +544,7 @@ public class TodayViewModel : ObservableObject
         DoneTaskCommand = new RelayCommand<TaskItem>(task => OnCardTaskAction(task, _tasks.MarkDone));
         TogglePinTaskCommand = new RelayCommand<TaskItem>(TogglePinTask, task => task != null);
         OpenTicketUrlCommand = new RelayCommand<string>(OpenTicketUrl, url => !string.IsNullOrWhiteSpace(url));
+        OpenWikiResultCommand = new RelayCommand<WikiSearchResult>(result => { if (result != null) ServiceLocator.MainViewModel.NavigateToWiki(result.SourceId, result.Url); }, result => result != null && !string.IsNullOrWhiteSpace(result.Url));
         OpenAgendaOutlookEventCommand = new RelayCommand<OutlookCalendarEvent>(OpenAgendaOutlookEvent, outlookEvent => outlookEvent != null);
         OpenAgendaTeamsCommand = new RelayCommand<string>(OpenAgendaTeams, url => !string.IsNullOrWhiteSpace(url));
         SaveSegmentCommand = new RelayCommand<TaskSegment>(SaveSegment, seg => seg != null && seg.IsValid);

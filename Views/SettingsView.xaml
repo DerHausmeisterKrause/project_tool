@@ -210,7 +210,7 @@
                         <TextBlock Text="Znuny / OTRS – Synchronisierung" Style="{StaticResource SettingsCardTitleStyle}"/>
                         <Grid>
                             <Grid.ColumnDefinitions><ColumnDefinition Width="240"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-                            <Grid.RowDefinitions><RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/></Grid.RowDefinitions>
+                            <Grid.RowDefinitions><RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/></Grid.RowDefinitions>
                             <TextBlock Grid.Row="0" Text="TicketSearch Route" Style="{StaticResource SettingsLabelStyle}"/>
                             <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding TicketSystemTicketSearchRoute, UpdateSourceTrigger=PropertyChanged}" Style="{StaticResource SettingsTextBoxStyle}"/>
                             <TextBlock Grid.Row="1" Text="TicketSearch HTTP-Methode" Style="{StaticResource SettingsLabelStyle}"/>
@@ -359,10 +359,25 @@
                             <TextBlock Grid.Row="4" Text="Authentifizierung" Style="{StaticResource SettingsLabelStyle}"/><ComboBox Grid.Row="4" Grid.Column="1" ItemsSource="{Binding DataContext.WikiAuthModes, RelativeSource={RelativeSource AncestorType=UserControl}}" DisplayMemberPath="DisplayName" SelectedValuePath="Value" SelectedValue="{Binding AuthMode, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Style="{StaticResource SettingsComboStyle}"/>
                             <TextBlock Grid.Row="5" Text="Benutzer / E-Mail" Style="{StaticResource SettingsLabelStyle}"/><TextBox Grid.Row="5" Grid.Column="1" Text="{Binding Username, UpdateSourceTrigger=PropertyChanged}" Style="{StaticResource SettingsTextBoxStyle}"/>
                             <TextBlock Grid.Row="6" Text="Max. Ergebnisse" Style="{StaticResource SettingsLabelStyle}"/><TextBox Grid.Row="6" Grid.Column="1" Text="{Binding MaxResults, UpdateSourceTrigger=PropertyChanged}" Width="100" HorizontalAlignment="Left"/>
-                            <TextBlock Grid.Row="7" Text="Space Key" Style="{StaticResource SettingsLabelStyle}"/><TextBox Grid.Row="7" Grid.Column="1" Text="{Binding SpaceKey, UpdateSourceTrigger=PropertyChanged}" Style="{StaticResource SettingsTextBoxStyle}"/>
                         </Grid>
+                        <TextBlock Text="Suchbereiche" FontWeight="SemiBold" Margin="0,8,0,5"/>
+                        <CheckBox Content="Alle Bereiche durchsuchen" IsChecked="{Binding SelectedWikiSource.SearchAllSpaces}"/>
+                        <TextBlock Text="Space Keys (einer pro Zeile)" Style="{StaticResource SettingsLabelStyle}" Margin="0,6,0,3"/>
+                        <TextBox Text="{Binding SelectedWikiSource.SpaceKeysText, UpdateSourceTrigger=PropertyChanged}" AcceptsReturn="True" MinHeight="70" Style="{StaticResource SettingsTextBoxStyle}"/>
                         <TextBlock Text="Token / Passwort / API-Key" Style="{StaticResource SettingsLabelStyle}"/>
                         <TextBox Text="{Binding SelectedWikiSource.Secret, UpdateSourceTrigger=LostFocus}" Style="{StaticResource SettingsTextBoxStyle}"/>
+                        <TextBlock Text="Browser" FontWeight="SemiBold" Margin="0,10,0,5"/>
+                        <CheckBox Content="Als Standard-Wiki verwenden" IsChecked="{Binding SelectedWikiSource.IsDefault}"/>
+                        <TextBlock Text="Startseite (optional)" Style="{StaticResource SettingsLabelStyle}" Margin="0,6,0,3"/>
+                        <TextBox Text="{Binding SelectedWikiSource.BrowserHomeUrl, UpdateSourceTrigger=PropertyChanged}" Style="{StaticResource SettingsLongTextBoxStyle}"/>
+                        <TextBlock Text="Browser-Anmeldung" Style="{StaticResource SettingsLabelStyle}"/>
+                        <ComboBox ItemsSource="{Binding WikiBrowserLoginModes}" DisplayMemberPath="DisplayName" SelectedValuePath="Value" SelectedValue="{Binding SelectedWikiSource.BrowserLoginMode, UpdateSourceTrigger=PropertyChanged}" Style="{StaticResource SettingsComboStyle}"/>
+                        <TextBlock Text="{Binding CurrentWindowsUser, StringFormat=Aktueller Windows-Benutzer: {0}}" Foreground="{StaticResource MutedTextBrush}" Margin="0,0,0,8" Visibility="{Binding SelectedWikiSource.UsesWindowsIntegrated, Converter={StaticResource BooleanToVisibilityConverter}}"/>
+                        <StackPanel Visibility="{Binding SelectedWikiSource.UsesBrowserCredentials, Converter={StaticResource BooleanToVisibilityConverter}}">
+                            <TextBlock Text="Browser-Benutzername" Style="{StaticResource SettingsLabelStyle}"/><TextBox Text="{Binding SelectedWikiSource.BrowserUsername, UpdateSourceTrigger=PropertyChanged}" Style="{StaticResource SettingsTextBoxStyle}"/>
+                            <TextBlock Text="Browser-Passwort" Style="{StaticResource SettingsLabelStyle}"/><TextBox Text="{Binding SelectedWikiSource.BrowserPassword, UpdateSourceTrigger=LostFocus}" Style="{StaticResource SettingsTextBoxStyle}"/>
+                            <CheckBox Content="Automatisch anmelden" IsChecked="{Binding SelectedWikiSource.BrowserAutoSubmit}"/>
+                        </StackPanel>
                         <TextBlock Text="Test-Suchbegriff" Style="{StaticResource SettingsLabelStyle}" Margin="0,5,0,3"/>
                         <TextBox Text="{Binding WikiTestSearchTerm, UpdateSourceTrigger=PropertyChanged}" Style="{StaticResource SettingsTextBoxStyle}"/>
                         <WrapPanel><Button Content="Speichern" Command="{Binding SaveWikiSourceCommand}"/><Button Content="Änderungen verwerfen" Style="{StaticResource SecondaryButtonStyle}" Command="{Binding DiscardWikiSourceCommand}"/><Button Content="Verbindung testen" Style="{StaticResource SecondaryButtonStyle}" Command="{Binding TestWikiConnectionCommand}"/><Button Content="Testsuche" Style="{StaticResource SecondaryButtonStyle}" Command="{Binding TestWikiSearchCommand}"/></WrapPanel>

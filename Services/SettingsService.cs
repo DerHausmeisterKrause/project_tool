@@ -161,6 +161,13 @@ public class SettingsService
             source.SecretEncrypted ??= string.Empty;
             source.ApiKeyHeaderName = string.IsNullOrWhiteSpace(source.ApiKeyHeaderName) ? "X-API-Key" : source.ApiKeyHeaderName.Trim();
             source.SpaceKey = source.SpaceKey?.Trim() ?? string.Empty;
+            source.SpaceKeys ??= new();
+            source.SpaceKeys = source.SpaceKeys.Where(x => !string.IsNullOrWhiteSpace(x)).Select(x => x.Trim()).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+            if (source.SpaceKeys.Count == 0 && !string.IsNullOrWhiteSpace(source.SpaceKey)) { source.SpaceKeys.Add(source.SpaceKey); source.SearchAllSpaces = false; }
+            source.BrowserHomeUrl = source.BrowserHomeUrl?.Trim() ?? string.Empty;
+            source.BrowserLoginMode = NormalizeChoice(source.BrowserLoginMode, new[] { "BrowserSession", "WindowsIntegrated", "UsernamePassword", "None" }, "BrowserSession");
+            source.BrowserUsername = source.BrowserUsername?.Trim() ?? string.Empty;
+            source.BrowserPasswordEncrypted ??= string.Empty;
             source.MaxResults = Math.Clamp(source.MaxResults, 1, 20);
             source.HttpMethod = string.Equals(source.HttpMethod, "POST", StringComparison.OrdinalIgnoreCase) ? "POST" : "GET";
             source.SearchUrlTemplate = source.SearchUrlTemplate?.Trim() ?? string.Empty;
@@ -171,6 +178,9 @@ public class SettingsService
             source.ResultUrlPath = string.IsNullOrWhiteSpace(source.ResultUrlPath) ? "url" : source.ResultUrlPath.Trim();
             source.ResultExcerptPath = string.IsNullOrWhiteSpace(source.ResultExcerptPath) ? "excerpt" : source.ResultExcerptPath.Trim();
         }
+        settings.DefaultWikiSourceId ??= string.Empty;
+        var activeWikiSources = settings.WikiSources.Where(x => x.Enabled).ToList();
+        if (activeWikiSources.Count == 1 || !activeWikiSources.Any(x => x.Id == settings.DefaultWikiSourceId)) settings.DefaultWikiSourceId = activeWikiSources.FirstOrDefault()?.Id ?? string.Empty;
         settings.TicketSystemAgentId = Math.Max(0, settings.TicketSystemAgentId);
         settings.TicketSystemCandidateUserId = Math.Max(1, settings.TicketSystemCandidateUserId);
         settings.TicketSystemCandidateKeywords = settings.TicketSystemCandidateKeywords?.Trim() ?? string.Empty;
@@ -253,6 +263,12 @@ public class SettingsService
     {
         source.SecretEncrypted = string.IsNullOrEmpty(secret) ? string.Empty : Protect(secret);
     }
+
+    public string GetWikiBrowserPassword(WikiSourceSettings source)
+        => string.IsNullOrWhiteSpace(source.BrowserPasswordEncrypted) ? string.Empty : Unprotect(source.BrowserPasswordEncrypted);
+
+    public void SetWikiBrowserPassword(WikiSourceSettings source, string password)
+        => source.BrowserPasswordEncrypted = string.IsNullOrEmpty(password) ? string.Empty : Protect(password);
 
     public void Save()
     {
