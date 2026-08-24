@@ -77,6 +77,7 @@ public class AppSettings
     public bool NotifyOnNewAssignedTickets { get; set; } = true;
     public bool TicketSystemAutofillCredentials { get; set; } = false;
     public bool TicketSystemAutoLogin { get; set; } = false;
+    public List<WikiSourceSettings> WikiSources { get; set; } = new();
 
     public int MondayTargetMinutes { get; set; } = 480;
     public int TuesdayTargetMinutes { get; set; } = 480;
@@ -97,4 +98,27 @@ public class AppSettings
         DayOfWeek.Sunday => SundayTargetMinutes,
         _ => 0
     };
+}
+
+public sealed class WikiSourceSettings
+{
+    public string Id { get; set; } = Guid.NewGuid().ToString();
+    public string Name { get; set; } = string.Empty;
+    public bool Enabled { get; set; } = true;
+    public string ProviderType { get; set; } = "ConfluenceDataCenter";
+    public string BaseUrl { get; set; } = string.Empty;
+    public string AuthMode { get; set; } = "BearerToken";
+    public string Username { get; set; } = string.Empty;
+    public string SecretEncrypted { get; set; } = string.Empty;
+    public string ApiKeyHeaderName { get; set; } = "X-API-Key";
+    public string SpaceKey { get; set; } = string.Empty;
+    public int MaxResults { get; set; } = 5;
+    public string HttpMethod { get; set; } = "GET";
+    public string SearchUrlTemplate { get; set; } = string.Empty;
+    public string RequestBodyTemplate { get; set; } = string.Empty;
+    public string ResultArrayPath { get; set; } = "$.results";
+    public string ResultIdPath { get; set; } = "id";
+    public string ResultTitlePath { get; set; } = "title";
+    public string ResultUrlPath { get; set; } = "url";
+    public string ResultExcerptPath { get; set; } = "excerpt";
 }

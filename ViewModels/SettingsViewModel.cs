@@ -1,5 +1,10 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
+using System.Diagnostics;
+using System.Net;
+using System.Net.Http;
+using System.Text.Json;
 using System.Windows;
 using System.Windows.Threading;
 using TaskTool.Infrastructure;
@@ -18,6 +23,23 @@ public class SettingsViewModel : ObservableObject
     private readonly Action? _tasksChanged;
     private readonly UpdateService _updates;
     private readonly DispatcherTimer _hourlyUpdateTimer;
+    public ObservableCollection<WikiSourceEditorViewModel> WikiSources { get; }
+    private WikiSourceEditorViewModel? _selectedWikiSource;
+    public WikiSourceEditorViewModel? SelectedWikiSource { get => _selectedWikiSource; set => Set(ref _selectedWikiSource, value); }
+    private const string WikiSecretMask = "••••••••";
+    public List<WikiChoice> WikiProviderTypes { get; } = new() { new("ConfluenceDataCenter", "Confluence Data Center"), new("ConfluenceCloud", "Confluence Cloud"), new("GenericRest", "Generic REST"), new("XWiki", "XWiki") };
+    public List<WikiChoice> WikiAuthModes { get; } = new() { new("BearerToken", "Bearer Token"), new("UsernameToken", "Username + Token / Passwort"), new("Basic", "Basic Auth"), new("ApiKey", "API-Key Header") };
+    private string _wikiSettingsStatus = string.Empty;
+    public string WikiSettingsStatus { get => _wikiSettingsStatus; set => Set(ref _wikiSettingsStatus, value); }
+    private string _wikiTestSearchTerm = "Linux";
+    public string WikiTestSearchTerm { get => _wikiTestSearchTerm; set => Set(ref _wikiTestSearchTerm, value); }
+    private bool _isWikiTestRunning;
+    public RelayCommand AddWikiSourceCommand { get; }
+    public RelayCommand RemoveWikiSourceCommand { get; }
+    public RelayCommand SaveWikiSourceCommand { get; }
+    public RelayCommand DiscardWikiSourceCommand { get; }
+    public RelayCommand TestWikiConnectionCommand { get; }
+    public RelayCommand TestWikiSearchCommand { get; }
     private readonly SemaphoreSlim _updateCheckGate = new(1, 1);
     public string Title => "Einstellungen";
     public string InstalledVersion => _settings.Current.InstalledVersion;
@@ -168,6 +190,8 @@ public class SettingsViewModel : ObservableObject
         _ticketSystem = ticketSystem;
         _updates = updates;
         _tasksChanged = tasksChanged;
+        WikiSources = new ObservableCollection<WikiSourceEditorViewModel>(_settings.Current.WikiSources.Select(x => WikiSourceEditorViewModel.FromModel(x, WikiSecretMask)));
+        SelectedWikiSource = WikiSources.FirstOrDefault();
         _hourlyUpdateTimer = new DispatcherTimer { Interval = TimeSpan.FromHours(1) };
         _hourlyUpdateTimer.Tick += async (_, _) => await RunHourlyUpdateCheckAsync();
         TestReminderCommand = new RelayCommand(() => _notifications.ShowTestNotification());
@@ -179,6 +203,12 @@ public class SettingsViewModel : ObservableObject
         CheckForUpdatesCommand = new RelayCommand(async () => await CheckForUpdatesAsync(false), () => CurrentUpdateState is not (UpdateState.Checking or UpdateState.Downloading or UpdateState.Installing));
         InstallUpdateCommand = new RelayCommand(async () => await InstallUpdateAsync(), () => CurrentUpdateState == UpdateState.UpdateAvailable && _availableUpdate != null);
         OpenReleaseCommand = new RelayCommand(() => { if (_availableUpdate != null) UrlLauncher.TryOpen(_availableUpdate.HtmlUrl, out _); }, () => _availableUpdate != null);
+        AddWikiSourceCommand = new RelayCommand(AddWikiSource);
+        RemoveWikiSourceCommand = new RelayCommand(RemoveWikiSource);
+        SaveWikiSourceCommand = new RelayCommand(SaveWikiSource);
+        DiscardWikiSourceCommand = new RelayCommand(DiscardWikiSource);
+        TestWikiConnectionCommand = new RelayCommand(async () => await TestWikiAsync(false), () => !_isWikiTestRunning);
+        TestWikiSearchCommand = new RelayCommand(async () => await TestWikiAsync(true), () => !_isWikiTestRunning);
     }
 
     public void StartHourlyUpdateMonitor()
@@ -358,6 +388,98 @@ public class SettingsViewModel : ObservableObject
         var end = idx + 2;
         while (end < error.Length && Uri.IsHexDigit(error[end])) end++;
         return error[idx..end];
+    }
+
+    private void AddWikiSource()
+    {
+        var editor = new WikiSourceEditorViewModel();
+        WikiSources.Add(editor);
+        SelectedWikiSource = editor;
+        WikiSettingsStatus = "Neue Wiki-Quelle angelegt. Bitte Konfiguration ausfüllen und speichern.";
+    }
+
+    private void RemoveWikiSource()
+    {
+        var editor = SelectedWikiSource;
+        if (editor == null) { WikiSettingsStatus = "Bitte zuerst eine Wiki-Quelle auswählen."; return; }
+        if (MessageBox.Show($"Wiki '{editor.Name}' wirklich entfernen?", "Wiki entfernen", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes) return;
+        var previous = _settings.Current.WikiSources.ToList();
+        _settings.Current.WikiSources.RemoveAll(x => string.Equals(x.Id, editor.Id, StringComparison.Ordinal));
+        if (!_settings.TrySave()) { _settings.Current.WikiSources = previous; WikiSettingsStatus = "Wiki konnte nicht entfernt werden. Bitte logs.txt prüfen."; return; }
+        WikiSources.Remove(editor); SelectedWikiSource = WikiSources.FirstOrDefault();
+        NotifySettingsConsumers(); WikiSettingsStatus = $"Wiki '{editor.Name}' wurde entfernt.";
+    }
+
+    private void DiscardWikiSource()
+    {
+        var editor = SelectedWikiSource; if (editor == null) return;
+        var saved = _settings.Current.WikiSources.FirstOrDefault(x => x.Id == editor.Id);
+        var replacement = saved == null ? new WikiSourceEditorViewModel() : WikiSourceEditorViewModel.FromModel(saved, WikiSecretMask);
+        var index = WikiSources.IndexOf(editor); WikiSources[index] = replacement; SelectedWikiSource = replacement;
+        WikiSettingsStatus = "Nicht gespeicherte Änderungen wurden verworfen.";
+    }
+
+    private void SaveWikiSource()
+    {
+        if (!TryCreateWikiSourceFromEditor(out var source, out var error)) { WikiSettingsStatus = error; return; }
+        var previous = _settings.Current.WikiSources.ToList();
+        var previousSource = previous.FirstOrDefault(x => x.Id == source.Id);
+        var configurationChanged = previousSource != null && WikiConfigurationFingerprint(previousSource) != WikiConfigurationFingerprint(source);
+        var index = _settings.Current.WikiSources.FindIndex(x => x.Id == source.Id);
+        if (index >= 0) _settings.Current.WikiSources[index] = source; else _settings.Current.WikiSources.Add(source);
+        if (!_settings.TrySave()) { _settings.Current.WikiSources = previous; WikiSettingsStatus = "Wiki konnte nicht gespeichert werden. Bitte logs.txt prüfen."; return; }
+        SelectedWikiSource!.SetEncryptedSecret(source.SecretEncrypted); SelectedWikiSource.Secret = string.IsNullOrWhiteSpace(source.SecretEncrypted) ? string.Empty : WikiSecretMask;
+        if (configurationChanged) ServiceLocator.WikiSearch.ResetFailedRunsForSource(source.Id);
+        NotifySettingsConsumers(); WikiSettingsStatus = $"Wiki '{source.Name}' wurde gespeichert.";
+    }
+
+    private static string WikiConfigurationFingerprint(WikiSourceSettings source)
+        => string.Join("|", source.ProviderType, source.BaseUrl.TrimEnd('/'), source.AuthMode, source.Username, source.SecretEncrypted, source.SpaceKey, source.HttpMethod, source.SearchUrlTemplate);
+
+    private bool TryCreateWikiSourceFromEditor(out WikiSourceSettings source, out string error)
+    {
+        source = SelectedWikiSource?.ToModel() ?? new WikiSourceSettings();
+        if (!WikiSourceValidation.TryValidate(source, out error)) return false;
+        var secret = SelectedWikiSource!.Secret;
+        if (!string.Equals(secret, WikiSecretMask, StringComparison.Ordinal)) _settings.SetWikiSecret(source, secret ?? string.Empty);
+        return true;
+    }
+
+    private async Task TestWikiAsync(bool includeExamples)
+    {
+        if (!TryCreateWikiSourceFromEditor(out var source, out var error)) { WikiSettingsStatus = error; return; }
+        if (string.IsNullOrWhiteSpace(WikiTestSearchTerm)) { WikiSettingsStatus = "Bitte einen Test-Suchbegriff eingeben."; return; }
+        _isWikiTestRunning = true; TestWikiConnectionCommand.RaiseCanExecuteChanged(); TestWikiSearchCommand.RaiseCanExecuteChanged();
+        WikiSettingsStatus = includeExamples ? "Testsuche läuft …" : "Verbindung wird getestet …"; var watch = Stopwatch.StartNew();
+        try
+        {
+            var results = await ServiceLocator.WikiSearch.TestSourceAsync(source, WikiTestSearchTerm);
+            var examples = includeExamples ? string.Join(Environment.NewLine, results.Take(3).Select(x => $"• {x.Title}")) : string.Empty;
+            WikiSettingsStatus = $"Verbindung erfolgreich · {results.Count} Treffer · {watch.ElapsedMilliseconds} ms" + (string.IsNullOrWhiteSpace(examples) ? string.Empty : Environment.NewLine + examples);
+        }
+        catch (Exception ex) { WikiSettingsStatus = DescribeWikiTestError(ex); }
+        finally { _isWikiTestRunning = false; TestWikiConnectionCommand.RaiseCanExecuteChanged(); TestWikiSearchCommand.RaiseCanExecuteChanged(); }
+    }
+
+    private static string DescribeWikiTestError(Exception exception)
+    {
+        if (exception is TaskCanceledException) return "Wiki antwortet nicht innerhalb des Zeitlimits.";
+        if (exception is JsonException) return "Das Antwortformat des Wikis ist unerwartet.";
+        if (exception is HttpRequestException http) return http.StatusCode switch
+        {
+            HttpStatusCode.Unauthorized => "Authentifizierung fehlgeschlagen (HTTP 401).",
+            HttpStatusCode.Forbidden => "Zugriff verweigert (HTTP 403).",
+            HttpStatusCode.NotFound => "Wiki API Endpoint nicht gefunden (HTTP 404).",
+            _ when http.StatusCode.HasValue => $"Wiki-Anfrage fehlgeschlagen (HTTP {(int)http.StatusCode.Value}).",
+            _ => "Wiki-Server ist nicht erreichbar. Bitte DNS, Netzwerk und Base URL prüfen."
+        };
+        if (exception is UriFormatException) return "Base URL ist ungültig.";
+        return exception is InvalidOperationException ? exception.Message : "Wiki-Test fehlgeschlagen. Bitte logs.txt prüfen.";
+    }
+
+    private void NotifySettingsConsumers()
+    {
+        _notifications.HandleSettingsChanged(); _outlookCalendar.HandleSettingsChanged(); _ticketSystem.HandleSettingsChanged(); Raise(string.Empty);
     }
 
     private void Save()
