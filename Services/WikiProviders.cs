@@ -22,6 +22,7 @@ public abstract class HttpWikiProvider(SettingsService settings) : IWikiProvider
     protected HttpClient CreateClient(WikiSourceSettings source)
     {
         var client = new HttpClient(new HttpClientHandler { AllowAutoRedirect = false }) { Timeout = TimeSpan.FromSeconds(10) };
+        client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
         var secret = Settings.GetWikiSecret(source);
         if (source.AuthMode.Equals("BearerToken", StringComparison.OrdinalIgnoreCase))
             client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", secret);

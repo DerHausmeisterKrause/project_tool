@@ -149,13 +149,27 @@ public class SettingsService
         settings.TicketSystemPasswordEncrypted ??= string.Empty;
         settings.TicketSystemPassword ??= string.Empty;
         settings.WikiSources ??= new();
+        settings.WikiSources = settings.WikiSources.OfType<WikiSourceSettings>().ToList();
         foreach (var source in settings.WikiSources)
         {
             source.Id = string.IsNullOrWhiteSpace(source.Id) ? Guid.NewGuid().ToString() : source.Id.Trim();
             source.Name = source.Name?.Trim() ?? string.Empty;
             source.BaseUrl = source.BaseUrl?.Trim() ?? string.Empty;
+            source.ProviderType = NormalizeChoice(source.ProviderType, WikiSourceValidation.ProviderTypes, "ConfluenceDataCenter");
+            source.AuthMode = NormalizeChoice(source.AuthMode, WikiSourceValidation.AuthModes, "BearerToken");
+            source.Username = source.Username?.Trim() ?? string.Empty;
             source.SecretEncrypted ??= string.Empty;
+            source.ApiKeyHeaderName = string.IsNullOrWhiteSpace(source.ApiKeyHeaderName) ? "X-API-Key" : source.ApiKeyHeaderName.Trim();
+            source.SpaceKey = source.SpaceKey?.Trim() ?? string.Empty;
             source.MaxResults = Math.Clamp(source.MaxResults, 1, 20);
+            source.HttpMethod = string.Equals(source.HttpMethod, "POST", StringComparison.OrdinalIgnoreCase) ? "POST" : "GET";
+            source.SearchUrlTemplate = source.SearchUrlTemplate?.Trim() ?? string.Empty;
+            source.RequestBodyTemplate ??= string.Empty;
+            source.ResultArrayPath = string.IsNullOrWhiteSpace(source.ResultArrayPath) ? "$.results" : source.ResultArrayPath.Trim();
+            source.ResultIdPath = string.IsNullOrWhiteSpace(source.ResultIdPath) ? "id" : source.ResultIdPath.Trim();
+            source.ResultTitlePath = string.IsNullOrWhiteSpace(source.ResultTitlePath) ? "title" : source.ResultTitlePath.Trim();
+            source.ResultUrlPath = string.IsNullOrWhiteSpace(source.ResultUrlPath) ? "url" : source.ResultUrlPath.Trim();
+            source.ResultExcerptPath = string.IsNullOrWhiteSpace(source.ResultExcerptPath) ? "excerpt" : source.ResultExcerptPath.Trim();
         }
         settings.TicketSystemAgentId = Math.Max(0, settings.TicketSystemAgentId);
         settings.TicketSystemCandidateUserId = Math.Max(1, settings.TicketSystemCandidateUserId);
@@ -207,6 +221,9 @@ public class SettingsService
         route = route.Trim();
         return route.StartsWith('/') ? route : "/" + route;
     }
+
+    private static string NormalizeChoice(string? value, IReadOnlyList<string> validValues, string fallback)
+        => validValues.FirstOrDefault(x => string.Equals(x, value?.Trim(), StringComparison.OrdinalIgnoreCase)) ?? fallback;
 
     public string GetTicketSystemPassword()
     {
