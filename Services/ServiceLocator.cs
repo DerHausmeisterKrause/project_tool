@@ -18,6 +18,7 @@ public static class ServiceLocator
     public static UpdateService Updates { get; private set; } = null!;
     public static HomeOfficeService HomeOffice { get; private set; } = null!;
     public static TicketAssignmentSnapshotService TicketAssignmentSnapshots { get; private set; } = null!;
+    public static WikiSearchService WikiSearch { get; private set; } = null!;
     public static MainViewModel MainViewModel { get; private set; } = null!;
 
     public static void Initialize()
@@ -30,6 +31,7 @@ public static class ServiceLocator
         GermanTime = new GermanTimeService();
         Database = new DatabaseService(Logger);
         Database.Initialize();
+        WikiSearch = new WikiSearchService(Database, Settings, Logger);
         Outlook = new OutlookInteropService(Logger, Settings);
         Tasks = new TaskService(Database, Logger, Outlook, Settings);
         TicketAssignmentSnapshots = new TicketAssignmentSnapshotService(Database);
