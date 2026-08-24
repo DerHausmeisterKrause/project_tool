@@ -119,7 +119,7 @@ public sealed class WikiSourceSettings
     public string BrowserLoginMode { get; set; } = "BrowserSession";
     public string BrowserUsername { get; set; } = string.Empty;
     public string BrowserPasswordEncrypted { get; set; } = string.Empty;
-    public bool BrowserAutoSubmit { get; set; }
+    public bool BrowserAutoSubmit { get; set; } = true;
     public int MaxResults { get; set; } = 5;
     public string HttpMethod { get; set; } = "GET";
     public string SearchUrlTemplate { get; set; } = string.Empty;

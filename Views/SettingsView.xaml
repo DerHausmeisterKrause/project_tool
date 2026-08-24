@@ -376,7 +376,6 @@
                         <StackPanel Visibility="{Binding SelectedWikiSource.UsesBrowserCredentials, Converter={StaticResource BooleanToVisibilityConverter}}">
                             <TextBlock Text="Browser-Benutzername" Style="{StaticResource SettingsLabelStyle}"/><TextBox Text="{Binding SelectedWikiSource.BrowserUsername, UpdateSourceTrigger=PropertyChanged}" Style="{StaticResource SettingsTextBoxStyle}"/>
                             <TextBlock Text="Browser-Passwort" Style="{StaticResource SettingsLabelStyle}"/><TextBox Text="{Binding SelectedWikiSource.BrowserPassword, UpdateSourceTrigger=LostFocus}" Style="{StaticResource SettingsTextBoxStyle}"/>
-                            <CheckBox Content="Automatisch anmelden" IsChecked="{Binding SelectedWikiSource.BrowserAutoSubmit}"/>
                         </StackPanel>
                         <TextBlock Text="Test-Suchbegriff" Style="{StaticResource SettingsLabelStyle}" Margin="0,5,0,3"/>
                         <TextBox Text="{Binding WikiTestSearchTerm, UpdateSourceTrigger=PropertyChanged}" Style="{StaticResource SettingsTextBoxStyle}"/>

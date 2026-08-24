@@ -168,6 +168,7 @@ public class SettingsService
             source.BrowserLoginMode = NormalizeChoice(source.BrowserLoginMode, new[] { "BrowserSession", "WindowsIntegrated", "UsernamePassword", "None" }, "BrowserSession");
             source.BrowserUsername = source.BrowserUsername?.Trim() ?? string.Empty;
             source.BrowserPasswordEncrypted ??= string.Empty;
+            if (source.BrowserLoginMode == "UsernamePassword") source.BrowserAutoSubmit = true;
             source.MaxResults = Math.Clamp(source.MaxResults, 1, 20);
             source.HttpMethod = string.Equals(source.HttpMethod, "POST", StringComparison.OrdinalIgnoreCase) ? "POST" : "GET";
             source.SearchUrlTemplate = source.SearchUrlTemplate?.Trim() ?? string.Empty;

@@ -8,7 +8,7 @@ public sealed class WikiSourceEditorViewModel : ObservableObject
     private string _id = Guid.NewGuid().ToString(), _name = "Neue Wiki-Quelle", _providerType = "ConfluenceDataCenter", _baseUrl = string.Empty;
     private string _authMode = "BearerToken", _username = string.Empty, _secret = string.Empty, _spaceKey = string.Empty;
     private bool _enabled = true; private int _maxResults = 5;
-    private bool _searchAllSpaces = true, _browserAutoSubmit, _isDefault;
+    private bool _searchAllSpaces = true, _browserAutoSubmit = true, _isDefault;
     private string _spaceKeysText = string.Empty, _browserHomeUrl = string.Empty, _browserLoginMode = "BrowserSession", _browserUsername = string.Empty, _browserPassword = string.Empty;
     public string Id { get => _id; set => Set(ref _id, value); }
     public string Name { get => _name; set => Set(ref _name, value); }

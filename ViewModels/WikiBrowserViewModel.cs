@@ -1,5 +1,4 @@
 using System.Collections.ObjectModel;
-using TaskTool.Infrastructure;
 using TaskTool.Models;
 using TaskTool.Services;
 
@@ -14,18 +13,9 @@ public sealed class WikiBrowserViewModel : ObservableObject
     public WikiSourceSettings? SelectedSource { get => _selectedSource; set { if (Set(ref _selectedSource, value) && value != null) NavigationUrl = GetHomeUrl(value); } }
     private string _navigationUrl = string.Empty;
     public string NavigationUrl { get => _navigationUrl; private set => Set(ref _navigationUrl, value); }
-    public RelayCommand HomeCommand { get; }
-    public RelayCommand BackCommand { get; }
-    public RelayCommand ForwardCommand { get; }
-    public RelayCommand ReloadCommand { get; }
-    public event Action? BackRequested;
-    public event Action? ForwardRequested;
-    public event Action? ReloadRequested;
-
     public WikiBrowserViewModel(SettingsService settings)
     {
-        _settings = settings; HomeCommand = new RelayCommand(() => { if (SelectedSource != null) NavigationUrl = GetHomeUrl(SelectedSource); });
-        BackCommand = new RelayCommand(() => BackRequested?.Invoke()); ForwardCommand = new RelayCommand(() => ForwardRequested?.Invoke()); ReloadCommand = new RelayCommand(() => ReloadRequested?.Invoke());
+        _settings = settings;
         RefreshSources();
     }
 
