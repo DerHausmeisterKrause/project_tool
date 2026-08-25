@@ -1,5 +1,6 @@
 param(
-    [switch]$NoPause
+    [switch]$NoPause,
+    [string]$Version = $env:PLENARO_VERSION
 )
 
 $ErrorActionPreference = "Stop"
@@ -47,6 +48,11 @@ try {
     }
 
     $publishDirectory = Join-Path $PSScriptRoot "artifacts\publish\win-x64"
+    if ([string]::IsNullOrWhiteSpace($Version)) {
+        $tag = (& git describe --tags --exact-match 2>$null)
+        if ($tag -match '^[vV](\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)$') { $Version = $Matches[1] }
+        else { $Version = "2.1.0-dev" }
+    }
 
     Write-Step "Ausgabeordner vorbereiten"
     if (Test-Path -LiteralPath $publishDirectory) {
@@ -73,6 +79,8 @@ try {
         "-p:PublishTrimmed=false",
         "-p:IncludeNativeLibrariesForSelfExtract=true",
         "-p:EnableCompileTimeAppIcon=true",
+        "-p:Version=$Version",
+        "-p:InformationalVersion=$Version",
         "-o", $publishDirectory
     )
 
