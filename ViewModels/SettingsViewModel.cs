@@ -52,9 +52,9 @@ public class SettingsViewModel : ObservableObject
     private readonly SemaphoreSlim _updateCheckGate = new(1, 1);
     public string Title => "Einstellungen";
     public string InstalledVersion => ServiceLocator.AppVersion.InstalledVersionText;
-    public string UpdateChannel { get => _settings.Current.UpdateChannel; set { var normalized = value == "Pre-Release / Tester" || value == "PreRelease" ? "PreRelease" : "Stable"; if (_settings.Current.UpdateChannel == normalized) return; _settings.Current.UpdateChannel = normalized; Save(); Raise(); Raise(nameof(IsPreReleaseChannel)); _ = CheckForUpdatesAsync(false); } }
-    public bool IsPreReleaseChannel => UpdateChannel == "PreRelease";
-    public IReadOnlyList<WikiChoice> UpdateChannels { get; } = new[] { new WikiChoice("Stable", "Stable"), new WikiChoice("PreRelease", "Pre-Release / Tester") };
+    public string UpdateChannel { get => _settings.Current.UpdateChannel; set { var normalized = value is "Test" or "Testversionen" or "PreRelease" or "Pre-Release / Tester" ? "Test" : "Stable"; if (_settings.Current.UpdateChannel == normalized) return; _settings.Current.UpdateChannel = normalized; Save(); Raise(); Raise(nameof(IsTestChannel)); _ = CheckForUpdatesAsync(false); } }
+    public bool IsTestChannel => UpdateChannel is "Test" or "PreRelease";
+    public IReadOnlyList<WikiChoice> UpdateChannels { get; } = new[] { new WikiChoice("Stable", "Stable"), new WikiChoice("Test", "Testversionen") };
     public bool CheckForUpdatesOnStartup { get => _settings.Current.CheckForUpdatesOnStartup; set { _settings.Current.CheckForUpdatesOnStartup = value; Save(); } }
     public bool AutoInstallUpdatesOnStartup { get => _settings.Current.AutoInstallUpdatesOnStartup; set { _settings.Current.AutoInstallUpdatesOnStartup = value; Save(); } }
     public string LogLevel { get => _settings.Current.LogLevel; set { _settings.Current.LogLevel = value; Save(); } }

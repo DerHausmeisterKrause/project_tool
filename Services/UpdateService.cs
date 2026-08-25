@@ -44,22 +44,31 @@ public sealed class UpdateService : IDisposable
             response.EnsureSuccessStatusCode();
             await using var stream = await response.Content.ReadAsStreamAsync(linked.Token);
             using var doc = await JsonDocument.ParseAsync(stream, cancellationToken: linked.Token);
-            var channel = string.Equals(_settings.Current.UpdateChannel, "PreRelease", StringComparison.Ordinal) ? "PreRelease" : "Stable";
+            var channel = string.Equals(_settings.Current.UpdateChannel, "Test", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(_settings.Current.UpdateChannel, "PreRelease", StringComparison.OrdinalIgnoreCase)
+                ? "Test"
+                : "Stable";
             var candidates = new List<UpdateInfo>();
             foreach (var root in doc.RootElement.EnumerateArray())
             {
-                var draft = root.TryGetProperty("draft", out var d) && d.GetBoolean(); var prerelease = root.TryGetProperty("prerelease", out var pre) && pre.GetBoolean();
-                if (draft || (channel == "Stable" && prerelease) || !SemanticVersion.TryParse(Read(root, "tag_name"), out var remote)) continue;
+                var draft = root.TryGetProperty("draft", out var d) && d.GetBoolean();
+                if (draft) continue;
+                if (!SemanticVersion.TryParse(Read(root, "tag_name"), out var candidateVersion))
+                {
+                    _logger.Warning("[UpdateCheck] releaseSkipped=invalidSemanticVersion");
+                    continue;
+                }
+                if (channel == "Stable" && candidateVersion.IsPrerelease) continue;
                 var assetElement = root.GetProperty("assets").EnumerateArray().FirstOrDefault(a => string.Equals(Read(a, "name"), AssetName, StringComparison.OrdinalIgnoreCase)); if (assetElement.ValueKind == JsonValueKind.Undefined) continue;
                 var asset = new GitHubReleaseAsset(Read(assetElement, "name"), Read(assetElement, "browser_download_url"), assetElement.GetProperty("size").GetInt64(), Read(assetElement, "digest"));
-                candidates.Add(new(remote, Read(root, "tag_name"), Read(root, "name"), Read(root, "body"), Read(root, "html_url"), root.TryGetProperty("published_at", out var p) && p.TryGetDateTimeOffset(out var published) ? published : null, prerelease, asset));
+                candidates.Add(new(candidateVersion, Read(root, "tag_name"), Read(root, "name"), Read(root, "body"), Read(root, "html_url"), root.TryGetProperty("published_at", out var p) && p.TryGetDateTimeOffset(out var published) ? published : null, candidateVersion.IsPrerelease, asset));
             }
             var info = candidates.OrderByDescending(x => x.Version).FirstOrDefault();
             if (info == null) return new(false, null, channel == "Stable" ? "Keine neuere Stable-Version verfügbar." : "Kein Update verfügbar.");
-            var remote = info.Version;
-            var available = remote > installedVersion;
-            _logger.Info($"[UpdateCheck] installedVersion={installedVersion} channel={channel} remoteVersion={remote} remotePrerelease={info.IsPrerelease.ToString().ToLowerInvariant()} updateAvailable={available.ToString().ToLowerInvariant()}");
-            return new UpdateCheckResult(available, available ? info : null, available ? $"Plenaro {remote} ist verfügbar." : channel == "Stable" ? "Keine neuere Stable-Version verfügbar." : "Kein Update verfügbar.");
+            var selectedVersion = info.Version;
+            var available = selectedVersion > installedVersion;
+            _logger.Info($"[UpdateCheck] installedVersion={installedVersion} channel={channel} candidateCount={candidates.Count} selectedVersion={selectedVersion} selectedIsPrerelease={selectedVersion.IsPrerelease.ToString().ToLowerInvariant()} updateAvailable={available.ToString().ToLowerInvariant()}");
+            return new UpdateCheckResult(available, available ? info : null, available ? $"Plenaro {selectedVersion} ist verfügbar." : channel == "Stable" ? "Keine neuere Stable-Version verfügbar." : "Kein Update verfügbar.");
         }
         catch (Exception ex) { _logger.Error($"[UpdateCheck] failed={ex.Message}"); throw; }
         finally { _gate.Release(); }

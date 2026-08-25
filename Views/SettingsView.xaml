@@ -155,7 +155,7 @@
                             <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding AvailableVersion}" VerticalAlignment="Center" Margin="0,0,0,8"/>
                             <TextBlock Grid.Row="3" Text="Update-Kanal" Style="{StaticResource SettingsLabelStyle}"/><ComboBox Grid.Row="3" Grid.Column="1" ItemsSource="{Binding UpdateChannels}" DisplayMemberPath="DisplayName" SelectedValuePath="Value" SelectedValue="{Binding UpdateChannel}" Style="{StaticResource SettingsComboStyle}"/>
                         </Grid>
-                        <TextBlock Text="Stable erhält nur freigegebene Versionen. Pre-Release erhält zusätzlich Test-/Beta-Versionen." Style="{StaticResource SettingsHelpStyle}"/><TextBlock Text="Testversionen können Fehler enthalten." Foreground="#FBBF24" Visibility="{Binding IsPreReleaseChannel, Converter={StaticResource BooleanToVisibilityConverter}}" Margin="0,0,0,8"/>
+                        <TextBlock Text="Stable erhält nur Versionen ohne Test-Suffix. Testversionen erhält zusätzlich Alpha-, Beta- und RC-Versionen." Style="{StaticResource SettingsHelpStyle}"/><TextBlock Text="Testversionen können noch Fehler enthalten." Foreground="#FBBF24" Visibility="{Binding IsTestChannel, Converter={StaticResource BooleanToVisibilityConverter}}" Margin="0,0,0,8"/>
                         <CheckBox Content="Beim Start automatisch nach Updates suchen" IsChecked="{Binding CheckForUpdatesOnStartup}" Margin="0,0,0,8"/>
                         <CheckBox Content="Verfügbare Updates beim Start automatisch installieren" IsChecked="{Binding AutoInstallUpdatesOnStartup}" Margin="0,0,0,8"/>
                         <ProgressBar Minimum="0" Maximum="100" Value="{Binding UpdateProgress}" Height="8" Margin="0,0,0,6"/>

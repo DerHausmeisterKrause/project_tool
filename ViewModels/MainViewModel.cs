@@ -120,5 +120,24 @@ public class MainViewModel : ObservableObject
             if (ReferenceEquals(SelectedView, WikiBrowserViewModel)) SelectedView = TodayViewModel;
         }
     }
-    private void RefreshDynamicNavigation(){RefreshWikiNavigation();var selectedShortcut=SelectedView as WebShortcutViewModel;foreach(var view in _webShortcutViews)NavigationItems.Remove(view);_webShortcutViews.Clear();foreach(var shortcut in ServiceLocator.Settings.Current.WebShortcuts.Where(x=>x.Enabled)){var view=new WebShortcutViewModel(shortcut);_webShortcutViews.Add(view);NavigationItems.Insert(NavigationItems.IndexOf(SettingsViewModel),view);}if(selectedShortcut!=null){var replacement=_webShortcutViews.FirstOrDefault(x=>x.ShortcutId==selectedShortcut.ShortcutId);SelectedView=replacement??TodayViewModel;}}
+    private void RefreshDynamicNavigation()
+    {
+        RefreshWikiNavigation();
+        var selectedShortcut = SelectedView as WebShortcutViewModel;
+        foreach (var view in _webShortcutViews) NavigationItems.Remove(view);
+        _webShortcutViews.Clear();
+        foreach (var shortcut in ServiceLocator.Settings.Current.WebShortcuts.Where(x => x.Enabled))
+        {
+            var view = new WebShortcutViewModel(shortcut);
+            _webShortcutViews.Add(view);
+            NavigationItems.Insert(NavigationItems.IndexOf(SettingsViewModel), view);
+        }
+        if (selectedShortcut != null)
+        {
+            var replacement = _webShortcutViews.FirstOrDefault(x => x.ShortcutId == selectedShortcut.ShortcutId);
+            SelectedView = replacement is not null
+                ? replacement
+                : TodayViewModel;
+        }
+    }
 }

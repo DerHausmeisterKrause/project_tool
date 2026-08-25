@@ -109,7 +109,10 @@ public class SettingsService
         settings.CurrentTasksSortField = string.Equals(settings.CurrentTasksSortField, "Created", StringComparison.OrdinalIgnoreCase)
             ? "Created"
             : "Updated";
-        settings.UpdateChannel = string.Equals(settings.UpdateChannel, "PreRelease", StringComparison.OrdinalIgnoreCase) ? "PreRelease" : "Stable";
+        settings.UpdateChannel = string.Equals(settings.UpdateChannel, "Test", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(settings.UpdateChannel, "PreRelease", StringComparison.OrdinalIgnoreCase)
+            ? "Test"
+            : "Stable";
         settings.WebShortcuts ??= new(); settings.WebShortcuts = settings.WebShortcuts.OfType<WebShortcutSettings>().ToList();
         foreach (var shortcut in settings.WebShortcuts) { shortcut.Id = string.IsNullOrWhiteSpace(shortcut.Id) ? Guid.NewGuid().ToString() : shortcut.Id.Trim(); shortcut.Name = shortcut.Name?.Trim() ?? string.Empty; shortcut.Url = shortcut.Url?.Trim() ?? string.Empty; shortcut.Username = shortcut.Username?.Trim() ?? string.Empty; shortcut.PasswordEncrypted ??= string.Empty; }
         if (settings.DefaultSegmentDurationMinutes is < 15 or > 240)

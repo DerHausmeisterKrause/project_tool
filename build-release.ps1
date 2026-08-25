@@ -53,6 +53,9 @@ try {
         if ($tag -match '^[vV](\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)$') { $Version = $Matches[1] }
         else { $Version = "2.1.0-dev" }
     }
+    elseif ($Version -match '^[vV](.+)$') {
+        $Version = $Matches[1]
+    }
 
     Write-Step "Ausgabeordner vorbereiten"
     if (Test-Path -LiteralPath $publishDirectory) {
