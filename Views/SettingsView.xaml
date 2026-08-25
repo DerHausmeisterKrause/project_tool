@@ -145,15 +145,24 @@
                     <StackPanel>
                         <TextBlock Text="Updates" Style="{StaticResource SettingsCardTitleStyle}"/>
                         <Grid Margin="0,0,0,8">
-                            <Grid.ColumnDefinitions><ColumnDefinition Width="240"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-                            <Grid.RowDefinitions><RowDefinition/><RowDefinition/><RowDefinition/></Grid.RowDefinitions>
-                            <TextBlock Grid.Row="0" Text="Installierte Version" Style="{StaticResource SettingsLabelStyle}"/>
-                            <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding InstalledVersion, Mode=OneWay}" VerticalAlignment="Center" Margin="0,0,0,8"/>
-                            <TextBlock Grid.Row="1" Text="Letzte Prüfung" Style="{StaticResource SettingsLabelStyle}"/>
-                            <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding LastUpdateCheck}" VerticalAlignment="Center" Margin="0,0,0,8"/>
-                            <TextBlock Grid.Row="2" Text="Verfügbare Version" Style="{StaticResource SettingsLabelStyle}"/>
-                            <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding AvailableVersion}" VerticalAlignment="Center" Margin="0,0,0,8"/>
-                            <TextBlock Grid.Row="3" Text="Update-Kanal" Style="{StaticResource SettingsLabelStyle}"/><ComboBox Grid.Row="3" Grid.Column="1" ItemsSource="{Binding UpdateChannels}" DisplayMemberPath="DisplayName" SelectedValuePath="Value" SelectedValue="{Binding UpdateChannel}" Style="{StaticResource SettingsComboStyle}"/>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" MinWidth="150" MaxWidth="220"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                            </Grid.RowDefinitions>
+                            <TextBlock Grid.Row="0" Text="Installierte Version" TextWrapping="Wrap" Style="{StaticResource SettingsLabelStyle}"/>
+                            <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding InstalledVersion, Mode=OneWay}" TextWrapping="Wrap" VerticalAlignment="Center" Margin="0,0,0,8"/>
+                            <TextBlock Grid.Row="1" Text="Letzte Prüfung" TextWrapping="Wrap" Style="{StaticResource SettingsLabelStyle}"/>
+                            <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding LastUpdateCheck}" TextWrapping="Wrap" VerticalAlignment="Center" Margin="0,0,0,8"/>
+                            <TextBlock Grid.Row="2" Text="Verfügbare Version" TextWrapping="Wrap" Style="{StaticResource SettingsLabelStyle}"/>
+                            <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding AvailableVersion}" TextWrapping="Wrap" VerticalAlignment="Center" Margin="0,0,0,8"/>
+                            <TextBlock Grid.Row="3" Text="Update-Kanal" TextWrapping="Wrap" Style="{StaticResource SettingsLabelStyle}"/>
+                            <ComboBox Grid.Row="3" Grid.Column="1" MinWidth="160" ItemsSource="{Binding UpdateChannels}" DisplayMemberPath="DisplayName" SelectedValuePath="Value" SelectedValue="{Binding UpdateChannel}" Style="{StaticResource SettingsComboStyle}"/>
                         </Grid>
                         <TextBlock Text="Stable erhält nur Versionen ohne Test-Suffix. Testversionen erhält zusätzlich Alpha-, Beta- und RC-Versionen." Style="{StaticResource SettingsHelpStyle}"/><TextBlock Text="Testversionen können noch Fehler enthalten." Foreground="#FBBF24" Visibility="{Binding IsTestChannel, Converter={StaticResource BooleanToVisibilityConverter}}" Margin="0,0,0,8"/>
                         <CheckBox Content="Beim Start automatisch nach Updates suchen" IsChecked="{Binding CheckForUpdatesOnStartup}" Margin="0,0,0,8"/>
