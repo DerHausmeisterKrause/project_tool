@@ -18,3 +18,7 @@ public sealed class WikiSearchResult
 
 public sealed record WikiProviderResult(string ExternalId, string Title, string Url, string Excerpt, int ProviderRank, DateTime? LastModifiedUtc = null);
 public sealed record WikiSearchSummary(int UpdatedSources, int FailedSources);
+public sealed record WikiSearchTerm(string Text, string NormalizedText, double Score, string Origin, bool IsPhrase, bool WikiVocabularyMatch = false, double WikiTitleSimilarity = 0, double IdfScore = 0);
+public sealed record WikiVocabularyPage(string ExternalId, string Title, string Url, string SpaceKey, DateTime? LastModifiedUtc = null);
+public sealed record WikiVocabularyPageBatch(IReadOnlyList<WikiVocabularyPage> Pages, bool HasMore);
+public sealed record WikiVocabularyStatus(int PageCount, DateTime? UpdatedUtc, string Status);

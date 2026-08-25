@@ -14,9 +14,9 @@ public sealed class WikiSearchService
     private readonly Dictionary<string, IWikiProvider> _providers;
     private readonly SemaphoreSlim _parallelism = new(3);
 
-    public WikiSearchService(DatabaseService database, SettingsService settings, LoggerService logger, IEnumerable<IWikiProvider>? providers = null, WikiKeywordExtractor? extractor = null)
+    public WikiSearchService(DatabaseService database, SettingsService settings, LoggerService logger, IEnumerable<IWikiProvider>? providers = null, WikiKeywordExtractor? extractor = null, WikiVocabularyIndexService? vocabulary = null)
     {
-        _database = database; _settings = settings; _logger = logger; _extractor = extractor ?? new WikiKeywordExtractor();
+        _database = database; _settings = settings; _logger = logger; _extractor = extractor ?? new WikiKeywordExtractor(vocabulary, logger);
         providers ??= new IWikiProvider[] { new ConfluenceDataCenterWikiProvider(settings), new ConfluenceCloudWikiProvider(settings), new GenericRestWikiProvider(settings), new XWikiProvider(settings) };
         _providers = providers.ToDictionary(x => x.ProviderType, StringComparer.OrdinalIgnoreCase);
     }
@@ -33,7 +33,6 @@ public sealed class WikiSearchService
     public async Task<WikiSearchSummary> SearchAsync(TaskItem task, string ticketTitle, string firstMessage, bool force, CancellationToken token = default)
     {
         if (!task.IsZnunyTask || !task.IsZnunyAssigned) return new(0, 0);
-        var terms = _extractor.Extract(ticketTitle, firstMessage); if (terms.Count == 0) return new(0, 0);
         var sources = new List<WikiSourceSettings>();
         foreach (var source in _settings.Current.WikiSources.Where(x => x.Enabled))
         {
@@ -44,7 +43,7 @@ public sealed class WikiSearchService
             }
             if (force || !HasRun(task.Id, source.Id)) sources.Add(source);
         }
-        var outcomes = await Task.WhenAll(sources.Select(source => SearchSourceAsync(task.Id, source, ticketTitle, terms, force, token)));
+        var outcomes = await Task.WhenAll(sources.Select(source => SearchSourceAsync(task.Id, source, ticketTitle, firstMessage, force, token)));
         return new(outcomes.Count(x => x), outcomes.Count(x => !x));
     }
 
@@ -77,15 +76,17 @@ public sealed class WikiSearchService
         using var conn = new SqliteConnection(_database.ConnectionString); conn.Open(); using var cmd = conn.CreateCommand(); cmd.CommandText = "SELECT 1 FROM task_wiki_search_runs WHERE task_id=$t AND source_id=$s LIMIT 1"; cmd.Parameters.AddWithValue("$t", taskId.ToString()); cmd.Parameters.AddWithValue("$s", sourceId); return cmd.ExecuteScalar() != null;
     }
 
-    private async Task<bool> SearchSourceAsync(Guid taskId, WikiSourceSettings source, string title, IReadOnlyList<string> terms, bool force, CancellationToken token)
+    private async Task<bool> SearchSourceAsync(Guid taskId, WikiSourceSettings source, string title, string firstMessage, bool force, CancellationToken token)
     {
         await _parallelism.WaitAsync(token); var watch = Stopwatch.StartNew();
+        var weightedTerms = _extractor.ExtractForSource(source, title, firstMessage); var terms = weightedTerms.Select(x => x.Text).ToList();
         try
         {
+            if (terms.Count == 0) throw new InvalidOperationException("Keine geeigneten Suchbegriffe erkannt.");
             if (!WikiSourceValidation.TryValidate(source, out var configurationError)) throw new InvalidOperationException(configurationError);
             if (!_providers.TryGetValue(source.ProviderType, out var provider)) throw new InvalidOperationException("Wiki-Quelle besitzt keinen gültigen Provider.");
-            var raw = await provider.SearchAsync(source, terms, Math.Min(60, Math.Max(source.MaxResults * 3, 15)), token);
-            var ranked = raw.GroupBy(x => x.Url, StringComparer.OrdinalIgnoreCase).Select(x => x.First()).Select(x => Rank(x, terms, title)).OrderByDescending(x => x.RelevanceScore).ThenBy(x => x.ProviderRank).Take(source.MaxResults).ToList();
+            var raw = await provider.SearchAsync(source, terms, Math.Min(40, Math.Max(source.MaxResults * 4, 20)), token);
+            var ranked = raw.GroupBy(x => x.Url, StringComparer.OrdinalIgnoreCase).Select(x => x.First()).Select(x => Rank(x, weightedTerms, title)).OrderByDescending(x => x.RelevanceScore).ThenBy(x => x.ProviderRank).Take(source.MaxResults).ToList();
             StoreSuccess(taskId, source.Id, terms, ranked);
             _logger.Info($"[WikiSearch] taskId={taskId} sourceId={source.Id} provider={source.ProviderType} termCount={terms.Count} resultCount={raw.Count} storedCount={ranked.Count} durationMs={watch.ElapsedMilliseconds} status=success"); return true;
         }
@@ -98,10 +99,10 @@ public sealed class WikiSearchService
         finally { _parallelism.Release(); }
     }
 
-    private static WikiSearchResult Rank(WikiProviderResult item, IReadOnlyList<string> terms, string ticketTitle)
+    private static WikiSearchResult Rank(WikiProviderResult item, IReadOnlyList<WikiSearchTerm> terms, string ticketTitle)
     {
         var matched = new List<string>(); double score = Math.Max(0, 8 - item.ProviderRank) * .5;
-        foreach (var term in terms) { var inTitle = item.Title.Contains(term, StringComparison.OrdinalIgnoreCase); var inExcerpt = item.Excerpt.Contains(term, StringComparison.OrdinalIgnoreCase); if (inTitle || inExcerpt) matched.Add(term); if (inTitle) score += ticketTitle.Contains(term, StringComparison.OrdinalIgnoreCase) ? 30 : 22; else if (inExcerpt) score += 7; }
+        foreach (var term in terms) { var inTitle = item.Title.Contains(term.Text, StringComparison.OrdinalIgnoreCase); var inExcerpt = item.Excerpt.Contains(term.Text, StringComparison.OrdinalIgnoreCase); if (inTitle || inExcerpt) matched.Add(term.Text); if (inTitle) score += 20 + term.Score * .35 + (ticketTitle.Contains(term.Text, StringComparison.OrdinalIgnoreCase) ? 15 : 0); else if (inExcerpt) score += 3 + term.Score * .08; }
         if (matched.Count > 1) score += (matched.Count - 1) * 8;
         return new WikiSearchResult { ExternalId = item.ExternalId, Title = item.Title, Url = item.Url, Excerpt = item.Excerpt, ProviderRank = item.ProviderRank, LastModifiedUtc = item.LastModifiedUtc, MatchedTerms = string.Join(" · ", matched), RelevanceScore = Math.Clamp(score, 0, 100), SearchedAtUtc = DateTime.UtcNow };
     }

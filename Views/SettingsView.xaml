@@ -381,6 +381,7 @@
                         <TextBox Text="{Binding WikiTestSearchTerm, UpdateSourceTrigger=PropertyChanged}" Style="{StaticResource SettingsTextBoxStyle}"/>
                         <WrapPanel><Button Content="Speichern" Command="{Binding SaveWikiSourceCommand}"/><Button Content="Änderungen verwerfen" Style="{StaticResource SecondaryButtonStyle}" Command="{Binding DiscardWikiSourceCommand}"/><Button Content="Verbindung testen" Style="{StaticResource SecondaryButtonStyle}" Command="{Binding TestWikiConnectionCommand}"/><Button Content="Testsuche" Style="{StaticResource SecondaryButtonStyle}" Command="{Binding TestWikiSearchCommand}"/></WrapPanel>
                         <TextBlock Text="{Binding WikiSettingsStatus}" Foreground="#FBBF24" TextWrapping="Wrap" Margin="0,8,0,0"/>
+                        <TextBlock Text="Wiki-Suchindex" FontWeight="SemiBold" Margin="0,10,0,3"/><TextBlock Text="{Binding WikiIndexStatus}" Foreground="{StaticResource MutedTextBrush}"/><Button Content="Index aktualisieren" HorizontalAlignment="Left" Margin="0,8,0,0" Command="{Binding RefreshWikiIndexCommand}"/>
                     </StackPanel>
                 </Border>
 

@@ -25,7 +25,7 @@ public class SettingsViewModel : ObservableObject
     private readonly DispatcherTimer _hourlyUpdateTimer;
     public ObservableCollection<WikiSourceEditorViewModel> WikiSources { get; }
     private WikiSourceEditorViewModel? _selectedWikiSource;
-    public WikiSourceEditorViewModel? SelectedWikiSource { get => _selectedWikiSource; set => Set(ref _selectedWikiSource, value); }
+    public WikiSourceEditorViewModel? SelectedWikiSource { get => _selectedWikiSource; set { if (Set(ref _selectedWikiSource, value)) Raise(nameof(WikiIndexStatus)); } }
     private const string WikiSecretMask = "••••••••";
     public List<WikiChoice> WikiProviderTypes { get; } = new() { new("ConfluenceDataCenter", "Confluence Data Center"), new("ConfluenceCloud", "Confluence Cloud"), new("GenericRest", "Generic REST"), new("XWiki", "XWiki") };
     public List<WikiChoice> WikiAuthModes { get; } = new() { new("BearerToken", "Bearer Token"), new("UsernameToken", "Username + Token / Passwort"), new("Basic", "Basic Auth"), new("ApiKey", "API-Key Header"), new("WindowsIntegrated", "Windows Integrated") };
@@ -42,6 +42,8 @@ public class SettingsViewModel : ObservableObject
     public RelayCommand DiscardWikiSourceCommand { get; }
     public RelayCommand TestWikiConnectionCommand { get; }
     public RelayCommand TestWikiSearchCommand { get; }
+    public RelayCommand RefreshWikiIndexCommand { get; }
+    public string WikiIndexStatus => SelectedWikiSource == null ? "Kein Wiki ausgewählt." : FormatWikiIndexStatus(SelectedWikiSource.ToModel());
     private readonly SemaphoreSlim _updateCheckGate = new(1, 1);
     public string Title => "Einstellungen";
     public string InstalledVersion => _settings.Current.InstalledVersion;
@@ -211,6 +213,7 @@ public class SettingsViewModel : ObservableObject
         DiscardWikiSourceCommand = new RelayCommand(DiscardWikiSource);
         TestWikiConnectionCommand = new RelayCommand(async () => await TestWikiAsync(false), () => !_isWikiTestRunning);
         TestWikiSearchCommand = new RelayCommand(async () => await TestWikiAsync(true), () => !_isWikiTestRunning);
+        RefreshWikiIndexCommand = new RelayCommand(async () => await RefreshWikiIndexAsync());
     }
 
     public void StartHourlyUpdateMonitor()
@@ -438,10 +441,12 @@ public class SettingsViewModel : ObservableObject
         if (searchConfigurationChanged) ServiceLocator.WikiSearch.InvalidateSource(source.Id);
         else if (apiAccessChanged) ServiceLocator.WikiSearch.ResetFailedRunsForSource(source.Id);
         NotifySettingsConsumers(); WikiSettingsStatus = $"Wiki '{source.Name}' wurde gespeichert.";
+        if (searchConfigurationChanged || previousSource == null) { ServiceLocator.WikiVocabulary.Invalidate(source.Id); _ = ServiceLocator.WikiVocabulary.RefreshAsync(source); }
+        Raise(nameof(WikiIndexStatus));
     }
 
     private static string WikiSearchConfigurationFingerprint(WikiSourceSettings source)
-        => string.Join("|", source.ProviderType, source.BaseUrl.TrimEnd('/'), source.SearchAllSpaces, string.Join(",", source.SpaceKeys.OrderBy(x => x, StringComparer.OrdinalIgnoreCase)), source.HttpMethod, source.SearchUrlTemplate);
+        => string.Join("|", WikiScopePolicy.Fingerprint(source), source.HttpMethod, source.SearchUrlTemplate);
 
     private bool TryCreateWikiSourceFromEditor(out WikiSourceSettings source, out string error)
     {
@@ -468,6 +473,17 @@ public class SettingsViewModel : ObservableObject
         }
         catch (Exception ex) { WikiSettingsStatus = DescribeWikiTestError(ex); }
         finally { _isWikiTestRunning = false; TestWikiConnectionCommand.RaiseCanExecuteChanged(); TestWikiSearchCommand.RaiseCanExecuteChanged(); }
+    }
+
+    private async Task RefreshWikiIndexAsync()
+    {
+        if (!TryCreateWikiSourceFromEditor(out var source, out var error)) { WikiSettingsStatus = error; return; }
+        WikiSettingsStatus = "Wiki-Suchindex wird aktualisiert …"; await ServiceLocator.WikiVocabulary.RefreshAsync(source); Raise(nameof(WikiIndexStatus));
+        var status = ServiceLocator.WikiVocabulary.GetStatus(source); WikiSettingsStatus = status.Status == "success" ? $"Wiki-Suchindex aktualisiert: {status.PageCount:N0} Seiten." : "Wiki-Suchindex konnte nicht aktualisiert werden.";
+    }
+    private static string FormatWikiIndexStatus(WikiSourceSettings source)
+    {
+        var status = ServiceLocator.WikiVocabulary.GetStatus(source); return $"{status.PageCount:N0} Seiten · Zuletzt aktualisiert: {(status.UpdatedUtc?.ToLocalTime().ToString("dd.MM.yyyy HH:mm") ?? "noch nie")}";
     }
 
     private static string DescribeWikiTestError(Exception exception)

@@ -14,6 +14,10 @@ public interface IWikiProvider
     string ProviderType { get; }
     Task<IReadOnlyList<WikiProviderResult>> SearchAsync(WikiSourceSettings source, IReadOnlyList<string> terms, int limit, CancellationToken cancellationToken);
 }
+public interface IWikiVocabularyProvider
+{
+    Task<WikiVocabularyPageBatch> GetVocabularyPageAsync(WikiSourceSettings source, int offset, int limit, CancellationToken cancellationToken);
+}
 
 public abstract class HttpWikiProvider(SettingsService settings) : IWikiProvider
 {
@@ -42,17 +46,14 @@ public abstract class HttpWikiProvider(SettingsService settings) : IWikiProvider
     public abstract Task<IReadOnlyList<WikiProviderResult>> SearchAsync(WikiSourceSettings source, IReadOnlyList<string> terms, int limit, CancellationToken cancellationToken);
 }
 
-public class ConfluenceDataCenterWikiProvider(SettingsService settings) : HttpWikiProvider(settings)
+public class ConfluenceDataCenterWikiProvider(SettingsService settings) : HttpWikiProvider(settings), IWikiVocabularyProvider
 {
     public override string ProviderType => "ConfluenceDataCenter";
     protected virtual string ApiPath => "/rest/api/search";
     public override async Task<IReadOnlyList<WikiProviderResult>> SearchAsync(WikiSourceSettings source, IReadOnlyList<string> terms, int limit, CancellationToken token)
     {
         var cqlTerms = string.Join(" OR ", terms.Select(t => $"siteSearch~'{EscapeCql(t)}'"));
-        var spaces = source.SearchAllSpaces ? Array.Empty<string>() : source.SpaceKeys.Where(x => !string.IsNullOrWhiteSpace(x)).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
-        if (!source.SearchAllSpaces && spaces.Length == 0) throw new InvalidOperationException("Für die eingeschränkte Suche wurden keine Space Keys konfiguriert.");
-        var spaceClause = spaces.Length == 0 ? string.Empty : " AND (" + string.Join(" OR ", spaces.Select(x => $"space='{EscapeCql(x)}'")) + ")";
-        var cql = $"type=page{spaceClause} AND ({cqlTerms})";
+        var cql = $"type=page{WikiScopePolicy.BuildConfluenceClause(source)} AND ({cqlTerms})";
         var endpoint = source.BaseUrl.TrimEnd('/') + ApiPath + "?cql=" + Uri.EscapeDataString(cql) + "&limit=" + limit;
         using var client = CreateClient(source);
         using var response = await client.GetAsync(endpoint, token);
@@ -73,6 +74,26 @@ public class ConfluenceDataCenterWikiProvider(SettingsService settings) : HttpWi
         return list;
     }
     public static string EscapeCql(string value) => value.Replace("\\", "\\\\").Replace("'", "\\'").Replace("\r", " ").Replace("\n", " ");
+
+    public async Task<WikiVocabularyPageBatch> GetVocabularyPageAsync(WikiSourceSettings source, int offset, int limit, CancellationToken token)
+    {
+        var cql = "type=page" + WikiScopePolicy.BuildConfluenceClause(source);
+        var endpoint = source.BaseUrl.TrimEnd('/') + ApiPath + "?cql=" + Uri.EscapeDataString(cql) + "&start=" + offset + "&limit=" + limit;
+        using var client = CreateClient(source); using var response = await client.GetAsync(endpoint, token); response.EnsureSuccessStatusCode();
+        using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync(token)); var root = doc.RootElement;
+        var baseUrl = root.TryGetProperty("_links", out var links) && links.TryGetProperty("base", out var b) ? b.GetString() : source.BaseUrl;
+        var pages = new List<WikiVocabularyPage>();
+        foreach (var item in root.GetProperty("results").EnumerateArray())
+        {
+            var content = item.TryGetProperty("content", out var c) ? c : default;
+            var id = content.ValueKind == JsonValueKind.Object && content.TryGetProperty("id", out var ci) ? ci.GetString() ?? "" : "";
+            var title = content.ValueKind == JsonValueKind.Object && content.TryGetProperty("title", out var ct) ? ct.GetString() : item.TryGetProperty("title", out var it) ? it.GetString() : "";
+            var space = content.ValueKind == JsonValueKind.Object && content.TryGetProperty("space", out var sp) && sp.TryGetProperty("key", out var key) ? key.GetString() ?? "" : "";
+            var url = item.TryGetProperty("url", out var u) ? u.GetString() ?? "" : ""; if (!Uri.IsWellFormedUriString(url, UriKind.Absolute)) url = new Uri(new Uri((baseUrl ?? source.BaseUrl).TrimEnd('/') + "/"), url.TrimStart('/')).ToString();
+            pages.Add(new(id, Clean(title), url, space));
+        }
+        return new(pages, pages.Count == limit);
+    }
 }
 
 public sealed class ConfluenceCloudWikiProvider(SettingsService settings) : ConfluenceDataCenterWikiProvider(settings)
