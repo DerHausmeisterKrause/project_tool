@@ -47,7 +47,7 @@
                                    Style="{StaticResource SettingsHelpStyle}" Margin="24,0,0,10"/>
                         <Grid>
                             <Grid.ColumnDefinitions><ColumnDefinition Width="240"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-                            <Grid.RowDefinitions><RowDefinition/><RowDefinition/><RowDefinition/></Grid.RowDefinitions>
+                            <Grid.RowDefinitions><RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/></Grid.RowDefinitions>
                             <TextBlock Grid.Row="0" Text="Log-Level" Style="{StaticResource SettingsLabelStyle}"/>
                             <StackPanel Grid.Row="0" Grid.Column="1" MaxWidth="360" HorizontalAlignment="Stretch">
                                 <ComboBox Style="{StaticResource SettingsComboStyle}" ItemsSource="{Binding LogLevels}" SelectedItem="{Binding LogLevel}"/>
@@ -153,7 +153,9 @@
                             <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding LastUpdateCheck}" VerticalAlignment="Center" Margin="0,0,0,8"/>
                             <TextBlock Grid.Row="2" Text="Verfügbare Version" Style="{StaticResource SettingsLabelStyle}"/>
                             <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding AvailableVersion}" VerticalAlignment="Center" Margin="0,0,0,8"/>
+                            <TextBlock Grid.Row="3" Text="Update-Kanal" Style="{StaticResource SettingsLabelStyle}"/><ComboBox Grid.Row="3" Grid.Column="1" ItemsSource="{Binding UpdateChannels}" DisplayMemberPath="DisplayName" SelectedValuePath="Value" SelectedValue="{Binding UpdateChannel}" Style="{StaticResource SettingsComboStyle}"/>
                         </Grid>
+                        <TextBlock Text="Stable erhält nur freigegebene Versionen. Pre-Release erhält zusätzlich Test-/Beta-Versionen." Style="{StaticResource SettingsHelpStyle}"/><TextBlock Text="Testversionen können Fehler enthalten." Foreground="#FBBF24" Visibility="{Binding IsPreReleaseChannel, Converter={StaticResource BooleanToVisibilityConverter}}" Margin="0,0,0,8"/>
                         <CheckBox Content="Beim Start automatisch nach Updates suchen" IsChecked="{Binding CheckForUpdatesOnStartup}" Margin="0,0,0,8"/>
                         <CheckBox Content="Verfügbare Updates beim Start automatisch installieren" IsChecked="{Binding AutoInstallUpdatesOnStartup}" Margin="0,0,0,8"/>
                         <ProgressBar Minimum="0" Maximum="100" Value="{Binding UpdateProgress}" Height="8" Margin="0,0,0,6"/>
@@ -384,6 +386,15 @@
                         <TextBlock Text="Wiki-Suchindex" FontWeight="SemiBold" Margin="0,10,0,3"/><TextBlock Text="{Binding WikiIndexStatus}" Foreground="{StaticResource MutedTextBrush}"/><Button Content="Index aktualisieren" HorizontalAlignment="Left" Margin="0,8,0,0" Command="{Binding RefreshWikiIndexCommand}"/>
                     </StackPanel>
                 </Border>
+
+                <Border Style="{StaticResource CardStyle}"><StackPanel><TextBlock Text="Webseiten-Shortcuts" Style="{StaticResource SettingsCardTitleStyle}"/><ListBox ItemsSource="{Binding WebShortcuts}" SelectedItem="{Binding SelectedWebShortcut}" DisplayMemberPath="Name" MaxHeight="130"/><Button Content="+ Webseite hinzufügen" HorizontalAlignment="Left" Command="{Binding AddWebShortcutCommand}"/>
+                    <Grid DataContext="{Binding SelectedWebShortcut}"><Grid.ColumnDefinitions><ColumnDefinition Width="240"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions><Grid.RowDefinitions><RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/></Grid.RowDefinitions>
+                        <TextBlock Grid.Row="0" Text="Name" Style="{StaticResource SettingsLabelStyle}"/><TextBox Grid.Row="0" Grid.Column="1" Text="{Binding Name,UpdateSourceTrigger=PropertyChanged}" Style="{StaticResource SettingsTextBoxStyle}"/>
+                        <TextBlock Grid.Row="1" Text="URL" Style="{StaticResource SettingsLabelStyle}"/><TextBox Grid.Row="1" Grid.Column="1" Text="{Binding Url,UpdateSourceTrigger=PropertyChanged}" Style="{StaticResource SettingsLongTextBoxStyle}"/>
+                        <TextBlock Grid.Row="2" Text="Benutzer" Style="{StaticResource SettingsLabelStyle}"/><TextBox Grid.Row="2" Grid.Column="1" Text="{Binding Username,UpdateSourceTrigger=PropertyChanged}" Style="{StaticResource SettingsTextBoxStyle}"/>
+                        <TextBlock Grid.Row="3" Text="Passwort" Style="{StaticResource SettingsLabelStyle}"/><TextBox Grid.Row="3" Grid.Column="1" Text="{Binding Password,UpdateSourceTrigger=LostFocus}" Style="{StaticResource SettingsTextBoxStyle}"/>
+                        <CheckBox Grid.Row="4" Grid.Column="1" Content="Aktiv" IsChecked="{Binding Enabled}"/><CheckBox Grid.Row="5" Grid.Column="1" Content="Auto Login" IsChecked="{Binding AutoLogin}"/>
+                    </Grid><WrapPanel><Button Content="Speichern" Command="{Binding SaveWebShortcutCommand}"/><Button Content="Entfernen" Style="{StaticResource SecondaryButtonStyle}" Command="{Binding RemoveWebShortcutCommand}"/></WrapPanel><TextBlock Text="{Binding WebShortcutStatus}" Foreground="#FBBF24" TextWrapping="Wrap"/></StackPanel></Border>
 
                 <!-- 12. Working hours -->
                 <Border Style="{StaticResource CardStyle}">

@@ -14,6 +14,7 @@ public class MainViewModel : ObservableObject
     private readonly TicketSystemViewModel _ticketSystemViewModel;
     public WikiBrowserViewModel WikiBrowserViewModel { get; }
     private readonly ReportsViewModel _reportsViewModel;
+    private readonly List<WebShortcutViewModel> _webShortcutViews = new();
     private readonly LoggerService _logger;
     public SettingsViewModel SettingsViewModel { get; }
     public RelayCommand NavigateToSettingsCommand { get; }
@@ -102,8 +103,8 @@ public class MainViewModel : ObservableObject
         NavigateToSettingsCommand = new RelayCommand(() => SelectedView = SettingsViewModel);
 
         NavigationItems = new ObservableCollection<object> { TodayViewModel, _weekViewModel, _ticketSystemViewModel, _reportsViewModel, SettingsViewModel };
-        settingsService.SettingsChanged += RefreshWikiNavigation;
-        RefreshWikiNavigation();
+        settingsService.SettingsChanged += RefreshDynamicNavigation;
+        RefreshDynamicNavigation();
         _selectedView = TodayViewModel;
     }
 
@@ -119,4 +120,5 @@ public class MainViewModel : ObservableObject
             if (ReferenceEquals(SelectedView, WikiBrowserViewModel)) SelectedView = TodayViewModel;
         }
     }
+    private void RefreshDynamicNavigation(){RefreshWikiNavigation();var selectedShortcut=SelectedView as WebShortcutViewModel;foreach(var view in _webShortcutViews)NavigationItems.Remove(view);_webShortcutViews.Clear();foreach(var shortcut in ServiceLocator.Settings.Current.WebShortcuts.Where(x=>x.Enabled)){var view=new WebShortcutViewModel(shortcut);_webShortcutViews.Add(view);NavigationItems.Insert(NavigationItems.IndexOf(SettingsViewModel),view);}if(selectedShortcut!=null){var replacement=_webShortcutViews.FirstOrDefault(x=>x.ShortcutId==selectedShortcut.ShortcutId);SelectedView=replacement??TodayViewModel;}}
 }

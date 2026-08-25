@@ -109,6 +109,9 @@ public class SettingsService
         settings.CurrentTasksSortField = string.Equals(settings.CurrentTasksSortField, "Created", StringComparison.OrdinalIgnoreCase)
             ? "Created"
             : "Updated";
+        settings.UpdateChannel = string.Equals(settings.UpdateChannel, "PreRelease", StringComparison.OrdinalIgnoreCase) ? "PreRelease" : "Stable";
+        settings.WebShortcuts ??= new(); settings.WebShortcuts = settings.WebShortcuts.OfType<WebShortcutSettings>().ToList();
+        foreach (var shortcut in settings.WebShortcuts) { shortcut.Id = string.IsNullOrWhiteSpace(shortcut.Id) ? Guid.NewGuid().ToString() : shortcut.Id.Trim(); shortcut.Name = shortcut.Name?.Trim() ?? string.Empty; shortcut.Url = shortcut.Url?.Trim() ?? string.Empty; shortcut.Username = shortcut.Username?.Trim() ?? string.Empty; shortcut.PasswordEncrypted ??= string.Empty; }
         if (settings.DefaultSegmentDurationMinutes is < 15 or > 240)
         {
             settings.DefaultSegmentDurationMinutes = 30;
@@ -270,6 +273,9 @@ public class SettingsService
 
     public void SetWikiBrowserPassword(WikiSourceSettings source, string password)
         => source.BrowserPasswordEncrypted = string.IsNullOrEmpty(password) ? string.Empty : Protect(password);
+
+    public string GetWebShortcutPassword(WebShortcutSettings shortcut) => string.IsNullOrWhiteSpace(shortcut.PasswordEncrypted) ? string.Empty : Unprotect(shortcut.PasswordEncrypted);
+    public void SetWebShortcutPassword(WebShortcutSettings shortcut, string password) => shortcut.PasswordEncrypted = string.IsNullOrEmpty(password) ? string.Empty : Protect(password);
 
     public void Save()
     {

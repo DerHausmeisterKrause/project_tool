@@ -14,6 +14,7 @@ public class AppSettings
     public bool NotificationSoundEnabled { get; set; } = true;
     public bool CheckForUpdatesOnStartup { get; set; } = true;
     public bool AutoInstallUpdatesOnStartup { get; set; } = true;
+    public string UpdateChannel { get; set; } = "Stable";
     public string InstalledVersion { get; set; } = string.Empty;
     public string CurrentTasksSortField { get; set; } = "Updated";
     public bool CurrentTasksSortDescending { get; set; } = true;
@@ -79,6 +80,7 @@ public class AppSettings
     public bool TicketSystemAutoLogin { get; set; } = false;
     public List<WikiSourceSettings> WikiSources { get; set; } = new();
     public string DefaultWikiSourceId { get; set; } = string.Empty;
+    public List<WebShortcutSettings> WebShortcuts { get; set; } = new();
 
     public int MondayTargetMinutes { get; set; } = 480;
     public int TuesdayTargetMinutes { get; set; } = 480;
@@ -99,6 +101,12 @@ public class AppSettings
         DayOfWeek.Sunday => SundayTargetMinutes,
         _ => 0
     };
+}
+
+public sealed class WebShortcutSettings
+{
+    public string Id { get; set; } = Guid.NewGuid().ToString(); public string Name { get; set; } = string.Empty; public string Url { get; set; } = string.Empty;
+    public string Username { get; set; } = string.Empty; public string PasswordEncrypted { get; set; } = string.Empty; public bool Enabled { get; set; } = true; public bool AutoLogin { get; set; }
 }
 
 public sealed class WikiSourceSettings

@@ -23,6 +23,11 @@ public class SettingsViewModel : ObservableObject
     private readonly Action? _tasksChanged;
     private readonly UpdateService _updates;
     private readonly DispatcherTimer _hourlyUpdateTimer;
+    private const string ShortcutPasswordMask = "••••••••";
+    public ObservableCollection<WebShortcutEditorViewModel> WebShortcuts { get; }
+    private WebShortcutEditorViewModel? _selectedWebShortcut; public WebShortcutEditorViewModel? SelectedWebShortcut { get=>_selectedWebShortcut; set=>Set(ref _selectedWebShortcut,value); }
+    private string _webShortcutStatus=""; public string WebShortcutStatus { get=>_webShortcutStatus; set=>Set(ref _webShortcutStatus,value); }
+    public RelayCommand AddWebShortcutCommand { get; } public RelayCommand SaveWebShortcutCommand { get; } public RelayCommand RemoveWebShortcutCommand { get; }
     public ObservableCollection<WikiSourceEditorViewModel> WikiSources { get; }
     private WikiSourceEditorViewModel? _selectedWikiSource;
     public WikiSourceEditorViewModel? SelectedWikiSource { get => _selectedWikiSource; set { if (Set(ref _selectedWikiSource, value)) Raise(nameof(WikiIndexStatus)); } }
@@ -46,7 +51,10 @@ public class SettingsViewModel : ObservableObject
     public string WikiIndexStatus => SelectedWikiSource == null ? "Kein Wiki ausgewählt." : FormatWikiIndexStatus(SelectedWikiSource.ToModel());
     private readonly SemaphoreSlim _updateCheckGate = new(1, 1);
     public string Title => "Einstellungen";
-    public string InstalledVersion => _settings.Current.InstalledVersion;
+    public string InstalledVersion => ServiceLocator.AppVersion.InstalledVersionText;
+    public string UpdateChannel { get => _settings.Current.UpdateChannel; set { var normalized = value == "Pre-Release / Tester" || value == "PreRelease" ? "PreRelease" : "Stable"; if (_settings.Current.UpdateChannel == normalized) return; _settings.Current.UpdateChannel = normalized; Save(); Raise(); Raise(nameof(IsPreReleaseChannel)); _ = CheckForUpdatesAsync(false); } }
+    public bool IsPreReleaseChannel => UpdateChannel == "PreRelease";
+    public IReadOnlyList<WikiChoice> UpdateChannels { get; } = new[] { new WikiChoice("Stable", "Stable"), new WikiChoice("PreRelease", "Pre-Release / Tester") };
     public bool CheckForUpdatesOnStartup { get => _settings.Current.CheckForUpdatesOnStartup; set { _settings.Current.CheckForUpdatesOnStartup = value; Save(); } }
     public bool AutoInstallUpdatesOnStartup { get => _settings.Current.AutoInstallUpdatesOnStartup; set { _settings.Current.AutoInstallUpdatesOnStartup = value; Save(); } }
     public string LogLevel { get => _settings.Current.LogLevel; set { _settings.Current.LogLevel = value; Save(); } }
@@ -194,6 +202,7 @@ public class SettingsViewModel : ObservableObject
         _ticketSystem = ticketSystem;
         _updates = updates;
         _tasksChanged = tasksChanged;
+        WebShortcuts = new(_settings.Current.WebShortcuts.Select(x=>WebShortcutEditorViewModel.From(x,ShortcutPasswordMask))); SelectedWebShortcut=WebShortcuts.FirstOrDefault();
         WikiSources = new ObservableCollection<WikiSourceEditorViewModel>(_settings.Current.WikiSources.Select(x => WikiSourceEditorViewModel.FromModel(x, WikiSecretMask, x.Id == _settings.Current.DefaultWikiSourceId)));
         SelectedWikiSource = WikiSources.FirstOrDefault();
         _hourlyUpdateTimer = new DispatcherTimer { Interval = TimeSpan.FromHours(1) };
@@ -214,6 +223,7 @@ public class SettingsViewModel : ObservableObject
         TestWikiConnectionCommand = new RelayCommand(async () => await TestWikiAsync(false), () => !_isWikiTestRunning);
         TestWikiSearchCommand = new RelayCommand(async () => await TestWikiAsync(true), () => !_isWikiTestRunning);
         RefreshWikiIndexCommand = new RelayCommand(async () => await RefreshWikiIndexAsync());
+        AddWebShortcutCommand=new RelayCommand(()=>{var x=new WebShortcutEditorViewModel();WebShortcuts.Add(x);SelectedWebShortcut=x;WebShortcutStatus="Webseite angelegt. Bitte speichern.";}); SaveWebShortcutCommand=new RelayCommand(SaveWebShortcut); RemoveWebShortcutCommand=new RelayCommand(RemoveWebShortcut);
     }
 
     public void StartHourlyUpdateMonitor()
@@ -481,6 +491,18 @@ public class SettingsViewModel : ObservableObject
         WikiSettingsStatus = "Wiki-Suchindex wird aktualisiert …"; await ServiceLocator.WikiVocabulary.RefreshAsync(source); Raise(nameof(WikiIndexStatus));
         var status = ServiceLocator.WikiVocabulary.GetStatus(source); WikiSettingsStatus = status.Status == "success" ? $"Wiki-Suchindex aktualisiert: {status.PageCount:N0} Seiten." : "Wiki-Suchindex konnte nicht aktualisiert werden.";
     }
+
+    private void SaveWebShortcut()
+    {
+        var editor=SelectedWebShortcut;if(editor==null){WebShortcutStatus="Bitte eine Webseite auswählen.";return;} var model=editor.ToModel();
+        if(!Uri.TryCreate(model.Url,UriKind.Absolute,out var uri)||(uri.Scheme!=Uri.UriSchemeHttp&&uri.Scheme!=Uri.UriSchemeHttps)){WebShortcutStatus="Bitte eine gültige absolute http/https URL eingeben.";return;}
+        if(model.AutoLogin&&(uri.Scheme!=Uri.UriSchemeHttps||string.IsNullOrWhiteSpace(model.Username))){WebShortcutStatus="Auto Login erfordert HTTPS und einen Benutzernamen.";return;}
+        if(editor.Password!=ShortcutPasswordMask)_settings.SetWebShortcutPassword(model,editor.Password); if(model.AutoLogin&&string.IsNullOrWhiteSpace(model.PasswordEncrypted)){WebShortcutStatus="Auto Login erfordert ein Passwort.";return;}
+        var i=_settings.Current.WebShortcuts.FindIndex(x=>x.Id==model.Id);if(i<0)_settings.Current.WebShortcuts.Add(model);else _settings.Current.WebShortcuts[i]=model;
+        if(!_settings.TrySave()){WebShortcutStatus="Webseite konnte nicht gespeichert werden.";return;} editor.SetEncrypted(model.PasswordEncrypted);editor.Password=model.PasswordEncrypted.Length>0?ShortcutPasswordMask:"";WebShortcutStatus=$"Webseite '{DisplayName(model)}' wurde gespeichert.";
+    }
+    private void RemoveWebShortcut(){var editor=SelectedWebShortcut;if(editor==null)return;if(MessageBox.Show($"Webseite '{editor.Name}' wirklich entfernen?","Webseite entfernen",MessageBoxButton.YesNo,MessageBoxImage.Warning)!=MessageBoxResult.Yes)return;_settings.Current.WebShortcuts.RemoveAll(x=>x.Id==editor.Id);if(!_settings.TrySave()){WebShortcutStatus="Webseite konnte nicht entfernt werden.";return;}WebShortcuts.Remove(editor);SelectedWebShortcut=WebShortcuts.FirstOrDefault();WebShortcutStatus="Webseite wurde entfernt.";}
+    private static string DisplayName(WebShortcutSettings x)=>!string.IsNullOrWhiteSpace(x.Name)?x.Name:Uri.TryCreate(x.Url,UriKind.Absolute,out var u)?u.Host:"Webseite";
     private static string FormatWikiIndexStatus(WikiSourceSettings source)
     {
         var status = ServiceLocator.WikiVocabulary.GetStatus(source); return $"{status.PageCount:N0} Seiten · Zuletzt aktualisiert: {(status.UpdatedUtc?.ToLocalTime().ToString("dd.MM.yyyy HH:mm") ?? "noch nie")}";
