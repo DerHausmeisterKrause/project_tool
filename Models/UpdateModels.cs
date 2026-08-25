@@ -5,12 +5,13 @@ public enum UpdateState { Idle, Checking, UpToDate, UpdateAvailable, Downloading
 public sealed record GitHubReleaseAsset(string Name, string DownloadUrl, long Size, string Digest);
 
 public sealed record UpdateInfo(
-    Version Version,
+    SemanticVersion Version,
     string TagName,
     string Name,
     string ReleaseNotes,
     string HtmlUrl,
     DateTimeOffset? PublishedAt,
+    bool IsPrerelease,
     GitHubReleaseAsset Asset);
 
 public sealed record UpdateCheckResult(bool UpdateAvailable, UpdateInfo? Update, string Message);

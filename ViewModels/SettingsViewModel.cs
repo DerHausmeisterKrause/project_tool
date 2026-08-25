@@ -1,5 +1,10 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
+using System.Diagnostics;
+using System.Net;
+using System.Net.Http;
+using System.Text.Json;
 using System.Windows;
 using System.Windows.Threading;
 using TaskTool.Infrastructure;
@@ -18,9 +23,38 @@ public class SettingsViewModel : ObservableObject
     private readonly Action? _tasksChanged;
     private readonly UpdateService _updates;
     private readonly DispatcherTimer _hourlyUpdateTimer;
+    private const string ShortcutPasswordMask = "••••••••";
+    public ObservableCollection<WebShortcutEditorViewModel> WebShortcuts { get; }
+    private WebShortcutEditorViewModel? _selectedWebShortcut; public WebShortcutEditorViewModel? SelectedWebShortcut { get=>_selectedWebShortcut; set=>Set(ref _selectedWebShortcut,value); }
+    private string _webShortcutStatus=""; public string WebShortcutStatus { get=>_webShortcutStatus; set=>Set(ref _webShortcutStatus,value); }
+    public RelayCommand AddWebShortcutCommand { get; } public RelayCommand SaveWebShortcutCommand { get; } public RelayCommand RemoveWebShortcutCommand { get; }
+    public ObservableCollection<WikiSourceEditorViewModel> WikiSources { get; }
+    private WikiSourceEditorViewModel? _selectedWikiSource;
+    public WikiSourceEditorViewModel? SelectedWikiSource { get => _selectedWikiSource; set { if (Set(ref _selectedWikiSource, value)) Raise(nameof(WikiIndexStatus)); } }
+    private const string WikiSecretMask = "••••••••";
+    public List<WikiChoice> WikiProviderTypes { get; } = new() { new("ConfluenceDataCenter", "Confluence Data Center"), new("ConfluenceCloud", "Confluence Cloud"), new("GenericRest", "Generic REST"), new("XWiki", "XWiki") };
+    public List<WikiChoice> WikiAuthModes { get; } = new() { new("BearerToken", "Bearer Token"), new("UsernameToken", "Username + Token / Passwort"), new("Basic", "Basic Auth"), new("ApiKey", "API-Key Header"), new("WindowsIntegrated", "Windows Integrated") };
+    public List<WikiChoice> WikiBrowserLoginModes { get; } = new() { new("BrowserSession", "Browser Session / Cookies"), new("WindowsIntegrated", "Windows Integrated"), new("UsernamePassword", "Benutzername + Passwort"), new("None", "Keine automatische Anmeldung") };
+    public string CurrentWindowsUser => $"{Environment.UserDomainName}\\{Environment.UserName}";
+    private string _wikiSettingsStatus = string.Empty;
+    public string WikiSettingsStatus { get => _wikiSettingsStatus; set => Set(ref _wikiSettingsStatus, value); }
+    private string _wikiTestSearchTerm = "Linux";
+    public string WikiTestSearchTerm { get => _wikiTestSearchTerm; set => Set(ref _wikiTestSearchTerm, value); }
+    private bool _isWikiTestRunning;
+    public RelayCommand AddWikiSourceCommand { get; }
+    public RelayCommand RemoveWikiSourceCommand { get; }
+    public RelayCommand SaveWikiSourceCommand { get; }
+    public RelayCommand DiscardWikiSourceCommand { get; }
+    public RelayCommand TestWikiConnectionCommand { get; }
+    public RelayCommand TestWikiSearchCommand { get; }
+    public RelayCommand RefreshWikiIndexCommand { get; }
+    public string WikiIndexStatus => SelectedWikiSource == null ? "Kein Wiki ausgewählt." : FormatWikiIndexStatus(SelectedWikiSource.ToModel());
     private readonly SemaphoreSlim _updateCheckGate = new(1, 1);
     public string Title => "Einstellungen";
-    public string InstalledVersion => _settings.Current.InstalledVersion;
+    public string InstalledVersion => ServiceLocator.AppVersion.InstalledVersionText;
+    public string UpdateChannel { get => _settings.Current.UpdateChannel; set { var normalized = value is "Test" or "Testversionen" or "PreRelease" or "Pre-Release / Tester" ? "Test" : "Stable"; if (_settings.Current.UpdateChannel == normalized) return; _settings.Current.UpdateChannel = normalized; Save(); Raise(); Raise(nameof(IsTestChannel)); _ = CheckForUpdatesAsync(false); } }
+    public bool IsTestChannel => UpdateChannel is "Test" or "PreRelease";
+    public IReadOnlyList<WikiChoice> UpdateChannels { get; } = new[] { new WikiChoice("Stable", "Stable"), new WikiChoice("Test", "Testversionen") };
     public bool CheckForUpdatesOnStartup { get => _settings.Current.CheckForUpdatesOnStartup; set { _settings.Current.CheckForUpdatesOnStartup = value; Save(); } }
     public bool AutoInstallUpdatesOnStartup { get => _settings.Current.AutoInstallUpdatesOnStartup; set { _settings.Current.AutoInstallUpdatesOnStartup = value; Save(); } }
     public string LogLevel { get => _settings.Current.LogLevel; set { _settings.Current.LogLevel = value; Save(); } }
@@ -168,6 +202,9 @@ public class SettingsViewModel : ObservableObject
         _ticketSystem = ticketSystem;
         _updates = updates;
         _tasksChanged = tasksChanged;
+        WebShortcuts = new(_settings.Current.WebShortcuts.Select(x=>WebShortcutEditorViewModel.From(x,ShortcutPasswordMask))); SelectedWebShortcut=WebShortcuts.FirstOrDefault();
+        WikiSources = new ObservableCollection<WikiSourceEditorViewModel>(_settings.Current.WikiSources.Select(x => WikiSourceEditorViewModel.FromModel(x, WikiSecretMask, x.Id == _settings.Current.DefaultWikiSourceId)));
+        SelectedWikiSource = WikiSources.FirstOrDefault();
         _hourlyUpdateTimer = new DispatcherTimer { Interval = TimeSpan.FromHours(1) };
         _hourlyUpdateTimer.Tick += async (_, _) => await RunHourlyUpdateCheckAsync();
         TestReminderCommand = new RelayCommand(() => _notifications.ShowTestNotification());
@@ -179,6 +216,14 @@ public class SettingsViewModel : ObservableObject
         CheckForUpdatesCommand = new RelayCommand(async () => await CheckForUpdatesAsync(false), () => CurrentUpdateState is not (UpdateState.Checking or UpdateState.Downloading or UpdateState.Installing));
         InstallUpdateCommand = new RelayCommand(async () => await InstallUpdateAsync(), () => CurrentUpdateState == UpdateState.UpdateAvailable && _availableUpdate != null);
         OpenReleaseCommand = new RelayCommand(() => { if (_availableUpdate != null) UrlLauncher.TryOpen(_availableUpdate.HtmlUrl, out _); }, () => _availableUpdate != null);
+        AddWikiSourceCommand = new RelayCommand(AddWikiSource);
+        RemoveWikiSourceCommand = new RelayCommand(RemoveWikiSource);
+        SaveWikiSourceCommand = new RelayCommand(SaveWikiSource);
+        DiscardWikiSourceCommand = new RelayCommand(DiscardWikiSource);
+        TestWikiConnectionCommand = new RelayCommand(async () => await TestWikiAsync(false), () => !_isWikiTestRunning);
+        TestWikiSearchCommand = new RelayCommand(async () => await TestWikiAsync(true), () => !_isWikiTestRunning);
+        RefreshWikiIndexCommand = new RelayCommand(async () => await RefreshWikiIndexAsync());
+        AddWebShortcutCommand=new RelayCommand(()=>{var x=new WebShortcutEditorViewModel();WebShortcuts.Add(x);SelectedWebShortcut=x;WebShortcutStatus="Webseite angelegt. Bitte speichern.";}); SaveWebShortcutCommand=new RelayCommand(SaveWebShortcut); RemoveWebShortcutCommand=new RelayCommand(RemoveWebShortcut);
     }
 
     public void StartHourlyUpdateMonitor()
@@ -358,6 +403,130 @@ public class SettingsViewModel : ObservableObject
         var end = idx + 2;
         while (end < error.Length && Uri.IsHexDigit(error[end])) end++;
         return error[idx..end];
+    }
+
+    private void AddWikiSource()
+    {
+        var editor = new WikiSourceEditorViewModel();
+        WikiSources.Add(editor);
+        SelectedWikiSource = editor;
+        WikiSettingsStatus = "Neue Wiki-Quelle angelegt. Bitte Konfiguration ausfüllen und speichern.";
+    }
+
+    private void RemoveWikiSource()
+    {
+        var editor = SelectedWikiSource;
+        if (editor == null) { WikiSettingsStatus = "Bitte zuerst eine Wiki-Quelle auswählen."; return; }
+        if (MessageBox.Show($"Wiki '{editor.Name}' wirklich entfernen?", "Wiki entfernen", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes) return;
+        var previous = _settings.Current.WikiSources.ToList();
+        _settings.Current.WikiSources.RemoveAll(x => string.Equals(x.Id, editor.Id, StringComparison.Ordinal));
+        if (_settings.Current.DefaultWikiSourceId == editor.Id) _settings.Current.DefaultWikiSourceId = _settings.Current.WikiSources.FirstOrDefault(x => x.Enabled)?.Id ?? string.Empty;
+        if (!_settings.TrySave()) { _settings.Current.WikiSources = previous; WikiSettingsStatus = "Wiki konnte nicht entfernt werden. Bitte logs.txt prüfen."; return; }
+        WikiSources.Remove(editor); SelectedWikiSource = WikiSources.FirstOrDefault();
+        NotifySettingsConsumers(); WikiSettingsStatus = $"Wiki '{editor.Name}' wurde entfernt.";
+    }
+
+    private void DiscardWikiSource()
+    {
+        var editor = SelectedWikiSource; if (editor == null) return;
+        var saved = _settings.Current.WikiSources.FirstOrDefault(x => x.Id == editor.Id);
+        var replacement = saved == null ? new WikiSourceEditorViewModel() : WikiSourceEditorViewModel.FromModel(saved, WikiSecretMask, saved.Id == _settings.Current.DefaultWikiSourceId);
+        var index = WikiSources.IndexOf(editor); WikiSources[index] = replacement; SelectedWikiSource = replacement;
+        WikiSettingsStatus = "Nicht gespeicherte Änderungen wurden verworfen.";
+    }
+
+    private void SaveWikiSource()
+    {
+        if (!TryCreateWikiSourceFromEditor(out var source, out var error)) { WikiSettingsStatus = error; return; }
+        var previous = _settings.Current.WikiSources.ToList();
+        var previousSource = previous.FirstOrDefault(x => x.Id == source.Id);
+        var searchConfigurationChanged = previousSource != null && WikiSearchConfigurationFingerprint(previousSource) != WikiSearchConfigurationFingerprint(source);
+        var apiAccessChanged = previousSource != null && string.Join("|", previousSource.AuthMode, previousSource.Username, previousSource.SecretEncrypted) != string.Join("|", source.AuthMode, source.Username, source.SecretEncrypted);
+        var index = _settings.Current.WikiSources.FindIndex(x => x.Id == source.Id);
+        if (index >= 0) _settings.Current.WikiSources[index] = source; else _settings.Current.WikiSources.Add(source);
+        if (SelectedWikiSource!.IsDefault || _settings.Current.WikiSources.Count(x => x.Enabled) == 1) { _settings.Current.DefaultWikiSourceId = source.Id; foreach (var editor in WikiSources) editor.IsDefault = editor.Id == source.Id; }
+        if (!_settings.TrySave()) { _settings.Current.WikiSources = previous; WikiSettingsStatus = "Wiki konnte nicht gespeichert werden. Bitte logs.txt prüfen."; return; }
+        SelectedWikiSource!.SetEncryptedSecret(source.SecretEncrypted); SelectedWikiSource.Secret = string.IsNullOrWhiteSpace(source.SecretEncrypted) ? string.Empty : WikiSecretMask;
+        SelectedWikiSource.SetEncryptedBrowserPassword(source.BrowserPasswordEncrypted); SelectedWikiSource.BrowserPassword = string.IsNullOrWhiteSpace(source.BrowserPasswordEncrypted) ? string.Empty : WikiSecretMask;
+        if (searchConfigurationChanged) ServiceLocator.WikiSearch.InvalidateSource(source.Id);
+        else if (apiAccessChanged) ServiceLocator.WikiSearch.ResetFailedRunsForSource(source.Id);
+        NotifySettingsConsumers(); WikiSettingsStatus = $"Wiki '{source.Name}' wurde gespeichert.";
+        if (searchConfigurationChanged || previousSource == null) { ServiceLocator.WikiVocabulary.Invalidate(source.Id); _ = ServiceLocator.WikiVocabulary.RefreshAsync(source); }
+        Raise(nameof(WikiIndexStatus));
+    }
+
+    private static string WikiSearchConfigurationFingerprint(WikiSourceSettings source)
+        => string.Join("|", WikiScopePolicy.Fingerprint(source), source.HttpMethod, source.SearchUrlTemplate);
+
+    private bool TryCreateWikiSourceFromEditor(out WikiSourceSettings source, out string error)
+    {
+        if (SelectedWikiSource == null) { source = new WikiSourceSettings(); error = "Bitte zuerst eine Wiki-Quelle auswählen."; return false; }
+        source = SelectedWikiSource.ToModel();
+        var secret = SelectedWikiSource.Secret;
+        if (!string.Equals(secret, WikiSecretMask, StringComparison.Ordinal)) _settings.SetWikiSecret(source, secret ?? string.Empty);
+        var browserPassword = SelectedWikiSource.BrowserPassword;
+        if (!string.Equals(browserPassword, WikiSecretMask, StringComparison.Ordinal)) _settings.SetWikiBrowserPassword(source, browserPassword ?? string.Empty);
+        return WikiSourceValidation.TryValidate(source, out error);
+    }
+
+    private async Task TestWikiAsync(bool includeExamples)
+    {
+        if (!TryCreateWikiSourceFromEditor(out var source, out var error)) { WikiSettingsStatus = error; return; }
+        if (string.IsNullOrWhiteSpace(WikiTestSearchTerm)) { WikiSettingsStatus = "Bitte einen Test-Suchbegriff eingeben."; return; }
+        _isWikiTestRunning = true; TestWikiConnectionCommand.RaiseCanExecuteChanged(); TestWikiSearchCommand.RaiseCanExecuteChanged();
+        WikiSettingsStatus = includeExamples ? "Testsuche läuft …" : "Verbindung wird getestet …"; var watch = Stopwatch.StartNew();
+        try
+        {
+            var results = await ServiceLocator.WikiSearch.TestSourceAsync(source, WikiTestSearchTerm);
+            var examples = includeExamples ? string.Join(Environment.NewLine, results.Take(3).Select(x => $"• {x.Title}")) : string.Empty;
+            WikiSettingsStatus = $"Verbindung erfolgreich · {results.Count} Treffer · {watch.ElapsedMilliseconds} ms" + (string.IsNullOrWhiteSpace(examples) ? string.Empty : Environment.NewLine + examples);
+        }
+        catch (Exception ex) { WikiSettingsStatus = DescribeWikiTestError(ex); }
+        finally { _isWikiTestRunning = false; TestWikiConnectionCommand.RaiseCanExecuteChanged(); TestWikiSearchCommand.RaiseCanExecuteChanged(); }
+    }
+
+    private async Task RefreshWikiIndexAsync()
+    {
+        if (!TryCreateWikiSourceFromEditor(out var source, out var error)) { WikiSettingsStatus = error; return; }
+        WikiSettingsStatus = "Wiki-Suchindex wird aktualisiert …"; await ServiceLocator.WikiVocabulary.RefreshAsync(source); Raise(nameof(WikiIndexStatus));
+        var status = ServiceLocator.WikiVocabulary.GetStatus(source); WikiSettingsStatus = status.Status == "success" ? $"Wiki-Suchindex aktualisiert: {status.PageCount:N0} Seiten." : "Wiki-Suchindex konnte nicht aktualisiert werden.";
+    }
+
+    private void SaveWebShortcut()
+    {
+        var editor=SelectedWebShortcut;if(editor==null){WebShortcutStatus="Bitte eine Webseite auswählen.";return;} var model=editor.ToModel();
+        if(!Uri.TryCreate(model.Url,UriKind.Absolute,out var uri)||(uri.Scheme!=Uri.UriSchemeHttp&&uri.Scheme!=Uri.UriSchemeHttps)){WebShortcutStatus="Bitte eine gültige absolute http/https URL eingeben.";return;}
+        if(model.AutoLogin&&(uri.Scheme!=Uri.UriSchemeHttps||string.IsNullOrWhiteSpace(model.Username))){WebShortcutStatus="Auto Login erfordert HTTPS und einen Benutzernamen.";return;}
+        if(editor.Password!=ShortcutPasswordMask)_settings.SetWebShortcutPassword(model,editor.Password); if(model.AutoLogin&&string.IsNullOrWhiteSpace(model.PasswordEncrypted)){WebShortcutStatus="Auto Login erfordert ein Passwort.";return;}
+        var i=_settings.Current.WebShortcuts.FindIndex(x=>x.Id==model.Id);if(i<0)_settings.Current.WebShortcuts.Add(model);else _settings.Current.WebShortcuts[i]=model;
+        if(!_settings.TrySave()){WebShortcutStatus="Webseite konnte nicht gespeichert werden.";return;} editor.SetEncrypted(model.PasswordEncrypted);editor.Password=model.PasswordEncrypted.Length>0?ShortcutPasswordMask:"";WebShortcutStatus=$"Webseite '{DisplayName(model)}' wurde gespeichert.";
+    }
+    private void RemoveWebShortcut(){var editor=SelectedWebShortcut;if(editor==null)return;if(MessageBox.Show($"Webseite '{editor.Name}' wirklich entfernen?","Webseite entfernen",MessageBoxButton.YesNo,MessageBoxImage.Warning)!=MessageBoxResult.Yes)return;_settings.Current.WebShortcuts.RemoveAll(x=>x.Id==editor.Id);if(!_settings.TrySave()){WebShortcutStatus="Webseite konnte nicht entfernt werden.";return;}WebShortcuts.Remove(editor);SelectedWebShortcut=WebShortcuts.FirstOrDefault();WebShortcutStatus="Webseite wurde entfernt.";}
+    private static string DisplayName(WebShortcutSettings x)=>!string.IsNullOrWhiteSpace(x.Name)?x.Name:Uri.TryCreate(x.Url,UriKind.Absolute,out var u)?u.Host:"Webseite";
+    private static string FormatWikiIndexStatus(WikiSourceSettings source)
+    {
+        var status = ServiceLocator.WikiVocabulary.GetStatus(source); return $"{status.PageCount:N0} Seiten · Zuletzt aktualisiert: {(status.UpdatedUtc?.ToLocalTime().ToString("dd.MM.yyyy HH:mm") ?? "noch nie")}";
+    }
+
+    private static string DescribeWikiTestError(Exception exception)
+    {
+        if (exception is TaskCanceledException) return "Wiki antwortet nicht innerhalb des Zeitlimits.";
+        if (exception is JsonException) return "Das Antwortformat des Wikis ist unerwartet.";
+        if (exception is HttpRequestException http) return http.StatusCode switch
+        {
+            HttpStatusCode.Unauthorized => "Authentifizierung fehlgeschlagen (HTTP 401).",
+            HttpStatusCode.Forbidden => "Zugriff verweigert (HTTP 403).",
+            HttpStatusCode.NotFound => "Wiki API Endpoint nicht gefunden (HTTP 404).",
+            _ when http.StatusCode.HasValue => $"Wiki-Anfrage fehlgeschlagen (HTTP {(int)http.StatusCode.Value}).",
+            _ => "Wiki-Server ist nicht erreichbar. Bitte DNS, Netzwerk und Base URL prüfen."
+        };
+        if (exception is UriFormatException) return "Base URL ist ungültig.";
+        return exception is InvalidOperationException ? exception.Message : "Wiki-Test fehlgeschlagen. Bitte logs.txt prüfen.";
+    }
+
+    private void NotifySettingsConsumers()
+    {
+        _notifications.HandleSettingsChanged(); _outlookCalendar.HandleSettingsChanged(); _ticketSystem.HandleSettingsChanged(); Raise(string.Empty);
     }
 
     private void Save()
