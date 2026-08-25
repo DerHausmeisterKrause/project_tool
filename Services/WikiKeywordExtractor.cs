@@ -17,13 +17,18 @@ public sealed class WikiKeywordExtractor
     public IReadOnlyList<string> Extract(string title, string firstMessage) => ExtractWeighted(title, firstMessage, Array.Empty<WikiVocabularyPage>()).Select(x => x.Text).ToList();
     public IReadOnlyList<WikiSearchTerm> ExtractForSource(WikiSourceSettings source, string title, string firstMessage)
     {
-        var watch = Stopwatch.StartNew(); var seeds = Generate(title, firstMessage).Select(x => x.Text); var pages = _vocabulary?.FindCandidates(source, seeds) ?? Array.Empty<WikiVocabularyPage>(); var result = ExtractWeighted(title, firstMessage, pages);
-        _logger?.Info($"[WikiExtract] sourceId={source.Id} candidateCount={Generate(title, firstMessage).Count} localIndexHits={pages.Count} selectedTermCount={result.Count} durationMs={watch.ElapsedMilliseconds}"); return result;
+        var watch = Stopwatch.StartNew();
+        var generated = Generate(title, firstMessage);
+        var seeds = generated.Values.Select(x => x.Text).ToArray();
+        var pages = _vocabulary?.FindCandidates(source, seeds) ?? Array.Empty<WikiVocabularyPage>();
+        var result = ExtractWeighted(title, firstMessage, pages, generated);
+        _logger?.Info($"[WikiExtract] sourceId={source.Id} candidateCount={generated.Count} localIndexHits={pages.Count} selectedTermCount={result.Count} durationMs={watch.ElapsedMilliseconds}");
+        return result;
     }
 
-    private static IReadOnlyList<WikiSearchTerm> ExtractWeighted(string title, string message, IReadOnlyList<WikiVocabularyPage> pages)
+    private static IReadOnlyList<WikiSearchTerm> ExtractWeighted(string title, string message, IReadOnlyList<WikiVocabularyPage> pages, Dictionary<string, Candidate>? generated = null)
     {
-        var candidates = Generate(title, message); var ticketNormalized = Normalize(title + " " + CleanMessage(message)); var ticketTokens = Tokenize(ticketNormalized).ToHashSet();
+        var candidates = generated ?? Generate(title, message); var ticketNormalized = Normalize(title + " " + CleanMessage(message)); var ticketTokens = Tokenize(ticketNormalized).ToHashSet();
         foreach (var page in pages)
         {
             var normalized = Normalize(page.Title); var similarity = Dice(ticketTokens, Tokenize(normalized).ToHashSet()); if (similarity < .25) continue;
