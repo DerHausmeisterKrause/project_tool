@@ -107,6 +107,7 @@ public sealed class WebShortcutSettings
 {
     public string Id { get; set; } = Guid.NewGuid().ToString(); public string Name { get; set; } = string.Empty; public string Url { get; set; } = string.Empty;
     public string Username { get; set; } = string.Empty; public string PasswordEncrypted { get; set; } = string.Empty; public bool Enabled { get; set; } = true; public bool AutoLogin { get; set; }
+    public bool DisableWebSecurity { get; set; } = false;
 }
 
 public sealed class WikiSourceSettings

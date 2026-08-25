@@ -10,7 +10,44 @@ public partial class WebShortcutView : UserControl
 {
     private CancellationTokenSource? _login;
     public WebShortcutView(){InitializeComponent();DataContextChanged+=(_,_)=>_ = NavigateAsync();}
-    private async Task NavigateAsync(){if(DataContext is not WebShortcutViewModel vm||!Uri.TryCreate(vm.Url,UriKind.Absolute,out var uri)||(uri.Scheme!=Uri.UriSchemeHttp&&uri.Scheme!=Uri.UriSchemeHttps))return;try{var path=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"Plenaro","WebView2","Shortcuts",vm.ShortcutId);var env=await CoreWebView2Environment.CreateAsync(null,path);await Browser.EnsureCoreWebView2Async(env);Browser.CoreWebView2.NavigationStarting-=Starting;Browser.CoreWebView2.NavigationStarting+=Starting;Browser.CoreWebView2.NavigationCompleted-=Completed;Browser.CoreWebView2.NavigationCompleted+=Completed;Browser.CoreWebView2.Navigate(uri.ToString());}catch(Exception ex){BrowserStatus.Text=$"Webseite konnte nicht geöffnet werden: {ex.Message}";}}
+    private async Task NavigateAsync()
+    {
+        if (DataContext is not WebShortcutViewModel vm
+            || !Uri.TryCreate(vm.Url, UriKind.Absolute, out var uri)
+            || (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps)) return;
+
+        try
+        {
+            var path = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "Plenaro", "WebView2", "Shortcuts", vm.ShortcutId);
+            CoreWebView2Environment environment;
+            if (vm.Shortcut.DisableWebSecurity)
+            {
+                var options = new CoreWebView2EnvironmentOptions
+                {
+                    AdditionalBrowserArguments = "--disable-web-security"
+                };
+                environment = await CoreWebView2Environment.CreateAsync(null, path, options);
+            }
+            else
+            {
+                environment = await CoreWebView2Environment.CreateAsync(null, path);
+            }
+
+            ServiceLocator.Logger.Info($"[WebShortcut] shortcutId={vm.ShortcutId} host={uri.Host} webSecurityDisabled={vm.Shortcut.DisableWebSecurity.ToString().ToLowerInvariant()}");
+            await Browser.EnsureCoreWebView2Async(environment);
+            Browser.CoreWebView2.NavigationStarting -= Starting;
+            Browser.CoreWebView2.NavigationStarting += Starting;
+            Browser.CoreWebView2.NavigationCompleted -= Completed;
+            Browser.CoreWebView2.NavigationCompleted += Completed;
+            Browser.CoreWebView2.Navigate(uri.ToString());
+        }
+        catch (Exception ex)
+        {
+            BrowserStatus.Text = $"Webseite konnte nicht geöffnet werden: {ex.Message}";
+        }
+    }
     private void Starting(object? s,CoreWebView2NavigationStartingEventArgs e){_login?.Cancel();if(!Uri.TryCreate(e.Uri,UriKind.Absolute,out var u)||(u.Scheme!=Uri.UriSchemeHttp&&u.Scheme!=Uri.UriSchemeHttps)){e.Cancel=true;BrowserStatus.Text="Navigation blockiert.";}}
     private void Completed(object? s,CoreWebView2NavigationCompletedEventArgs e){if(DataContext is not WebShortcutViewModel vm||!e.IsSuccess)return;if(Uri.TryCreate(Browser.Source?.ToString(),UriKind.Absolute,out var current))ServiceLocator.Logger.Info($"[WebShortcut] shortcutId={vm.ShortcutId} host={current.Host} navigation=success");if(!vm.Shortcut.AutoLogin||!Trusted(vm,current))return;var password=ServiceLocator.Settings.GetWebShortcutPassword(vm.Shortcut);if(password.Length==0||vm.Shortcut.Username.Length==0)return;_login=new();_=LoginAsync(vm,password,current!.Host,_login.Token);}
     private static bool Trusted(WebShortcutViewModel vm,Uri? current)=>current!=null&&Uri.TryCreate(vm.Url,UriKind.Absolute,out var configured)&&current.Scheme==Uri.UriSchemeHttps&&configured.Scheme==Uri.UriSchemeHttps&&current.Host.Equals(configured.Host,StringComparison.OrdinalIgnoreCase)&&current.Port==configured.Port;
