@@ -86,6 +86,27 @@
                                 IsEnabled="{Binding CanCreateTicketFromSelectedTask}"
                                 Visibility="{Binding ShowCreateTicketFromSelectedTask, Converter={StaticResource BooleanToVisibilityConverter}}"/>
                     </WrapPanel>
+                    <Border Margin="0,18,0,0" Padding="14" Background="#151B2B" CornerRadius="10"
+                            Visibility="{Binding HasZnunyTicket, Converter={StaticResource BooleanToVisibilityConverter}}">
+                        <StackPanel>
+                            <TextBlock Text="Passende Wiki-Einträge" FontSize="17" FontWeight="SemiBold"/>
+                            <TextBlock Text="{Binding WikiKeywordsText, StringFormat=Erkannte Begriffe: {0}}" Foreground="{StaticResource MutedTextBrush}" Margin="0,5,0,10" TextWrapping="Wrap"/>
+                            <ItemsControl ItemsSource="{Binding WikiResults}">
+                                <ItemsControl.ItemTemplate><DataTemplate>
+                                    <Border BorderBrush="#334155" BorderThickness="0,0,0,1" Padding="0,8">
+                                        <StackPanel>
+                                            <DockPanel><TextBlock Text="{Binding SourceName}" FontWeight="SemiBold"/><TextBlock Text="{Binding RelevanceText}" DockPanel.Dock="Right" HorizontalAlignment="Right" Foreground="#60A5FA"/></DockPanel>
+                                            <TextBlock Text="{Binding Title}" FontWeight="SemiBold" Margin="0,4,0,2" TextWrapping="Wrap"/>
+                                            <TextBlock Text="{Binding Excerpt}" Foreground="{StaticResource MutedTextBrush}" TextWrapping="Wrap" MaxHeight="72"/>
+                                            <Button Content="Wiki öffnen" HorizontalAlignment="Left" Margin="0,6,0,0" Command="{Binding DataContext.OpenWikiResultCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}" CommandParameter="{Binding}"/>
+                                        </StackPanel>
+                                    </Border>
+                                </DataTemplate></ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                            <TextBlock Text="{Binding WikiSearchStatus}" Foreground="#FBBF24" Margin="0,8,0,4"/>
+                            <Button Content="Wiki neu durchsuchen" HorizontalAlignment="Left" Command="{Binding RefreshWikiCommand}"/>
+                        </StackPanel>
+                    </Border>
                 </StackPanel>
             </Border>
 
