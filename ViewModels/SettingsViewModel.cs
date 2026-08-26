@@ -25,9 +25,11 @@ public class SettingsViewModel : ObservableObject
     private readonly DispatcherTimer _hourlyUpdateTimer;
     private const string ShortcutPasswordMask = "••••••••";
     public ObservableCollection<WebShortcutEditorViewModel> WebShortcuts { get; }
-    private WebShortcutEditorViewModel? _selectedWebShortcut; public WebShortcutEditorViewModel? SelectedWebShortcut { get=>_selectedWebShortcut; set=>Set(ref _selectedWebShortcut,value); }
+    private WebShortcutEditorViewModel? _selectedWebShortcut; public WebShortcutEditorViewModel? SelectedWebShortcut { get=>_selectedWebShortcut; set { if (Set(ref _selectedWebShortcut,value)) RaiseWebShortcutMoveCanExecute(); } }
     private string _webShortcutStatus=""; public string WebShortcutStatus { get=>_webShortcutStatus; set=>Set(ref _webShortcutStatus,value); }
     public RelayCommand AddWebShortcutCommand { get; } public RelayCommand SaveWebShortcutCommand { get; } public RelayCommand RemoveWebShortcutCommand { get; }
+    public RelayCommand MoveWebShortcutUpCommand { get; private set; } = null!;
+    public RelayCommand MoveWebShortcutDownCommand { get; private set; } = null!;
     public ObservableCollection<WikiSourceEditorViewModel> WikiSources { get; }
     private WikiSourceEditorViewModel? _selectedWikiSource;
     public WikiSourceEditorViewModel? SelectedWikiSource { get => _selectedWikiSource; set { if (Set(ref _selectedWikiSource, value)) Raise(nameof(WikiIndexStatus)); } }
@@ -202,7 +204,7 @@ public class SettingsViewModel : ObservableObject
         _ticketSystem = ticketSystem;
         _updates = updates;
         _tasksChanged = tasksChanged;
-        WebShortcuts = new(_settings.Current.WebShortcuts.Select(x=>WebShortcutEditorViewModel.From(x,ShortcutPasswordMask))); SelectedWebShortcut=WebShortcuts.FirstOrDefault();
+        WebShortcuts = new(_settings.Current.WebShortcuts.OrderBy(x=>x.SortOrder).Select(x=>WebShortcutEditorViewModel.From(x,ShortcutPasswordMask))); SelectedWebShortcut=WebShortcuts.FirstOrDefault();
         WikiSources = new ObservableCollection<WikiSourceEditorViewModel>(_settings.Current.WikiSources.Select(x => WikiSourceEditorViewModel.FromModel(x, WikiSecretMask, x.Id == _settings.Current.DefaultWikiSourceId)));
         SelectedWikiSource = WikiSources.FirstOrDefault();
         _hourlyUpdateTimer = new DispatcherTimer { Interval = TimeSpan.FromHours(1) };
@@ -223,7 +225,10 @@ public class SettingsViewModel : ObservableObject
         TestWikiConnectionCommand = new RelayCommand(async () => await TestWikiAsync(false), () => !_isWikiTestRunning);
         TestWikiSearchCommand = new RelayCommand(async () => await TestWikiAsync(true), () => !_isWikiTestRunning);
         RefreshWikiIndexCommand = new RelayCommand(async () => await RefreshWikiIndexAsync());
-        AddWebShortcutCommand=new RelayCommand(()=>{var x=new WebShortcutEditorViewModel();WebShortcuts.Add(x);SelectedWebShortcut=x;WebShortcutStatus="Webseite angelegt. Bitte speichern.";}); SaveWebShortcutCommand=new RelayCommand(SaveWebShortcut); RemoveWebShortcutCommand=new RelayCommand(RemoveWebShortcut);
+        AddWebShortcutCommand=new RelayCommand(()=>{var x=new WebShortcutEditorViewModel{SortOrder=WebShortcuts.Count};WebShortcuts.Add(x);SelectedWebShortcut=x;WebShortcutStatus="Webseite angelegt. Bitte speichern.";}); SaveWebShortcutCommand=new RelayCommand(SaveWebShortcut); RemoveWebShortcutCommand=new RelayCommand(RemoveWebShortcut);
+        MoveWebShortcutUpCommand = new RelayCommand(() => MoveWebShortcut(-1), () => CanMoveWebShortcut(-1));
+        MoveWebShortcutDownCommand = new RelayCommand(() => MoveWebShortcut(1), () => CanMoveWebShortcut(1));
+        RaiseWebShortcutMoveCanExecute();
     }
 
     public void StartHourlyUpdateMonitor()
@@ -499,9 +504,69 @@ public class SettingsViewModel : ObservableObject
         if(model.AutoLogin&&(uri.Scheme!=Uri.UriSchemeHttps||string.IsNullOrWhiteSpace(model.Username))){WebShortcutStatus="Auto Login erfordert HTTPS und einen Benutzernamen.";return;}
         if(editor.Password!=ShortcutPasswordMask)_settings.SetWebShortcutPassword(model,editor.Password); if(model.AutoLogin&&string.IsNullOrWhiteSpace(model.PasswordEncrypted)){WebShortcutStatus="Auto Login erfordert ein Passwort.";return;}
         var i=_settings.Current.WebShortcuts.FindIndex(x=>x.Id==model.Id);if(i<0)_settings.Current.WebShortcuts.Add(model);else _settings.Current.WebShortcuts[i]=model;
+        NormalizeWebShortcutOrder();
         if(!_settings.TrySave()){WebShortcutStatus="Webseite konnte nicht gespeichert werden.";return;} editor.SetEncrypted(model.PasswordEncrypted);editor.Password=model.PasswordEncrypted.Length>0?ShortcutPasswordMask:"";WebShortcutStatus=$"Webseite '{DisplayName(model)}' wurde gespeichert.";
+        RaiseWebShortcutMoveCanExecute();
     }
-    private void RemoveWebShortcut(){var editor=SelectedWebShortcut;if(editor==null)return;if(MessageBox.Show($"Webseite '{editor.Name}' wirklich entfernen?","Webseite entfernen",MessageBoxButton.YesNo,MessageBoxImage.Warning)!=MessageBoxResult.Yes)return;_settings.Current.WebShortcuts.RemoveAll(x=>x.Id==editor.Id);if(!_settings.TrySave()){WebShortcutStatus="Webseite konnte nicht entfernt werden.";return;}WebShortcuts.Remove(editor);SelectedWebShortcut=WebShortcuts.FirstOrDefault();WebShortcutStatus="Webseite wurde entfernt.";}
+    private void RemoveWebShortcut()
+    {
+        var editor = SelectedWebShortcut;
+        if (editor == null || MessageBox.Show($"Webseite '{editor.Name}' wirklich entfernen?", "Webseite entfernen", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes) return;
+        var previousSettings = _settings.Current.WebShortcuts.ToList();
+        var previousIndex = WebShortcuts.IndexOf(editor);
+        _settings.Current.WebShortcuts.RemoveAll(x => x.Id == editor.Id);
+        WebShortcuts.Remove(editor);
+        NormalizeWebShortcutOrder();
+        if (!_settings.TrySave())
+        {
+            _settings.Current.WebShortcuts = previousSettings;
+            WebShortcuts.Insert(previousIndex, editor);
+            NormalizeWebShortcutOrder();
+            SelectedWebShortcut = editor;
+            WebShortcutStatus = "Webseite konnte nicht entfernt werden.";
+            return;
+        }
+        SelectedWebShortcut = WebShortcuts.FirstOrDefault();
+        WebShortcutStatus = "Webseite wurde entfernt.";
+    }
+    private bool CanMoveWebShortcut(int offset)
+    {
+        if (SelectedWebShortcut == null || !_settings.Current.WebShortcuts.Any(x => x.Id == SelectedWebShortcut.Id)) return false;
+        var index = WebShortcuts.IndexOf(SelectedWebShortcut);
+        return index >= 0 && index + offset >= 0 && index + offset < WebShortcuts.Count;
+    }
+    private void MoveWebShortcut(int offset)
+    {
+        if (!CanMoveWebShortcut(offset) || SelectedWebShortcut == null) return;
+        var oldIndex = WebShortcuts.IndexOf(SelectedWebShortcut);
+        var newIndex = oldIndex + offset;
+        WebShortcuts.Move(oldIndex, newIndex);
+        NormalizeWebShortcutOrder();
+        if (!_settings.TrySave()) { WebShortcuts.Move(newIndex, oldIndex); NormalizeWebShortcutOrder(); WebShortcutStatus = "Reihenfolge konnte nicht gespeichert werden."; return; }
+        ServiceLocator.Logger.Info($"[WebShortcutOrder] shortcutId={SelectedWebShortcut.Id} oldIndex={oldIndex} newIndex={newIndex}");
+        WebShortcutStatus = $"Webseite '{SelectedWebShortcut.Name}' wurde verschoben.";
+        RaiseWebShortcutMoveCanExecute();
+    }
+    private void NormalizeWebShortcutOrder()
+    {
+        var settingsById = _settings.Current.WebShortcuts.ToDictionary(x => x.Id, StringComparer.Ordinal);
+        var orderedSettings = new List<WebShortcutSettings>();
+        for (var index = 0; index < WebShortcuts.Count; index++)
+        {
+            WebShortcuts[index].SortOrder = index;
+            if (settingsById.TryGetValue(WebShortcuts[index].Id, out var shortcut))
+            {
+                shortcut.SortOrder = index;
+                orderedSettings.Add(shortcut);
+            }
+        }
+        _settings.Current.WebShortcuts = orderedSettings;
+    }
+    private void RaiseWebShortcutMoveCanExecute()
+    {
+        MoveWebShortcutUpCommand?.RaiseCanExecuteChanged();
+        MoveWebShortcutDownCommand?.RaiseCanExecuteChanged();
+    }
     private static string DisplayName(WebShortcutSettings x)=>!string.IsNullOrWhiteSpace(x.Name)?x.Name:Uri.TryCreate(x.Url,UriKind.Absolute,out var u)?u.Host:"Webseite";
     private static string FormatWikiIndexStatus(WikiSourceSettings source)
     {

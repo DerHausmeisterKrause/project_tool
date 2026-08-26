@@ -18,7 +18,8 @@ public class SettingsService
         InstalledVersion = 2,
         SegmentDuration = 4,
         LogLevel = 8,
-        TicketCreateRoute = 16
+        TicketCreateRoute = 16,
+        WebShortcutOrder = 32
     }
 
     private readonly LoggerService _logger;
@@ -75,6 +76,8 @@ public class SettingsService
             _logger.Info($"[ZnunySettingsMigration] TicketSystemTicketCreateRoute old='{AppSettings.LegacyTicketSystemTicketCreateRoute}' new='{AppSettings.DefaultTicketSystemTicketCreateRoute}'");
         if (changes.HasFlag(NormalizationChanges.InstalledVersion))
             _logger.Info($"[SettingsMigration] InstalledVersion missing initializedVersion={AppSettings.InitialInstalledVersion}");
+        if (changes.HasFlag(NormalizationChanges.WebShortcutOrder))
+            _logger.Info("[SettingsMigration] WebShortcut SortOrder normalized=true");
     }
 
     private static NormalizationChanges Normalize(AppSettings settings)
@@ -115,6 +118,13 @@ public class SettingsService
             : "Stable";
         settings.WebShortcuts ??= new(); settings.WebShortcuts = settings.WebShortcuts.OfType<WebShortcutSettings>().ToList();
         foreach (var shortcut in settings.WebShortcuts) { shortcut.Id = string.IsNullOrWhiteSpace(shortcut.Id) ? Guid.NewGuid().ToString() : shortcut.Id.Trim(); shortcut.Name = shortcut.Name?.Trim() ?? string.Empty; shortcut.Url = shortcut.Url?.Trim() ?? string.Empty; shortcut.Username = shortcut.Username?.Trim() ?? string.Empty; shortcut.PasswordEncrypted ??= string.Empty; }
+        var hasCanonicalShortcutOrder = settings.WebShortcuts.Select(x => x.SortOrder).OrderBy(x => x).SequenceEqual(Enumerable.Range(0, settings.WebShortcuts.Count));
+        if (hasCanonicalShortcutOrder) settings.WebShortcuts = settings.WebShortcuts.OrderBy(x => x.SortOrder).ToList();
+        else
+        {
+            for (var index = 0; index < settings.WebShortcuts.Count; index++) settings.WebShortcuts[index].SortOrder = index;
+            changes |= NormalizationChanges.WebShortcutOrder;
+        }
         if (settings.DefaultSegmentDurationMinutes is < 15 or > 240)
         {
             settings.DefaultSegmentDurationMinutes = 30;
