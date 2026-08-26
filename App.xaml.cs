@@ -36,7 +36,11 @@ public partial class App : Application
             else
             {
                 ServiceLocator.Updates.CleanupOldTempFolders();
-                _ = ServiceLocator.MainViewModel.SettingsViewModel.RunStartupUpdateCheckAsync();
+                // Let the first frame render before starting network I/O. The resulting
+                // modal dialog then has a visible, fully loaded owner window.
+                Dispatcher.BeginInvoke(new Action(async () =>
+                    await ServiceLocator.MainViewModel.SettingsViewModel.RunStartupUpdateCheckAsync()),
+                    DispatcherPriority.ApplicationIdle);
             }
             ServiceLocator.MainViewModel.SettingsViewModel.StartHourlyUpdateMonitor();
         }

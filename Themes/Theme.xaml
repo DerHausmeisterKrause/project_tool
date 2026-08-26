@@ -21,6 +21,9 @@
     <SolidColorBrush x:Key="AccentBrush" Color="{StaticResource Accent}"/>
     <SolidColorBrush x:Key="SuccessBrush" Color="{StaticResource Success}"/>
     <SolidColorBrush x:Key="DangerBrush" Color="{StaticResource Danger}"/>
+    <SolidColorBrush x:Key="AvailabilityFreeBrush" Color="#22C55E"/>
+    <SolidColorBrush x:Key="AvailabilityBusyBrush" Color="#EF4444"/>
+    <SolidColorBrush x:Key="AvailabilityUnknownBrush" Color="#475569"/>
 
     <!-- Ensure default WPF ComboBox selection text remains readable in dark theme -->
     <SolidColorBrush x:Key="{x:Static SystemColors.WindowTextBrushKey}" Color="#E5E7EB"/>
@@ -522,6 +525,92 @@
         <Setter Property="BorderBrush" Value="#334155"/>
         <Setter Property="BorderThickness" Value="1"/>
         <Setter Property="Foreground" Value="#E2E8F0"/>
+    </Style>
+
+
+    <!-- Shared settings layout: consistent forms across lazily rendered sections. -->
+    <Style x:Key="SettingsCardTitleStyle" TargetType="TextBlock">
+        <Setter Property="FontSize" Value="17"/>
+        <Setter Property="FontWeight" Value="SemiBold"/>
+        <Setter Property="Margin" Value="0,0,0,12"/>
+    </Style>
+    <Style x:Key="SettingsSectionTitleStyle" TargetType="TextBlock">
+        <Setter Property="FontSize" Value="22"/>
+        <Setter Property="FontWeight" Value="SemiBold"/>
+        <Setter Property="Margin" Value="8,4,8,2"/>
+    </Style>
+    <Style x:Key="SettingsSectionDescriptionStyle" TargetType="TextBlock">
+        <Setter Property="Foreground" Value="{StaticResource MutedTextBrush}"/>
+        <Setter Property="TextWrapping" Value="Wrap"/>
+        <Setter Property="Margin" Value="8,0,8,12"/>
+    </Style>
+    <Style x:Key="SettingsLabelStyle" TargetType="TextBlock">
+        <Setter Property="Foreground" Value="{StaticResource MutedTextBrush}"/>
+        <Setter Property="VerticalAlignment" Value="Center"/>
+        <Setter Property="Margin" Value="0,0,16,8"/>
+    </Style>
+    <Style x:Key="SettingsHelpStyle" TargetType="TextBlock">
+        <Setter Property="Foreground" Value="{StaticResource MutedTextBrush}"/>
+        <Setter Property="FontSize" Value="11"/>
+        <Setter Property="TextWrapping" Value="Wrap"/>
+        <Setter Property="Margin" Value="0,0,0,8"/>
+    </Style>
+    <Style x:Key="SettingsTextBoxStyle" TargetType="TextBox">
+        <Setter Property="MaxWidth" Value="560"/>
+        <Setter Property="HorizontalAlignment" Value="Stretch"/>
+        <Setter Property="Margin" Value="0,0,0,8"/>
+    </Style>
+    <Style x:Key="SettingsLongTextBoxStyle" TargetType="TextBox" BasedOn="{StaticResource SettingsTextBoxStyle}">
+        <Setter Property="MaxWidth" Value="760"/>
+    </Style>
+    <Style x:Key="SettingsComboStyle" TargetType="ComboBox" BasedOn="{StaticResource DarkComboBoxStyle}">
+        <Setter Property="MaxWidth" Value="560"/>
+        <Setter Property="HorizontalAlignment" Value="Stretch"/>
+        <Setter Property="Margin" Value="0,0,0,8"/>
+    </Style>
+
+    <Style x:Key="SettingsTabControlStyle" TargetType="TabControl">
+        <Setter Property="Background" Value="Transparent"/>
+        <Setter Property="BorderThickness" Value="0"/>
+        <Setter Property="KeyboardNavigation.TabNavigation" Value="Local"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="TabControl">
+                    <Grid KeyboardNavigation.TabNavigation="Local">
+                        <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+                        <Border Grid.Row="0" Background="{StaticResource CardBrush}" BorderBrush="{StaticResource BorderBrushColor}"
+                                BorderThickness="1" CornerRadius="8" Padding="5" Margin="8,0,8,12">
+                            <ItemsPresenter KeyboardNavigation.TabIndex="1"/>
+                        </Border>
+                        <ContentPresenter Grid.Row="1" ContentSource="SelectedContent" Margin="0" KeyboardNavigation.TabIndex="2"/>
+                    </Grid>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+    <Style x:Key="SettingsTabItemStyle" TargetType="TabItem">
+        <Setter Property="Foreground" Value="{StaticResource MutedTextBrush}"/>
+        <Setter Property="Background" Value="Transparent"/>
+        <Setter Property="BorderBrush" Value="Transparent"/>
+        <Setter Property="BorderThickness" Value="0,0,0,2"/>
+        <Setter Property="FontWeight" Value="Normal"/>
+        <Setter Property="Padding" Value="13,9"/>
+        <Setter Property="Margin" Value="2"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="TabItem">
+                    <Border x:Name="NavBorder" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
+                            BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="5" Padding="{TemplateBinding Padding}">
+                        <ContentPresenter ContentSource="Header" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="NavBorder" Property="Background" Value="#172033"/><Setter Property="Foreground" Value="{StaticResource TextBrush}"/></Trigger>
+                        <Trigger Property="IsSelected" Value="True"><Setter TargetName="NavBorder" Property="Background" Value="#172554"/><Setter TargetName="NavBorder" Property="BorderBrush" Value="{StaticResource AccentBrush}"/><Setter Property="Foreground" Value="{StaticResource TextBrush}"/><Setter Property="FontWeight" Value="SemiBold"/></Trigger>
+                        <Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="NavBorder" Property="BorderBrush" Value="{StaticResource AccentBrush}"/></Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
     </Style>
 
 </ResourceDictionary>
