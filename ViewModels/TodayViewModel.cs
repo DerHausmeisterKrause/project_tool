@@ -24,6 +24,8 @@ public class TodayViewModel : ObservableObject
     private DateTime _agendaDate;
     private DateTime _lastTodayVisibilityRefreshMinute;
     private bool _lastHidePastTodayItems;
+    private bool _startupLocalStateLogged;
+    private bool _postInitialSyncStateLogged;
 
     public string Title => "Heute";
     // Existing timer and Dynamic Island consumers use this as the complete active-task collection.
@@ -853,6 +855,10 @@ public class TodayViewModel : ObservableObject
     private void ApplyTaskFilters()
     {
         var all = _tasks.GetAllTasks();
+        // Persisted pending metadata is deliberately not trusted during startup. Local
+        // tasks remain visible until the first successful Znuny sync has validated it.
+        var canTrustRemoteTicketState = _ticketSystem.HasCompletedInitialAssignedTicketSync;
+        var canApplyPendingFiltering = canTrustRemoteTicketState;
         var now = _germanTime.GetLocalNow(_settings.Current.CalendarTimeZoneId).DateTime;
         var taskIdsWithActiveOrFutureSegments = _tasks.GetTaskIdsWithActiveOrFutureSegments(now);
         var localToday = now.Date;
@@ -872,8 +878,10 @@ public class TodayViewModel : ObservableObject
             todayTaskIds = _tasks.GetTaskIdsWithSegmentsForRange(localToday, localToday.AddDays(1));
         }
 
-        var activePending = all.Where(t => t.Status != TaskStatus.Done && t.IsOperationallyVisible && TicketPendingState.IsActive(t, DateTime.UtcNow))
-            .OrderBy(t => t.TicketPendingUntilUtc).ToList();
+        var activePending = canApplyPendingFiltering
+            ? all.Where(t => t.Status != TaskStatus.Done && t.IsOperationallyVisible && TicketPendingState.IsActive(t, DateTime.UtcNow))
+                .OrderBy(t => t.TicketPendingUntilUtc).ToList()
+            : new List<TaskItem>();
         var displayZone = _germanTime.ResolveTimeZone(_settings.Current.CalendarTimeZoneId);
         foreach (var pendingTask in activePending)
         {
@@ -888,9 +896,14 @@ public class TodayViewModel : ObservableObject
         foreach (var pendingTask in activePending) PendingTicketTasks.Add(pendingTask);
         Raise(nameof(PendingTicketTabTitle));
         Raise(nameof(ShowPendingTicketTab));
-        var allActive = all.Where(t => t.Status != TaskStatus.Done && t.IsOperationallyVisible).ToList();
+        var allActive = all
+            .Where(t => t.Status != TaskStatus.Done)
+            .Where(t => t.IsOperationallyVisibleWithRemoteState(canTrustRemoteTicketState))
+            .ToList();
         var active = allActive
-            .Where(t => !_settings.Current.TicketSystemHidePendingTickets || !TicketPendingState.IsActive(t, DateTime.UtcNow)).ToList();
+            .Where(t => !canApplyPendingFiltering
+                        || !_settings.Current.TicketSystemHidePendingTickets
+                        || !TicketPendingState.IsActive(t, DateTime.UtcNow)).ToList();
         foreach (var task in active)
         {
             task.CurrentListBadgeText = task.Status == TaskStatus.Running
@@ -933,8 +946,28 @@ public class TodayViewModel : ObservableObject
         foreach (var t in done) CompletedTasks.Add(t);
 
         RefreshDisplayedTasks();
+        LogStartupTaskState(all, allActive, canTrustRemoteTicketState);
         _lastTodayVisibilityRefreshMinute = TruncateToMinute(now);
         RefreshTodayAgenda(todaySegments, now);
+    }
+
+    private void LogStartupTaskState(IReadOnlyCollection<TaskItem> all, IReadOnlyCollection<TaskItem> allActive, bool initialSyncCompleted)
+    {
+        if (initialSyncCompleted ? _postInitialSyncStateLogged : _startupLocalStateLogged)
+            return;
+
+        if (initialSyncCompleted)
+            _postInitialSyncStateLogged = true;
+        else
+            _startupLocalStateLogged = true;
+
+        var localZnuny = all.Where(task => task.IsZnunyTask).ToList();
+        ServiceLocator.Logger.Info(
+            $"[TodayStartup] localTaskCount={all.Count} localActiveCount={allActive.Count} " +
+            $"localZnunyCount={localZnuny.Count} localZnunyAssignedTrue={localZnuny.Count(task => task.IsZnunyAssigned)} " +
+            $"localZnunyAssignedFalse={localZnuny.Count(task => !task.IsZnunyAssigned)} " +
+            $"initialZnunySyncCompleted={initialSyncCompleted.ToString().ToLowerInvariant()} " +
+            $"displayedCurrentCount={_currentTasksWithoutToday.Count}");
     }
 
     private static void PopulateCurrentListDisplayValues(TaskItem task)

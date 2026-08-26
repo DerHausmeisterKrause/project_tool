@@ -27,7 +27,11 @@ public class MainViewModel : ObservableObject
         {
             if (Set(ref _selectedView, value))
             {
-                if (_selectedView is WeekViewModel)
+                if (_selectedView is TodayViewModel)
+                {
+                    TodayViewModel.Refresh();
+                }
+                else if (_selectedView is WeekViewModel)
                 {
                     _weekViewModel.Refresh();
                 }
