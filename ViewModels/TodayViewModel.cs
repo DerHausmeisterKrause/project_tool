@@ -853,6 +853,9 @@ public class TodayViewModel : ObservableObject
     private void ApplyTaskFilters()
     {
         var all = _tasks.GetAllTasks();
+        // Persisted pending metadata is deliberately not trusted during startup. Local
+        // tasks remain visible until the first successful Znuny sync has validated it.
+        var canApplyPendingFiltering = _ticketSystem.HasValidatedPendingData;
         var now = _germanTime.GetLocalNow(_settings.Current.CalendarTimeZoneId).DateTime;
         var taskIdsWithActiveOrFutureSegments = _tasks.GetTaskIdsWithActiveOrFutureSegments(now);
         var localToday = now.Date;
@@ -872,8 +875,10 @@ public class TodayViewModel : ObservableObject
             todayTaskIds = _tasks.GetTaskIdsWithSegmentsForRange(localToday, localToday.AddDays(1));
         }
 
-        var activePending = all.Where(t => t.Status != TaskStatus.Done && t.IsOperationallyVisible && TicketPendingState.IsActive(t, DateTime.UtcNow))
-            .OrderBy(t => t.TicketPendingUntilUtc).ToList();
+        var activePending = canApplyPendingFiltering
+            ? all.Where(t => t.Status != TaskStatus.Done && t.IsOperationallyVisible && TicketPendingState.IsActive(t, DateTime.UtcNow))
+                .OrderBy(t => t.TicketPendingUntilUtc).ToList()
+            : new List<TaskItem>();
         var displayZone = _germanTime.ResolveTimeZone(_settings.Current.CalendarTimeZoneId);
         foreach (var pendingTask in activePending)
         {
@@ -890,7 +895,9 @@ public class TodayViewModel : ObservableObject
         Raise(nameof(ShowPendingTicketTab));
         var allActive = all.Where(t => t.Status != TaskStatus.Done && t.IsOperationallyVisible).ToList();
         var active = allActive
-            .Where(t => !_settings.Current.TicketSystemHidePendingTickets || !TicketPendingState.IsActive(t, DateTime.UtcNow)).ToList();
+            .Where(t => !canApplyPendingFiltering
+                        || !_settings.Current.TicketSystemHidePendingTickets
+                        || !TicketPendingState.IsActive(t, DateTime.UtcNow)).ToList();
         foreach (var task in active)
         {
             task.CurrentListBadgeText = task.Status == TaskStatus.Running
