@@ -397,7 +397,7 @@
                 </Border>
 
                 <Border Style="{StaticResource CardStyle}"><StackPanel><TextBlock Text="Webseiten-Shortcuts" Style="{StaticResource SettingsCardTitleStyle}"/><ListBox ItemsSource="{Binding WebShortcuts}" SelectedItem="{Binding SelectedWebShortcut}" DisplayMemberPath="Name" MaxHeight="130"/><WrapPanel><Button Content="+ Webseite hinzufügen" Command="{Binding AddWebShortcutCommand}"/><Button Content="↑ Nach oben" Style="{StaticResource SecondaryButtonStyle}" Command="{Binding MoveWebShortcutUpCommand}"/><Button Content="↓ Nach unten" Style="{StaticResource SecondaryButtonStyle}" Command="{Binding MoveWebShortcutDownCommand}"/></WrapPanel>
-                    <Grid DataContext="{Binding SelectedWebShortcut}"><Grid.ColumnDefinitions><ColumnDefinition Width="240"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions><Grid.RowDefinitions><RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/></Grid.RowDefinitions>
+                    <Grid DataContext="{Binding SelectedWebShortcut}"><Grid.ColumnDefinitions><ColumnDefinition Width="240"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions><Grid.RowDefinitions><RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/></Grid.RowDefinitions>
                         <TextBlock Grid.Row="0" Text="Name" Style="{StaticResource SettingsLabelStyle}"/><TextBox Grid.Row="0" Grid.Column="1" Text="{Binding Name,UpdateSourceTrigger=PropertyChanged}" Style="{StaticResource SettingsTextBoxStyle}"/>
                         <TextBlock Grid.Row="1" Text="URL" Style="{StaticResource SettingsLabelStyle}"/><TextBox Grid.Row="1" Grid.Column="1" Text="{Binding Url,UpdateSourceTrigger=PropertyChanged}" Style="{StaticResource SettingsLongTextBoxStyle}"/>
                         <TextBlock Grid.Row="2" Text="Benutzer" Style="{StaticResource SettingsLabelStyle}"/><TextBox Grid.Row="2" Grid.Column="1" Text="{Binding Username,UpdateSourceTrigger=PropertyChanged}" Style="{StaticResource SettingsTextBoxStyle}"/>
@@ -406,6 +406,10 @@
                         <StackPanel Grid.Row="6" Grid.Column="1" Margin="0,4,0,8">
                             <CheckBox Content="CORS / Browser-Websecurity deaktivieren" IsChecked="{Binding DisableWebSecurity}"/>
                             <TextBlock Text="Nur aktivieren, wenn die eingebundene Webseite sonst wegen CORS nicht funktioniert. Diese Einstellung reduziert die Browser-Sicherheitsisolation für diesen Shortcut." TextWrapping="Wrap" Foreground="#FBBF24" FontSize="11" Margin="24,4,0,0"/>
+                        </StackPanel>
+                        <StackPanel Grid.Row="7" Grid.Column="1" Margin="0,0,0,8">
+                            <CheckBox Content="Unsichere HTTP-Inhalte auf HTTPS-Seiten erlauben" IsChecked="{Binding AllowInsecureContent}"/>
+                            <TextBlock Text="Nur verwenden, wenn eine HTTPS-Webseite Ressourcen oder APIs über HTTP aufruft." TextWrapping="Wrap" Foreground="#FBBF24" FontSize="11" Margin="24,4,0,0"/>
                         </StackPanel>
                     </Grid><WrapPanel><Button Content="Speichern" Command="{Binding SaveWebShortcutCommand}"/><Button Content="Entfernen" Style="{StaticResource SecondaryButtonStyle}" Command="{Binding RemoveWebShortcutCommand}"/></WrapPanel><TextBlock Text="{Binding WebShortcutStatus}" Foreground="#FBBF24" TextWrapping="Wrap"/></StackPanel></Border>
 

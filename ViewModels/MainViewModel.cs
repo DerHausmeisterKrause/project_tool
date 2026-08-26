@@ -123,6 +123,7 @@ public class MainViewModel : ObservableObject
     private void RefreshDynamicNavigation()
     {
         RefreshWikiNavigation();
+        ServiceLocator.WebShortcutBrowsers.Synchronize(ServiceLocator.Settings.Current.WebShortcuts);
         var selectedShortcut = SelectedView as WebShortcutViewModel;
         var existingById = _webShortcutViews.ToDictionary(x => x.ShortcutId, StringComparer.Ordinal);
         var desiredViews = new List<WebShortcutViewModel>();
