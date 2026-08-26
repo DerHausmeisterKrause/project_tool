@@ -41,19 +41,6 @@
                     </StackPanel>
                 </Border>
 
-                <Border Style="{StaticResource CardStyle}">
-                    <StackPanel>
-                        <TextBlock Text="Wartende Tickets" Style="{StaticResource SettingsCardTitleStyle}"/>
-                        <CheckBox Content="Wartende Tickets aus den normalen Aufgabenlisten ausblenden"
-                                  IsChecked="{Binding TicketSystemHidePendingTickets}" Margin="0,0,0,4"/>
-                        <TextBlock Text="Tickets mit aktivem Znuny-Wartestatus werden bis zum hinterlegten Wartezeitpunkt aus „Heute“ und „Aktuelle Aufgaben“ ausgeblendet. Nach Ablauf werden sie erneut geprüft und wieder eingeblendet."
-                                   Style="{StaticResource SettingsHelpStyle}" Margin="24,0,0,10"/>
-                        <CheckBox Content="Bei Ablauf der Wartezeit benachrichtigen"
-                                  IsChecked="{Binding TicketSystemNotifyPendingTickets}" Margin="0,0,0,4"/>
-                        <TextBlock Text="Zeigt eine Benachrichtigung, sobald ein wartendes Ticket nach erneuter Prüfung wieder aktiv wird."
-                                   Style="{StaticResource SettingsHelpStyle}" Margin="24,0,0,0"/>
-                    </StackPanel>
-                </Border>
 
                 <!-- 8. Znuny synchronization -->
                 <Border Style="{StaticResource CardStyle}">

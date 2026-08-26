@@ -32,7 +32,6 @@ public class TodayViewModel : ObservableObject
     private readonly ObservableCollection<TaskItem> _currentTasksWithoutToday = new();
     public ObservableCollection<TaskItem> DisplayedTasks { get; } = new();
     public ObservableCollection<TaskItem> CompletedTasks { get; } = new();
-    public ObservableCollection<TaskItem> PendingTicketTasks { get; } = new();
     public ObservableCollection<TodayAgendaItem> TodayAgendaItems { get; } = new();
     public ObservableCollection<ZnunyCandidateTicket> NewTaskCandidates { get; } = new();
     public ObservableCollection<BreakEditRow> BreakRows { get; } = new();
@@ -124,7 +123,6 @@ public class TodayViewModel : ObservableObject
                 Raise(nameof(ShowCurrentTaskList));
                 Raise(nameof(ShowCompletedTaskList));
                 Raise(nameof(ShowCandidateTickets));
-                Raise(nameof(ShowPendingTicketTasks));
                 Raise(nameof(ShowCandidateHint));
                 Raise(nameof(CandidateHint));
                 Raise(nameof(ActiveTaskListHeading));
@@ -132,15 +130,12 @@ public class TodayViewModel : ObservableObject
         }
     }
 
-    public bool ShowActiveTaskList => SelectedTaskScope is TodayTaskScope.Today or TodayTaskScope.Current or TodayTaskScope.PendingTickets;
-    public bool ShowActiveOrPendingTaskList => SelectedTaskScope is TodayTaskScope.Current or TodayTaskScope.PendingTickets;
+    public bool ShowActiveTaskList => SelectedTaskScope is TodayTaskScope.Today or TodayTaskScope.Current;
+    public bool ShowCurrentTaskListContent => SelectedTaskScope == TodayTaskScope.Current;
     public bool ShowTodayAgenda => SelectedTaskScope == TodayTaskScope.Today;
     public bool ShowCurrentTaskList => SelectedTaskScope == TodayTaskScope.Current;
     public bool ShowCompletedTaskList => SelectedTaskScope == TodayTaskScope.Completed;
     public bool ShowCandidateTickets => SelectedTaskScope == TodayTaskScope.CandidateTickets;
-    public bool ShowPendingTicketTasks => SelectedTaskScope == TodayTaskScope.PendingTickets;
-    public bool ShowPendingTicketTab => _settings.Current.TicketSystemHidePendingTickets;
-    public string PendingTicketTabTitle => $"Wartend ({PendingTicketTasks.Count})";
     public string CandidateTabTitle => $"Neue Aufgaben ({NewTaskCandidates.Count})";
     public bool ShowCandidateHint => ShowCandidateTickets && NewTaskCandidates.Count == 0 && !_ticketSystem.IsCandidateRefreshRunning;
     public bool ShowCandidateStatus => ShowCandidateTickets && _ticketSystem.IsCandidateRefreshRunning;
@@ -150,7 +145,7 @@ public class TodayViewModel : ObservableObject
         : string.IsNullOrWhiteSpace(_settings.Current.TicketSystemCandidateKeywords)
             ? "Keine Schlüsselwörter konfiguriert. Bitte in den Einstellungen mindestens ein Schlüsselwort hinterlegen."
             : "Keine passenden neuen Aufgaben gefunden.";
-    public string ActiveTaskListHeading => SelectedTaskScope switch { TodayTaskScope.Today => "Heute:", TodayTaskScope.PendingTickets => "Wartende Tickets:", _ => "Aktuelle Aufgaben:" };
+    public string ActiveTaskListHeading => SelectedTaskScope == TodayTaskScope.Today ? "Heute:" : "Aktuelle Aufgaben:";
 
     private bool _isCandidateAssignmentRunning;
     public bool IsCandidateAssignmentRunning
@@ -471,7 +466,6 @@ public class TodayViewModel : ObservableObject
     public RelayCommand ShowCurrentTasksCommand { get; }
     public RelayCommand ShowNewTasksCommand { get; }
     public RelayCommand ShowCompletedTasksCommand { get; }
-    public RelayCommand ShowPendingTicketTasksCommand { get; }
     public RelayCommand RefreshCandidateTicketsCommand { get; }
     public RelayCommand<ZnunyCandidateTicket> AssignCandidateToMeCommand { get; }
     public RelayCommand CreateTicketFromLocalTaskCommand { get; }
@@ -553,7 +547,6 @@ public class TodayViewModel : ObservableObject
         ShowCurrentTasksCommand = new RelayCommand(() => SelectedTaskScope = TodayTaskScope.Current);
         ShowNewTasksCommand = new RelayCommand(() => SelectedTaskScope = TodayTaskScope.CandidateTickets);
         ShowCompletedTasksCommand = new RelayCommand(() => SelectedTaskScope = TodayTaskScope.Completed);
-        ShowPendingTicketTasksCommand = new RelayCommand(() => SelectedTaskScope = TodayTaskScope.PendingTickets);
         RefreshCandidateTicketsCommand = new RelayCommand(async () => await _ticketSystem.RefreshCandidateTicketsAsync());
         AssignCandidateToMeCommand = new RelayCommand<ZnunyCandidateTicket>(
             async candidate => await AssignCandidateToMeAsync(candidate),
@@ -779,6 +772,7 @@ public class TodayViewModel : ObservableObject
             {
                 Start = slotStart,
                 End = slotEnd,
+                IsUnknown = !hasData,
                 IsBusy = blockingEvents.Any(appointment => appointment.StartLocal < slotEnd && appointment.EndLocal > slotStart)
             });
         }
@@ -798,8 +792,6 @@ public class TodayViewModel : ObservableObject
     private void OnSettingsChanged()
     {
         _ = RefreshSegmentAvailabilityAsync();
-        if (!_settings.Current.TicketSystemHidePendingTickets && SelectedTaskScope == TodayTaskScope.PendingTickets)
-            SelectedTaskScope = TodayTaskScope.Current;
         var hidePastTodayItems = _settings.Current.HidePastTodayItems;
         if (hidePastTodayItems != _lastHidePastTodayItems)
         {
@@ -872,25 +864,8 @@ public class TodayViewModel : ObservableObject
             todayTaskIds = _tasks.GetTaskIdsWithSegmentsForRange(localToday, localToday.AddDays(1));
         }
 
-        var activePending = all.Where(t => t.Status != TaskStatus.Done && t.IsOperationallyVisible && TicketPendingState.IsActive(t, DateTime.UtcNow))
-            .OrderBy(t => t.TicketPendingUntilUtc).ToList();
-        var displayZone = _germanTime.ResolveTimeZone(_settings.Current.CalendarTimeZoneId);
-        foreach (var pendingTask in activePending)
-        {
-            var localUntil = TimeZoneInfo.ConvertTimeFromUtc(pendingTask.TicketPendingUntilUtc!.Value, displayZone);
-            pendingTask.TicketPendingDisplayText = localUntil.Date == now.Date
-                ? $"Wartet bis {localUntil:HH:mm}"
-                : localUntil.Date == now.Date.AddDays(1)
-                    ? $"Wartet bis morgen {localUntil:HH:mm}"
-                    : $"Wartet bis {localUntil:dd.MM.yyyy HH:mm}";
-        }
-        PendingTicketTasks.Clear();
-        foreach (var pendingTask in activePending) PendingTicketTasks.Add(pendingTask);
-        Raise(nameof(PendingTicketTabTitle));
-        Raise(nameof(ShowPendingTicketTab));
         var allActive = all.Where(t => t.Status != TaskStatus.Done && t.IsOperationallyVisible).ToList();
-        var active = allActive
-            .Where(t => !_settings.Current.TicketSystemHidePendingTickets || !TicketPendingState.IsActive(t, DateTime.UtcNow)).ToList();
+        var active = allActive.ToList();
         foreach (var task in active)
         {
             task.CurrentListBadgeText = task.Status == TaskStatus.Running
@@ -1068,7 +1043,7 @@ public class TodayViewModel : ObservableObject
     private void RefreshDisplayedTasks()
     {
         DisplayedTasks.Clear();
-        var source = SelectedTaskScope switch { TodayTaskScope.Today => TodayTasks, TodayTaskScope.PendingTickets => PendingTicketTasks, _ => _currentTasksWithoutToday };
+        var source = SelectedTaskScope == TodayTaskScope.Today ? TodayTasks : _currentTasksWithoutToday;
         IEnumerable<TaskItem> ordered = source;
         if (SelectedTaskScope == TodayTaskScope.Current)
         {
@@ -1890,7 +1865,6 @@ public enum TodayTaskScope
     Today,
     Current,
     CandidateTickets,
-    PendingTickets,
     Completed
 }
 

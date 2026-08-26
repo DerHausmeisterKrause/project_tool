@@ -70,8 +70,8 @@ public class TaskService
         using var conn = new SqliteConnection(_db.ConnectionString);
         conn.Open();
         using var cmd = conn.CreateCommand();
-        cmd.CommandText = @"INSERT INTO tasks (id,title,description,ticket_url,start_local,end_local,status,priority,tags,outlook_entry_id,ticket_minutes_booked,ticket_seconds_booked,is_pinned,is_znuny_assigned,created_utc,updated_utc,ticket_created_utc,ticket_changed_utc,local_activity_utc,ticket_state,ticket_state_type,ticket_pending_until_utc,pending_wake_handled_for_utc,pending_wake_notification_for_utc)
-VALUES ($id,$title,$desc,$url,$start,$end,$status,$priority,$tags,$entry,$ticket,$ticketSeconds,$pinned,$znunyAssigned,$created,$updated,$ticketCreated,$ticketChanged,$localActivity,$ticketState,$ticketStateType,$ticketPendingUntil,$pendingWakeHandledFor,$pendingWakeNotifiedFor)";
+        cmd.CommandText = @"INSERT INTO tasks (id,title,description,ticket_url,start_local,end_local,status,priority,tags,outlook_entry_id,ticket_minutes_booked,ticket_seconds_booked,is_pinned,is_znuny_assigned,created_utc,updated_utc,ticket_created_utc,ticket_changed_utc,local_activity_utc,ticket_state,ticket_state_type)
+VALUES ($id,$title,$desc,$url,$start,$end,$status,$priority,$tags,$entry,$ticket,$ticketSeconds,$pinned,$znunyAssigned,$created,$updated,$ticketCreated,$ticketChanged,$localActivity,$ticketState,$ticketStateType)";
         BindTask(cmd, task);
         cmd.ExecuteNonQuery();
         return task;
@@ -85,7 +85,7 @@ VALUES ($id,$title,$desc,$url,$start,$end,$status,$priority,$tags,$entry,$ticket
         using var conn = new SqliteConnection(_db.ConnectionString);
         conn.Open();
         using var cmd = conn.CreateCommand();
-        cmd.CommandText = @"UPDATE tasks SET title=$title,description=$desc,ticket_url=$url,start_local=$start,end_local=$end,status=$status,priority=$priority,tags=$tags,outlook_entry_id=$entry,ticket_minutes_booked=$ticket,ticket_seconds_booked=$ticketSeconds,is_pinned=$pinned,is_znuny_assigned=$znunyAssigned,updated_utc=$updated,ticket_created_utc=$ticketCreated,ticket_changed_utc=$ticketChanged,local_activity_utc=$localActivity,ticket_state=$ticketState,ticket_state_type=$ticketStateType,ticket_pending_until_utc=$ticketPendingUntil,pending_wake_handled_for_utc=$pendingWakeHandledFor,pending_wake_notification_for_utc=$pendingWakeNotifiedFor WHERE id=$id";
+        cmd.CommandText = @"UPDATE tasks SET title=$title,description=$desc,ticket_url=$url,start_local=$start,end_local=$end,status=$status,priority=$priority,tags=$tags,outlook_entry_id=$entry,ticket_minutes_booked=$ticket,ticket_seconds_booked=$ticketSeconds,is_pinned=$pinned,is_znuny_assigned=$znunyAssigned,updated_utc=$updated,ticket_created_utc=$ticketCreated,ticket_changed_utc=$ticketChanged,local_activity_utc=$localActivity,ticket_state=$ticketState,ticket_state_type=$ticketStateType WHERE id=$id";
         BindTask(cmd, task);
         cmd.ExecuteNonQuery();
     }
@@ -99,25 +99,6 @@ VALUES ($id,$title,$desc,$url,$start,$end,$status,$priority,$tags,$entry,$ticket
         cmd.Parameters.AddWithValue("$activity", DateTime.UtcNow.ToString("O"));
         cmd.Parameters.AddWithValue("$id", taskId.ToString());
         cmd.ExecuteNonQuery();
-    }
-
-    public bool TryClaimPendingWake(Guid taskId, DateTime wakeForUtc, bool notificationPlanned)
-    {
-        var normalized = TicketPendingState.NormalizePendingUtc(wakeForUtc).ToString("O");
-        using var conn = new SqliteConnection(_db.ConnectionString);
-        conn.Open();
-        using var cmd = conn.CreateCommand();
-        cmd.CommandText = @"UPDATE tasks
-SET pending_wake_handled_for_utc=$wake,
-    pending_wake_notification_for_utc=CASE WHEN $notify=1 THEN $wake ELSE pending_wake_notification_for_utc END
-WHERE id=$id
-  AND (pending_wake_handled_for_utc IS NULL
-       OR strftime('%s', pending_wake_handled_for_utc) IS NULL
-       OR strftime('%s', pending_wake_handled_for_utc) <> strftime('%s', $wake))";
-        cmd.Parameters.AddWithValue("$wake", normalized);
-        cmd.Parameters.AddWithValue("$notify", notificationPlanned ? 1 : 0);
-        cmd.Parameters.AddWithValue("$id", taskId.ToString());
-        return cmd.ExecuteNonQuery() == 1;
     }
 
     public void DeleteTask(TaskItem task)
@@ -775,11 +756,8 @@ WHERE datetime(end_local) > datetime($now)";
             TicketChangedUtc = ParseNullableDateTime(reader["ticket_changed_utc"]),
             LocalActivityUtc = ParseNullableDateTime(reader["local_activity_utc"])
                                ?? ParseRequiredDateTime(reader["created_utc"].ToString()),
-            TicketState = reader["ticket_state"]?.ToString() ?? string.Empty,
-            TicketStateType = reader["ticket_state_type"]?.ToString() ?? string.Empty,
-            TicketPendingUntilUtc = ParseNullableDateTime(reader["ticket_pending_until_utc"]),
-            PendingWakeHandledForUtc = ParseNullableDateTime(reader["pending_wake_handled_for_utc"]),
-            PendingWakeNotificationForUtc = ParseNullableDateTime(reader["pending_wake_notification_for_utc"])
+            TicketState = reader["ticket_state"]?.ToString() ?? string.Empty ,
+            TicketStateType = reader["ticket_state_type"]?.ToString() ?? string.Empty
         };
     }
 
@@ -826,8 +804,5 @@ WHERE datetime(end_local) > datetime($now)";
         cmd.Parameters.AddWithValue("$localActivity", task.LocalActivityUtc.ToString("O"));
         cmd.Parameters.AddWithValue("$ticketState", task.TicketState);
         cmd.Parameters.AddWithValue("$ticketStateType", task.TicketStateType);
-        cmd.Parameters.AddWithValue("$ticketPendingUntil", task.TicketPendingUntilUtc?.ToUniversalTime().ToString("O") ?? (object)DBNull.Value);
-        cmd.Parameters.AddWithValue("$pendingWakeHandledFor", task.PendingWakeHandledForUtc?.ToUniversalTime().ToString("O") ?? (object)DBNull.Value);
-        cmd.Parameters.AddWithValue("$pendingWakeNotifiedFor", task.PendingWakeNotificationForUtc?.ToUniversalTime().ToString("O") ?? (object)DBNull.Value);
     }
 }

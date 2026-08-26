@@ -41,7 +41,7 @@ public sealed class SegmentAvailabilityBar : FrameworkElement
 
         for (var i = 0; i < slotCount; i++)
         {
-            var brush = HasCalendarData && i < slots.Length
+            var brush = HasCalendarData && i < slots.Length && !slots[i].IsUnknown
                 ? (slots[i].IsBusy ? BusyBrush : FreeBrush)
                 : UnknownBrush;
             var rect = new Rect(i * slotWidth, barTop, slotWidth, barHeight);
