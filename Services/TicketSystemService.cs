@@ -52,6 +52,7 @@ public class TicketSystemService : IDisposable
     public IReadOnlyList<ZnunyCandidateTicket> CurrentCandidateTickets => _candidateTickets;
     public string CandidateTicketsError { get; private set; } = string.Empty;
     public bool IsCandidateRefreshRunning { get; private set; }
+    public bool HasValidatedPendingData => _initialAssignedTicketSyncCompleted;
 
     private const int MaxIndividualAssignmentNotifications = 5;
 
@@ -1086,8 +1087,6 @@ public class TicketSystemService : IDisposable
         finally
         {
             _syncGate.Release();
-            if (hasTaskChanges)
-                NotifyTasksChanged();
             if (syncSucceeded)
             {
                 _validatedPendingTicketIds.Clear();
@@ -1100,11 +1099,18 @@ public class TicketSystemService : IDisposable
                     _logger.Info($"[ZnunyPending] action=initial-baseline-completed validatedTickets={validatedPendingTicketIds.Count} notifications=0");
                 }
                 ScheduleNextPendingWake();
+                // Publish only after the validation baseline is visible. The Today view can
+                // now atomically rebuild its local lists using the freshly validated state.
+                NotifyTasksChanged();
             }
             else if (!_initialAssignedTicketSyncCompleted)
             {
                 _pendingWakeTimer.Change(Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
                 _logger.Warning("[ZnunyPendingSafety] action=scheduler-disabled reason=initial-sync-not-successful");
+            }
+            else if (hasTaskChanges)
+            {
+                NotifyTasksChanged();
             }
         }
     }
