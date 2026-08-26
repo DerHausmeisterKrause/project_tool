@@ -19,7 +19,8 @@ public class SettingsService
         SegmentDuration = 4,
         LogLevel = 8,
         TicketCreateRoute = 16,
-        WebShortcutOrder = 32
+        WebShortcutOrder = 32,
+        SilentUpdateDisabled = 64
     }
 
     private readonly LoggerService _logger;
@@ -78,11 +79,20 @@ public class SettingsService
             _logger.Info($"[SettingsMigration] InstalledVersion missing initializedVersion={AppSettings.InitialInstalledVersion}");
         if (changes.HasFlag(NormalizationChanges.WebShortcutOrder))
             _logger.Info("[SettingsMigration] WebShortcut SortOrder normalized=true");
+        if (changes.HasFlag(NormalizationChanges.SilentUpdateDisabled))
+            _logger.Info("[SettingsMigration] AutoInstallUpdatesOnStartup normalized=false reason=ExplicitConfirmationRequired");
     }
 
     private static NormalizationChanges Normalize(AppSettings settings)
     {
+        // Versions before the confirmation dialog persisted this as true. Never carry that
+        // legacy consent forward: every installation now requires an explicit user action.
         var changes = NormalizationChanges.None;
+        if (settings.AutoInstallUpdatesOnStartup)
+        {
+            settings.AutoInstallUpdatesOnStartup = false;
+            changes |= NormalizationChanges.SilentUpdateDisabled;
+        }
         if (!Enum.TryParse<AppLogLevel>(settings.LogLevel, true, out var logLevel) || !Enum.IsDefined(logLevel))
         {
             settings.LogLevel = nameof(AppLogLevel.Warning);

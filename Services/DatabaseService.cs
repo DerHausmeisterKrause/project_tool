@@ -57,10 +57,11 @@ CREATE TABLE IF NOT EXISTS schema_version (
             MigrateToV14(conn);
             MigrateToV15(conn);
             MigrateToV16(conn);
+            MigrateToV17(conn);
 
-            if (currentVersion < 16)
+            if (currentVersion < 17)
             {
-                SetVersion(conn, 16);
+                SetVersion(conn, 17);
             }
         }
         catch (Exception ex)
@@ -278,6 +279,15 @@ CREATE TABLE IF NOT EXISTS wiki_vocabulary_state (
  updated_utc TEXT NULL, status TEXT NOT NULL DEFAULT '', error TEXT NOT NULL DEFAULT '',
  PRIMARY KEY(source_id, scope_fingerprint));
 CREATE VIRTUAL TABLE IF NOT EXISTS wiki_vocabulary_fts USING fts5(source_id UNINDEXED, scope_fingerprint UNINDEXED, external_id UNINDEXED, title, normalized_title, tokenize='unicode61 remove_diacritics 2');");
+    }
+
+    private static void MigrateToV17(SqliteConnection conn)
+    {
+        EnsureColumn(conn, "tasks", "ticket_state", "TEXT NOT NULL DEFAULT ''");
+        EnsureColumn(conn, "tasks", "ticket_state_type", "TEXT NOT NULL DEFAULT ''");
+        EnsureColumn(conn, "tasks", "ticket_pending_until_utc", "TEXT NULL");
+        EnsureColumn(conn, "tasks", "pending_wake_notification_for_utc", "TEXT NULL");
+        Exec(conn, "CREATE INDEX IF NOT EXISTS idx_tasks_ticket_pending_until ON tasks(ticket_pending_until_utc) WHERE ticket_pending_until_utc IS NOT NULL;");
     }
 
     private static void EnsureColumn(SqliteConnection conn, string table, string column, string definition)

@@ -13,7 +13,8 @@ public class AppSettings
     public string LogLevel { get; set; } = "Warning";
     public bool NotificationSoundEnabled { get; set; } = true;
     public bool CheckForUpdatesOnStartup { get; set; } = true;
-    public bool AutoInstallUpdatesOnStartup { get; set; } = true;
+    // Retained for old settings.json files only; silent installation is never authorized by this value.
+    public bool AutoInstallUpdatesOnStartup { get; set; } = false;
     public string UpdateChannel { get; set; } = "Stable";
     public string InstalledVersion { get; set; } = string.Empty;
     public string CurrentTasksSortField { get; set; } = "Updated";
@@ -48,6 +49,8 @@ public class AppSettings
     public string TicketSystemPassword { get; set; } = string.Empty;
     public int TicketSystemAgentId { get; set; } = 0;
     public int TicketSystemCandidateUserId { get; set; } = 1;
+    public bool TicketSystemHidePendingTickets { get; set; } = false;
+    public bool TicketSystemNotifyPendingTickets { get; set; } = true;
     public string TicketSystemCandidateKeywords { get; set; } = string.Empty;
     public string TicketSystemCandidateExcludeKeywords { get; set; } = string.Empty;
     public string TicketSystemTicketSearchRoute { get; set; } = "/Ticket";

@@ -4,6 +4,42 @@ Lokale Aufgaben- und Zeitverwaltungs-App mit SQLite und Outlook Busy-Blocker via
 
 ## Release Notes
 
+### Updates
+
+- Automatische Updateprüfungen beim Start bleiben erhalten, installieren Updates aber niemals mehr still
+- Ein neuer Plenaro-Dialog zeigt installierte und verfügbare Version sowie einen klaren Neustart-Hinweis
+- Benutzer können zwischen „Jetzt installieren“ und „Später“ wählen
+- Zurückgestellte Updates bleiben im Update-Banner und unter Einstellungen → Updates verfügbar
+- Derselbe Dialog erscheint pro App-Sitzung nur einmal; stündliche Prüfungen aktualisieren ausschließlich den Banner
+- Alte `AutoInstallUpdatesOnStartup`-Werte werden sicher deaktiviert
+- Stable-/Testkanäle, SemVer-Auswahl, SHA-Prüfung, Rollback und Update-Replacement bleiben unverändert
+
+### Wartende Znuny-Tickets
+
+- Wartende Znuny-/OTRS-Tickets mit `pending reminder` oder `pending auto` können optional aus „Heute“ und „Aktuelle Aufgaben“ ausgeblendet werden
+- Neue Ansicht „Wartend“ und neue Einstellungen unter **Ticketsystem → Wartende Tickets**
+- Znuny-Wartezeiten werden lokal gespeichert und nach einem Neustart unmittelbar nachgeprüft
+- Ein lokaler Einzeltimer plant jeweils den nächsten Wartetermin und führt danach ein gezieltes TicketGet aus
+- Verlängerte Wartezeiten werden neu eingeplant; geschlossene oder anders zugewiesene Tickets erzeugen keine Benachrichtigung
+- Wake-Benachrichtigungen werden pro Wartetermin persistent dedupliziert und bei vielen gleichzeitig fälligen Tickets zusammengefasst
+
+### Einstellungen
+
+- Einstellungsbereich mit einem dauerhaft sichtbaren horizontalen Menüband neu strukturiert
+- Kategorien für Allgemein, Aufgaben & Zeiten, Outlook, Homeoffice, Ticketsystem, Wiki, Favoriten und Updates eingeführt
+- Nur die aktive Kategorie wird geladen und in thematisch gruppierten Cards dargestellt
+- Webseiten-Shortcuts werden in den Einstellungen konsistent als Favoriten bezeichnet
+- Update-Hinweise öffnen direkt die Update-Kategorie
+- Bestehende Bindings, verschlüsselte Zugangsdaten, Wiki-Quellen und Favoriten-Sortierung bleiben erhalten
+- Responsive Navigation, begrenzte Inhaltsbreite und unabhängiges Scrollen der aktiven Kategorie verbessern die Nutzung bei unterschiedlichen Fenstergrößen und DPI-Skalierungen
+
+### Segmentplanung
+
+- Neue visuelle Tages-Verfügbarkeitsanzeige von 06:00 bis 18:00 mit 48 proportionalen 15-Minuten-Segmenten
+- Freie Zeiträume werden grün, durch Outlook-Termine belegte Zeiträume rot und nicht verfügbare Kalenderdaten neutral dargestellt
+- Die Anzeige folgt dem ausgewählten Segmentdatum und aktualisiert sich nach Outlook-Synchronisationen automatisch
+- Abgesagte, als frei markierte und ganztägige Termine blockieren die Anzeige nicht
+
 **Plenaro 2.1.0**
 
 - Neue Ausschlusswörter für „Neue Aufgaben“
