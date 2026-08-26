@@ -1118,7 +1118,7 @@ public class TicketSystemService : IDisposable
             var until = TicketPendingState.NormalizePendingUtc(task.TicketPendingUntilUtc!.Value);
             var ticketId = ExtractZnunyTicketIdFromTask(task);
             var key = TicketPendingState.CreateWakeKey(ticketId, until);
-            if (_tasks.TryClaimPendingWake(task.Id, until, notify: false))
+            if (_tasks.TryClaimPendingWake(task.Id, until, notificationPlanned: false))
             {
                 task.PendingWakeHandledForUtc = until;
                 _pendingWakeHandledThisSession.TryAdd(key, 0);

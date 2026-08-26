@@ -1,3 +1,10 @@
+# Plenaro V2.2.4
+
+## Bugfixes
+
+- Buildfehler in der Verarbeitung wartender Znuny-Tickets behoben.
+- Falsch benannter Parameter beim Speichern verarbeiteter Wartetermine korrigiert.
+
 # Plenaro V2.2.3
 
 ## Wartende Znuny-Tickets
