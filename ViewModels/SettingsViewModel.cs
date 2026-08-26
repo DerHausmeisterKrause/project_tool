@@ -10,6 +10,7 @@ using System.Windows.Threading;
 using TaskTool.Infrastructure;
 using TaskTool.Models;
 using TaskTool.Services;
+using TaskTool.Views;
 
 namespace TaskTool.ViewModels;
 
@@ -78,13 +79,13 @@ public class SettingsViewModel : ObservableObject
     public RelayCommand RefreshWikiIndexCommand { get; }
     public string WikiIndexStatus => SelectedWikiSource == null ? "Kein Wiki ausgewählt." : FormatWikiIndexStatus(SelectedWikiSource.ToModel());
     private readonly SemaphoreSlim _updateCheckGate = new(1, 1);
+    private bool _startupUpdatePromptShown;
     public string Title => "Einstellungen";
     public string InstalledVersion => ServiceLocator.AppVersion.InstalledVersionText;
     public string UpdateChannel { get => _settings.Current.UpdateChannel; set { var normalized = value is "Test" or "Testversionen" or "PreRelease" or "Pre-Release / Tester" ? "Test" : "Stable"; if (_settings.Current.UpdateChannel == normalized) return; _settings.Current.UpdateChannel = normalized; Save(); Raise(); Raise(nameof(IsTestChannel)); _ = CheckForUpdatesAsync(false); } }
     public bool IsTestChannel => UpdateChannel is "Test" or "PreRelease";
     public IReadOnlyList<WikiChoice> UpdateChannels { get; } = new[] { new WikiChoice("Stable", "Stable"), new WikiChoice("Test", "Testversionen") };
     public bool CheckForUpdatesOnStartup { get => _settings.Current.CheckForUpdatesOnStartup; set { _settings.Current.CheckForUpdatesOnStartup = value; Save(); } }
-    public bool AutoInstallUpdatesOnStartup { get => _settings.Current.AutoInstallUpdatesOnStartup; set { _settings.Current.AutoInstallUpdatesOnStartup = value; Save(); } }
     public string LogLevel { get => _settings.Current.LogLevel; set { _settings.Current.LogLevel = value; Save(); } }
     public bool NotificationSoundEnabled { get => _settings.Current.NotificationSoundEnabled; set { _settings.Current.NotificationSoundEnabled = value; Save(); } }
     private UpdateState _updateState = UpdateState.Idle;
@@ -277,10 +278,37 @@ public class SettingsViewModel : ObservableObject
             return;
         }
         if (CurrentUpdateState != UpdateState.UpdateAvailable || _availableUpdate == null) return;
-        ServiceLocator.Logger.Info($"[StartupUpdate] installedVersion={InstalledVersion} remoteVersion={_availableUpdate.Version} updateAvailable=true");
-        ServiceLocator.Logger.Info($"[StartupUpdate] autoInstall={AutoInstallUpdatesOnStartup.ToString().ToLowerInvariant()}");
-        if (!AutoInstallUpdatesOnStartup) return;
-        await InstallUpdateAsync(true);
+        if (_startupUpdatePromptShown) return;
+        _startupUpdatePromptShown = true;
+        var remoteVersion = _availableUpdate.Version.ToString();
+        ServiceLocator.Logger.Info($"[StartupUpdate] installedVersion={InstalledVersion} remoteVersion={remoteVersion} updateAvailable=true action=prompt");
+
+        var application = Application.Current;
+        var owner = application?.MainWindow;
+        if (application == null || owner == null)
+        {
+            ServiceLocator.Logger.Warning($"[StartupUpdate] remoteVersion={remoteVersion} action=prompt-skipped reason=MainWindowUnavailable");
+            return;
+        }
+
+        var accepted = await owner.Dispatcher.InvokeAsync(() =>
+        {
+            var dialog = new UpdateAvailableDialog(InstalledVersion, remoteVersion, ReleaseNotes) { Owner = owner };
+            return dialog.ShowDialog() == true;
+        });
+        if (!accepted)
+        {
+            ServiceLocator.Logger.Info($"[StartupUpdate] remoteVersion={remoteVersion} action=deferred");
+            return;
+        }
+
+        ServiceLocator.Logger.Info($"[StartupUpdate] remoteVersion={remoteVersion} action=accepted");
+        if (!await InstallUpdateAsync(true))
+        {
+            MessageBox.Show(owner,
+                "Update konnte nicht installiert werden. Bitte versuchen Sie es später erneut.",
+                "Plenaro Update", MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
     }
 
     public void RefreshInstalledVersion() => Raise(nameof(InstalledVersion));
@@ -347,15 +375,15 @@ public class SettingsViewModel : ObservableObject
         Raise(nameof(UpdateBannerText));
     }
 
-    private Task InstallUpdateAsync() => InstallUpdateAsync(false);
+    private Task<bool> InstallUpdateAsync() => InstallUpdateAsync(false);
 
-    private async Task InstallUpdateAsync(bool startupAutomatic)
+    private async Task<bool> InstallUpdateAsync(bool startupConfirmed)
     {
-        if (_availableUpdate == null) return;
+        if (_availableUpdate == null) return false;
         try
         {
             CurrentUpdateState = UpdateState.Downloading; UpdateStatus = "Update wird heruntergeladen ...";
-            if (startupAutomatic) ServiceLocator.Logger.Info("[StartupUpdate] downloadStarted=true");
+            if (startupConfirmed) ServiceLocator.Logger.Info("[StartupUpdate] downloadStarted=true");
             var progress = new Progress<int>(value => { UpdateProgress = value; UpdateStatus = $"Update wird heruntergeladen ... {value} %"; });
             var path = await _updates.DownloadUpdateAsync(_availableUpdate, progress);
             CurrentUpdateState = UpdateState.ReadyToInstall;
@@ -363,20 +391,22 @@ public class SettingsViewModel : ObservableObject
             {
                 CurrentUpdateState = UpdateState.Failed;
                 UpdateStatus = error;
-                if (startupAutomatic) ServiceLocator.Logger.Error($"[StartupUpdate] failed='{error}'");
-                return;
+                if (startupConfirmed) ServiceLocator.Logger.Error($"[StartupUpdate] failed='{error}'");
+                return false;
             }
-            if (startupAutomatic) ServiceLocator.Logger.Info("[StartupUpdate] installPrepared=true");
-            CurrentUpdateState = UpdateState.Installing; UpdateStatus = "Update wird installiert ...";
+            if (startupConfirmed) ServiceLocator.Logger.Info("[StartupUpdate] installPrepared=true");
+            CurrentUpdateState = UpdateState.Installing;
+            UpdateStatus = "Update wird installiert. Plenaro wird jetzt neu gestartet …";
             Application.Current.Shutdown();
+            return true;
         }
         catch (Exception ex)
         {
             CurrentUpdateState = UpdateState.Failed;
             UpdateStatus = $"Update fehlgeschlagen: {ex.Message}";
-            if (startupAutomatic) ServiceLocator.Logger.Error($"[StartupUpdate] failed='{ex.Message}'");
+            if (startupConfirmed) ServiceLocator.Logger.Error($"[StartupUpdate] failed='{ex.Message}'");
+            return false;
         }
-        RaiseUpdateCommands();
     }
 
     private void RaiseUpdateCommands()

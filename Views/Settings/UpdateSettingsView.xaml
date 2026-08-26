@@ -31,7 +31,8 @@
                         </Grid>
                         <TextBlock Text="Stable erhält nur Versionen ohne Test-Suffix. Testversionen erhält zusätzlich Alpha-, Beta- und RC-Versionen." Style="{StaticResource SettingsHelpStyle}"/><TextBlock Text="Testversionen können noch Fehler enthalten." Foreground="#FBBF24" Visibility="{Binding IsTestChannel, Converter={StaticResource BooleanToVisibilityConverter}}" Margin="0,0,0,8"/>
                         <CheckBox Content="Beim Start automatisch nach Updates suchen" IsChecked="{Binding CheckForUpdatesOnStartup}" Margin="0,0,0,8"/>
-                        <CheckBox Content="Verfügbare Updates beim Start automatisch installieren" IsChecked="{Binding AutoInstallUpdatesOnStartup}" Margin="0,0,0,8"/>
+                        <TextBlock Text="Wenn beim Start eine neue Version gefunden wird, fragt Plenaro vor der Installation nach. Updates werden niemals still installiert."
+                                   Style="{StaticResource SettingsHelpStyle}" Margin="24,0,0,8"/>
                         <ProgressBar Minimum="0" Maximum="100" Value="{Binding UpdateProgress}" Height="8" Margin="0,0,0,6"/>
                         <TextBlock Text="{Binding UpdateStatus}" Foreground="#FBBF24" TextWrapping="Wrap"/>
                         <TextBlock Text="Release Notes" FontWeight="SemiBold" Margin="0,10,0,4"/>

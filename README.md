@@ -4,6 +4,16 @@ Lokale Aufgaben- und Zeitverwaltungs-App mit SQLite und Outlook Busy-Blocker via
 
 ## Release Notes
 
+### Updates
+
+- Automatische Updateprüfungen beim Start bleiben erhalten, installieren Updates aber niemals mehr still
+- Ein neuer Plenaro-Dialog zeigt installierte und verfügbare Version sowie einen klaren Neustart-Hinweis
+- Benutzer können zwischen „Jetzt installieren“ und „Später“ wählen
+- Zurückgestellte Updates bleiben im Update-Banner und unter Einstellungen → Updates verfügbar
+- Derselbe Dialog erscheint pro App-Sitzung nur einmal; stündliche Prüfungen aktualisieren ausschließlich den Banner
+- Alte `AutoInstallUpdatesOnStartup`-Werte werden sicher deaktiviert
+- Stable-/Testkanäle, SemVer-Auswahl, SHA-Prüfung, Rollback und Update-Replacement bleiben unverändert
+
 ### Wartende Znuny-Tickets
 
 - Wartende Znuny-/OTRS-Tickets mit `pending reminder` oder `pending auto` können optional aus „Heute“ und „Aktuelle Aufgaben“ ausgeblendet werden

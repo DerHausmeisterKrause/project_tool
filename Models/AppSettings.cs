@@ -13,7 +13,8 @@ public class AppSettings
     public string LogLevel { get; set; } = "Warning";
     public bool NotificationSoundEnabled { get; set; } = true;
     public bool CheckForUpdatesOnStartup { get; set; } = true;
-    public bool AutoInstallUpdatesOnStartup { get; set; } = true;
+    // Retained for old settings.json files only; silent installation is never authorized by this value.
+    public bool AutoInstallUpdatesOnStartup { get; set; } = false;
     public string UpdateChannel { get; set; } = "Stable";
     public string InstalledVersion { get; set; } = string.Empty;
     public string CurrentTasksSortField { get; set; } = "Updated";
