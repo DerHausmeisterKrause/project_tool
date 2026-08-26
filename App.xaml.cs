@@ -26,7 +26,9 @@ public partial class App : Application
             MainWindow = mainWindow;
             ServiceLocator.Notifications.AttachMainWindow(mainWindow);
             mainWindow.Show();
-            ServiceLocator.TicketSystem.StartScheduledSync();
+            // TodayViewModel has already loaded SQLite synchronously. Defer all Znuny
+            // network scheduling until the first visible frame has been dispatched.
+            Dispatcher.BeginInvoke(new Action(ServiceLocator.TicketSystem.StartScheduledSync), DispatcherPriority.ApplicationIdle);
             var postUpdateVersion = GetPostUpdateVersion(e.Args);
             if (postUpdateVersion != null)
             {
