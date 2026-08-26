@@ -1,3 +1,22 @@
+# Plenaro V2.2.5
+
+## Znuny / OTRS – Stabilität
+
+- Automatische Znuny-/OTRS-Anfragen umfassend gegen Serverüberlastung abgesichert.
+- Dedizierten Netzwerk-Wake-Timer für wartende Tickets entfernt.
+- Wartende Tickets werden jetzt ausschließlich über den kontrollierten regulären Znuny-Sync aktualisiert.
+- Sekundenbasierte Wiederholungen bei wartenden Tickets vollständig entfernt.
+- Historische Znuny-Tickets werden nicht mehr bei jedem Synchronisationslauf erneut vollständig vom Server geladen.
+- Hintergrund-Synchronisierung verwendet nach Möglichkeit schlanke Ticket-Metadaten statt sämtlicher Artikel und Dynamic Fields.
+- Candidate-Synchronisierung vom normalen Aufgaben-Sync entkoppelt und deutlich serverfreundlicher gestaltet.
+- Parallele schwere Ticket-Abfragen stark begrenzt.
+- Globales Rate-Limit für automatische Znuny-/OTRS-Anfragen eingeführt.
+- Globaler Circuit Breaker pausiert automatische Synchronisierung bei ungewöhnlich hoher Anfragezahl.
+- Automatische Fehlerwiederholungen verwenden ausschließlich kontrollierten Backoff.
+- Mindestintervall für automatische vollständige Ticket-Synchronisierung erhöht.
+- Diagnose-Logging zeigt die Anzahl automatischer API-Anfragen ohne sensible Daten.
+- Lokale Aufgaben bleiben während aller Hintergrund-Synchronisierungen sofort verfügbar.
+
 # Plenaro V2.2.4
 
 ## Bugfixes
