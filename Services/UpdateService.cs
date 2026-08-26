@@ -11,7 +11,7 @@ namespace TaskTool.Services;
 
 public sealed class UpdateService : IDisposable
 {
-    public const string LatestReleaseEndpoint = "https://api.github.com/repos/DerHausmeisterKrause/project_tool/releases/latest";
+    public const string ReleasesEndpoint = "https://api.github.com/repos/DerHausmeisterKrause/project_tool/releases?per_page=100";
     private const string AssetName = "TaskTool.exe";
     private readonly LoggerService _logger;
     private readonly SettingsService _settings;
@@ -38,23 +38,37 @@ public sealed class UpdateService : IDisposable
             if (!_version.TryGetInstalledVersion(out var installedVersion))
                 throw new InvalidOperationException("Installierte Versionsinformation ist ungültig.");
             using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _shutdown.Token);
-            using var response = await _client.GetAsync(LatestReleaseEndpoint, linked.Token);
+            using var response = await _client.GetAsync(ReleasesEndpoint, linked.Token);
             if (response.StatusCode == HttpStatusCode.Forbidden) throw new InvalidOperationException("GitHub Rate Limit erreicht (HTTP 403).");
             if (response.StatusCode == HttpStatusCode.NotFound) throw new InvalidOperationException("GitHub Release wurde nicht gefunden (HTTP 404).");
             response.EnsureSuccessStatusCode();
             await using var stream = await response.Content.ReadAsStreamAsync(linked.Token);
             using var doc = await JsonDocument.ParseAsync(stream, cancellationToken: linked.Token);
-            var root = doc.RootElement;
-            var tag = Read(root, "tag_name");
-            var remote = AppVersionService.ParseVersion(tag);
-            var assets = root.GetProperty("assets").EnumerateArray();
-            var assetElement = assets.FirstOrDefault(a => string.Equals(Read(a, "name"), AssetName, StringComparison.OrdinalIgnoreCase));
-            if (assetElement.ValueKind == JsonValueKind.Undefined) throw new InvalidOperationException("Release-Asset TaskTool.exe fehlt.");
-            var asset = new GitHubReleaseAsset(Read(assetElement, "name"), Read(assetElement, "browser_download_url"), assetElement.GetProperty("size").GetInt64(), Read(assetElement, "digest"));
-            var info = new UpdateInfo(remote, tag, Read(root, "name"), Read(root, "body"), Read(root, "html_url"), root.TryGetProperty("published_at", out var p) && p.TryGetDateTimeOffset(out var published) ? published : null, asset);
-            var available = remote > installedVersion;
-            _logger.Info($"[UpdateCheck] installedVersion={installedVersion} remoteVersion={remote} updateAvailable={available.ToString().ToLowerInvariant()}");
-            return new UpdateCheckResult(available, available ? info : null, available ? $"Plenaro {remote} ist verfügbar." : "Kein Update verfügbar.");
+            var channel = string.Equals(_settings.Current.UpdateChannel, "Test", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(_settings.Current.UpdateChannel, "PreRelease", StringComparison.OrdinalIgnoreCase)
+                ? "Test"
+                : "Stable";
+            var candidates = new List<UpdateInfo>();
+            foreach (var root in doc.RootElement.EnumerateArray())
+            {
+                var draft = root.TryGetProperty("draft", out var d) && d.GetBoolean();
+                if (draft) continue;
+                if (!SemanticVersion.TryParse(Read(root, "tag_name"), out var candidateVersion))
+                {
+                    _logger.Warning("[UpdateCheck] releaseSkipped=invalidSemanticVersion");
+                    continue;
+                }
+                if (channel == "Stable" && candidateVersion.IsPrerelease) continue;
+                var assetElement = root.GetProperty("assets").EnumerateArray().FirstOrDefault(a => string.Equals(Read(a, "name"), AssetName, StringComparison.OrdinalIgnoreCase)); if (assetElement.ValueKind == JsonValueKind.Undefined) continue;
+                var asset = new GitHubReleaseAsset(Read(assetElement, "name"), Read(assetElement, "browser_download_url"), assetElement.GetProperty("size").GetInt64(), Read(assetElement, "digest"));
+                candidates.Add(new(candidateVersion, Read(root, "tag_name"), Read(root, "name"), Read(root, "body"), Read(root, "html_url"), root.TryGetProperty("published_at", out var p) && p.TryGetDateTimeOffset(out var published) ? published : null, candidateVersion.IsPrerelease, asset));
+            }
+            var info = candidates.OrderByDescending(x => x.Version).FirstOrDefault();
+            if (info == null) return new(false, null, channel == "Stable" ? "Keine neuere Stable-Version verfügbar." : "Kein Update verfügbar.");
+            var selectedVersion = info.Version;
+            var available = selectedVersion > installedVersion;
+            _logger.Info($"[UpdateCheck] installedVersion={installedVersion} channel={channel} candidateCount={candidates.Count} selectedVersion={selectedVersion} selectedIsPrerelease={selectedVersion.IsPrerelease.ToString().ToLowerInvariant()} updateAvailable={available.ToString().ToLowerInvariant()}");
+            return new UpdateCheckResult(available, available ? info : null, available ? $"Plenaro {selectedVersion} ist verfügbar." : channel == "Stable" ? "Keine neuere Stable-Version verfügbar." : "Kein Update verfügbar.");
         }
         catch (Exception ex) { _logger.Error($"[UpdateCheck] failed={ex.Message}"); throw; }
         finally { _gate.Release(); }

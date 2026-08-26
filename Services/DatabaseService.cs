@@ -55,10 +55,12 @@ CREATE TABLE IF NOT EXISTS schema_version (
             MigrateToV12(conn);
             MigrateToV13(conn);
             MigrateToV14(conn);
+            MigrateToV15(conn);
+            MigrateToV16(conn);
 
-            if (currentVersion < 14)
+            if (currentVersion < 16)
             {
-                SetVersion(conn, 14);
+                SetVersion(conn, 16);
             }
         }
         catch (Exception ex)
@@ -245,6 +247,37 @@ SET local_activity_utc = CASE
     ELSE updated_utc
 END
 WHERE local_activity_utc IS NULL OR trim(local_activity_utc) = ''; ");
+    }
+
+    private static void MigrateToV15(SqliteConnection conn)
+    {
+        Exec(conn, @"CREATE TABLE IF NOT EXISTS task_wiki_search_runs (
+    task_id TEXT NOT NULL, source_id TEXT NOT NULL, searched_at_utc TEXT NOT NULL,
+    status TEXT NOT NULL, keywords_json TEXT NOT NULL DEFAULT '[]', error TEXT NOT NULL DEFAULT '',
+    PRIMARY KEY(task_id, source_id));
+CREATE TABLE IF NOT EXISTS task_wiki_results (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, task_id TEXT NOT NULL, source_id TEXT NOT NULL,
+    external_id TEXT NOT NULL DEFAULT '', title TEXT NOT NULL, url TEXT NOT NULL,
+    excerpt TEXT NOT NULL DEFAULT '', relevance_score REAL NOT NULL DEFAULT 0,
+    matched_terms TEXT NOT NULL DEFAULT '', provider_rank INTEGER NOT NULL DEFAULT 0,
+    last_modified_utc TEXT NULL, searched_at_utc TEXT NOT NULL);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_task_wiki_result_url ON task_wiki_results(task_id, source_id, url);
+CREATE INDEX IF NOT EXISTS idx_task_wiki_results_score ON task_wiki_results(task_id, relevance_score DESC);");
+    }
+
+    private static void MigrateToV16(SqliteConnection conn)
+    {
+        Exec(conn, @"CREATE TABLE IF NOT EXISTS wiki_vocabulary_pages (
+ source_id TEXT NOT NULL, scope_fingerprint TEXT NOT NULL, external_id TEXT NOT NULL,
+ space_key TEXT NOT NULL DEFAULT '', title TEXT NOT NULL, normalized_title TEXT NOT NULL,
+ url TEXT NOT NULL DEFAULT '', last_modified_utc TEXT NULL, indexed_at_utc TEXT NOT NULL,
+ PRIMARY KEY(source_id, scope_fingerprint, external_id));
+CREATE INDEX IF NOT EXISTS idx_wiki_vocab_scope ON wiki_vocabulary_pages(source_id, scope_fingerprint, space_key);
+CREATE TABLE IF NOT EXISTS wiki_vocabulary_state (
+ source_id TEXT NOT NULL, scope_fingerprint TEXT NOT NULL, page_count INTEGER NOT NULL DEFAULT 0,
+ updated_utc TEXT NULL, status TEXT NOT NULL DEFAULT '', error TEXT NOT NULL DEFAULT '',
+ PRIMARY KEY(source_id, scope_fingerprint));
+CREATE VIRTUAL TABLE IF NOT EXISTS wiki_vocabulary_fts USING fts5(source_id UNINDEXED, scope_fingerprint UNINDEXED, external_id UNINDEXED, title, normalized_title, tokenize='unicode61 remove_diacritics 2');");
     }
 
     private static void EnsureColumn(SqliteConnection conn, string table, string column, string definition)

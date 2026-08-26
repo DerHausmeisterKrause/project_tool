@@ -77,6 +77,8 @@ public partial class App : Application
                 ServiceLocator.OutlookCalendar.Dispose();
             if (ServiceLocator.Updates != null)
                 ServiceLocator.Updates.Dispose();
+            if (ServiceLocator.WebShortcutBrowsers != null)
+                ServiceLocator.WebShortcutBrowsers.Dispose();
         }
         catch
         {
