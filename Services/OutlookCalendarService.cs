@@ -21,6 +21,7 @@ public class OutlookCalendarService : IDisposable
     private List<OutlookCalendarEvent> _cache = new();
     private DateTime? _cacheFromInclusiveLocal;
     private DateTime? _cacheToExclusiveLocal;
+    private readonly List<(DateTime From, DateTime To)> _availableRanges = new();
     private DateTime? _pendingFromInclusiveLocal;
     private DateTime? _pendingToExclusiveLocal;
     private string _pendingReason = string.Empty;
@@ -65,6 +66,20 @@ public class OutlookCalendarService : IDisposable
 
             return visible.OrderBy(e => e.StartLocal).ToList();
         }
+    }
+
+    public bool IsRangeAvailable(DateTime fromInclusiveLocal, DateTime toExclusiveLocal)
+    {
+        lock (_syncLock)
+            return IsCacheCoveringRange(fromInclusiveLocal, toExclusiveLocal);
+    }
+
+    public Task EnsureRangeAvailableAsync(DateTime fromInclusiveLocal, DateTime toExclusiveLocal, string reason)
+    {
+        if (_disposed || !_settings.Current.OutlookCalendarEnabled || IsRangeAvailable(fromInclusiveLocal, toExclusiveLocal))
+            return Task.CompletedTask;
+
+        return TriggerSyncAsync(fromInclusiveLocal, toExclusiveLocal, reason);
     }
 
     public Task TriggerSyncAsync(string reason = "manual")
@@ -136,9 +151,16 @@ public class OutlookCalendarService : IDisposable
 
                 lock (_syncLock)
                 {
-                    _cache = result.events.OrderBy(e => e.StartLocal).ToList();
-                    _cacheFromInclusiveLocal = from;
-                    _cacheToExclusiveLocal = to;
+                    // Replace only the fetched window, retaining successfully cached days outside it.
+                    _cache = _cache.Where(e => e.EndLocal <= from || e.StartLocal >= to)
+                        .Concat(result.events)
+                        .GroupBy(e => string.IsNullOrWhiteSpace(e.EntryId) ? $"{e.Id}|{e.StartLocal:O}|{e.EndLocal:O}" : $"{e.EntryId}|{e.StartLocal:O}")
+                        .Select(group => group.First())
+                        .OrderBy(e => e.StartLocal)
+                        .ToList();
+                    AddAvailableRange(from, to);
+                    _cacheFromInclusiveLocal = _availableRanges.Min(range => range.From);
+                    _cacheToExclusiveLocal = _availableRanges.Max(range => range.To);
                 }
 
                 LastError = string.Empty;
@@ -197,6 +219,7 @@ public class OutlookCalendarService : IDisposable
                 _cache.Clear();
                 _cacheFromInclusiveLocal = null;
                 _cacheToExclusiveLocal = null;
+                _availableRanges.Clear();
                 _pendingFromInclusiveLocal = null;
                 _pendingToExclusiveLocal = null;
                 _pendingReason = string.Empty;
@@ -208,10 +231,23 @@ public class OutlookCalendarService : IDisposable
     private bool IsCacheCoveringRange(DateTime fromInclusiveLocal, DateTime toExclusiveLocal)
     {
         return string.IsNullOrWhiteSpace(LastError)
-               && _cacheFromInclusiveLocal.HasValue
-               && _cacheToExclusiveLocal.HasValue
-               && _cacheFromInclusiveLocal.Value <= fromInclusiveLocal
-               && _cacheToExclusiveLocal.Value >= toExclusiveLocal;
+               && _availableRanges.Any(range => range.From <= fromInclusiveLocal && range.To >= toExclusiveLocal);
+    }
+
+    private void AddAvailableRange(DateTime from, DateTime to)
+    {
+        var mergedFrom = from;
+        var mergedTo = to;
+        for (var i = _availableRanges.Count - 1; i >= 0; i--)
+        {
+            var range = _availableRanges[i];
+            if (range.To < mergedFrom || range.From > mergedTo)
+                continue;
+            mergedFrom = range.From < mergedFrom ? range.From : mergedFrom;
+            mergedTo = range.To > mergedTo ? range.To : mergedTo;
+            _availableRanges.RemoveAt(i);
+        }
+        _availableRanges.Add((mergedFrom, mergedTo));
     }
 
     private void QueuePendingSync(DateTime fromInclusiveLocal, DateTime toExclusiveLocal, string reason)

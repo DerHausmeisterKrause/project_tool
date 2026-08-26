@@ -1,0 +1,28 @@
+<UserControl x:Class="TaskTool.Views.Settings.FavoritesSettingsView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             Background="Transparent">
+    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Padding="0,0,8,16">
+        <StackPanel MaxWidth="1200" HorizontalAlignment="Center" Grid.IsSharedSizeScope="True">
+            <TextBlock Text="Favoriten" Style="{StaticResource SettingsSectionTitleStyle}"/>
+            <TextBlock Text="Interne Webseiten und automatische Anmeldung verwalten." Style="{StaticResource SettingsSectionDescriptionStyle}"/>
+                <Border Style="{StaticResource CardStyle}"><StackPanel><TextBlock Text="Favoriten" Style="{StaticResource SettingsCardTitleStyle}"/><ListBox ItemsSource="{Binding WebShortcuts}" SelectedItem="{Binding SelectedWebShortcut}" DisplayMemberPath="Name" MaxHeight="130"/><WrapPanel><Button Content="+ Favorit hinzufügen" Command="{Binding AddWebShortcutCommand}"/><Button Content="↑ Nach oben" Style="{StaticResource SecondaryButtonStyle}" Command="{Binding MoveWebShortcutUpCommand}"/><Button Content="↓ Nach unten" Style="{StaticResource SecondaryButtonStyle}" Command="{Binding MoveWebShortcutDownCommand}"/></WrapPanel>
+                    <Grid DataContext="{Binding SelectedWebShortcut}"><Grid.ColumnDefinitions><ColumnDefinition Width="240"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions><Grid.RowDefinitions><RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/></Grid.RowDefinitions>
+                        <TextBlock Grid.Row="0" Text="Name" Style="{StaticResource SettingsLabelStyle}"/><TextBox Grid.Row="0" Grid.Column="1" Text="{Binding Name,UpdateSourceTrigger=PropertyChanged}" Style="{StaticResource SettingsTextBoxStyle}"/>
+                        <TextBlock Grid.Row="1" Text="URL" Style="{StaticResource SettingsLabelStyle}"/><TextBox Grid.Row="1" Grid.Column="1" Text="{Binding Url,UpdateSourceTrigger=PropertyChanged}" Style="{StaticResource SettingsLongTextBoxStyle}"/>
+                        <TextBlock Grid.Row="2" Text="Benutzer" Style="{StaticResource SettingsLabelStyle}"/><TextBox Grid.Row="2" Grid.Column="1" Text="{Binding Username,UpdateSourceTrigger=PropertyChanged}" Style="{StaticResource SettingsTextBoxStyle}"/>
+                        <TextBlock Grid.Row="3" Text="Passwort" Style="{StaticResource SettingsLabelStyle}"/><TextBox Grid.Row="3" Grid.Column="1" Text="{Binding Password,UpdateSourceTrigger=LostFocus}" Style="{StaticResource SettingsTextBoxStyle}"/>
+                        <CheckBox Grid.Row="4" Grid.Column="1" Content="Aktiv" IsChecked="{Binding Enabled}"/><CheckBox Grid.Row="5" Grid.Column="1" Content="Auto Login" IsChecked="{Binding AutoLogin}"/>
+                        <StackPanel Grid.Row="6" Grid.Column="1" Margin="0,4,0,8">
+                            <CheckBox Content="CORS / Browser-Websecurity deaktivieren" IsChecked="{Binding DisableWebSecurity}"/>
+                            <TextBlock Text="Nur aktivieren, wenn die eingebundene Webseite sonst wegen CORS nicht funktioniert. Diese Einstellung reduziert die Browser-Sicherheitsisolation für diesen Shortcut." TextWrapping="Wrap" Foreground="#FBBF24" FontSize="11" Margin="24,4,0,0"/>
+                        </StackPanel>
+                        <StackPanel Grid.Row="7" Grid.Column="1" Margin="0,0,0,8">
+                            <CheckBox Content="Unsichere HTTP-Inhalte auf HTTPS-Seiten erlauben" IsChecked="{Binding AllowInsecureContent}"/>
+                            <TextBlock Text="Nur verwenden, wenn eine HTTPS-Webseite Ressourcen oder APIs über HTTP aufruft." TextWrapping="Wrap" Foreground="#FBBF24" FontSize="11" Margin="24,4,0,0"/>
+                        </StackPanel>
+                    </Grid><WrapPanel><Button Content="Speichern" Command="{Binding SaveWebShortcutCommand}"/><Button Content="Entfernen" Style="{StaticResource SecondaryButtonStyle}" Command="{Binding RemoveWebShortcutCommand}"/></WrapPanel><TextBlock Text="{Binding WebShortcutStatus}" Foreground="#FBBF24" TextWrapping="Wrap"/></StackPanel></Border>
+
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>

@@ -4,6 +4,23 @@ Lokale Aufgaben- und Zeitverwaltungs-App mit SQLite und Outlook Busy-Blocker via
 
 ## Release Notes
 
+### Einstellungen
+
+- Einstellungsbereich mit einem dauerhaft sichtbaren horizontalen Menüband neu strukturiert
+- Kategorien für Allgemein, Aufgaben & Zeiten, Outlook, Homeoffice, Ticketsystem, Wiki, Favoriten und Updates eingeführt
+- Nur die aktive Kategorie wird geladen und in thematisch gruppierten Cards dargestellt
+- Webseiten-Shortcuts werden in den Einstellungen konsistent als Favoriten bezeichnet
+- Update-Hinweise öffnen direkt die Update-Kategorie
+- Bestehende Bindings, verschlüsselte Zugangsdaten, Wiki-Quellen und Favoriten-Sortierung bleiben erhalten
+- Responsive Navigation, begrenzte Inhaltsbreite und unabhängiges Scrollen der aktiven Kategorie verbessern die Nutzung bei unterschiedlichen Fenstergrößen und DPI-Skalierungen
+
+### Segmentplanung
+
+- Neue visuelle Tages-Verfügbarkeitsanzeige von 06:00 bis 18:00 mit 48 proportionalen 15-Minuten-Segmenten
+- Freie Zeiträume werden grün, durch Outlook-Termine belegte Zeiträume rot und nicht verfügbare Kalenderdaten neutral dargestellt
+- Die Anzeige folgt dem ausgewählten Segmentdatum und aktualisiert sich nach Outlook-Synchronisationen automatisch
+- Abgesagte, als frei markierte und ganztägige Termine blockieren die Anzeige nicht
+
 **Plenaro 2.1.0**
 
 - Neue Ausschlusswörter für „Neue Aufgaben“

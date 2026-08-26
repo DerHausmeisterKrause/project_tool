@@ -17,7 +17,7 @@ public class MainViewModel : ObservableObject
     private readonly List<WebShortcutViewModel> _webShortcutViews = new();
     private readonly LoggerService _logger;
     public SettingsViewModel SettingsViewModel { get; }
-    public RelayCommand NavigateToSettingsCommand { get; }
+    public RelayCommand<string> NavigateToSettingsCommand { get; }
 
     private object _selectedView;
     public object SelectedView
@@ -89,6 +89,12 @@ public class MainViewModel : ObservableObject
         if (NavigationItems.Contains(WikiBrowserViewModel)) SelectedView = WikiBrowserViewModel;
     }
 
+    public void NavigateToSettings(string? section = null)
+    {
+        SettingsViewModel.SelectSection(section);
+        SelectedView = SettingsViewModel;
+    }
+
     public MainViewModel(TaskService taskService, WorkDayService workDayService, SettingsService settingsService, NotificationService notifications, OutlookCalendarService outlookCalendar, TicketSystemService ticketSystem, UpdateService updates, HomeOfficeService homeOffice, GermanTimeService germanTime, LoggerService logger)
     {
         _logger = logger;
@@ -100,7 +106,7 @@ public class MainViewModel : ObservableObject
         WikiBrowserViewModel = new WikiBrowserViewModel(settingsService);
         _reportsViewModel = new ReportsViewModel(taskService, workDayService, settingsService, germanTime, logger);
         SettingsViewModel = new SettingsViewModel(settingsService, notifications, outlookCalendar, taskService, ticketSystem, updates);
-        NavigateToSettingsCommand = new RelayCommand(() => SelectedView = SettingsViewModel);
+        NavigateToSettingsCommand = new RelayCommand<string>(NavigateToSettings);
 
         NavigationItems = new ObservableCollection<object> { TodayViewModel, _weekViewModel, _ticketSystemViewModel, _reportsViewModel, SettingsViewModel };
         settingsService.SettingsChanged += RefreshDynamicNavigation;
