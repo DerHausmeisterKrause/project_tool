@@ -19,6 +19,7 @@ public class TaskItem
     public string TicketState { get; set; } = string.Empty;
     public string TicketStateType { get; set; } = string.Empty;
     public DateTime? TicketPendingUntilUtc { get; set; }
+    public DateTime? PendingWakeHandledForUtc { get; set; }
     public DateTime? PendingWakeNotificationForUtc { get; set; }
     public bool IsZnunyTask => (Tags ?? string.Empty).Contains("ZnunyTicketID:", StringComparison.OrdinalIgnoreCase);
     public bool IsOperationallyVisible => !IsZnunyTask || IsZnunyAssigned;

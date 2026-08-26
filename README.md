@@ -4,6 +4,16 @@ Lokale Aufgaben- und Zeitverwaltungs-App mit SQLite und Outlook Busy-Blocker via
 
 ## Release Notes
 
+### Wartende Znuny-Tickets – Notification-Sicherheit
+
+- Kritische Benachrichtigungsschleifen für denselben Wartetermin verhindert
+- Verarbeitete Wartetermine und tatsächlich versandte Benachrichtigungen werden getrennt und persistent gespeichert
+- Geschlossene, nicht mehr zugewiesene und erneut wartende Tickets erzeugen keine falschen Meldungen
+- `pending reminder` wird nach Ablauf genau einmal reaktiviert; `pending auto` wartet auf den bestätigten Statuswechsel
+- UTC-Sekundennormalisierung, Wake-Keys, atomare Claims und Prozess-Guards verhindern doppelte Verarbeitung
+- API-Fehler verwenden kontrollierten Backoff von 1, 2, 5 und 10 Minuten statt schneller Timer-Schleifen
+- Reguläre Syncs, Settings-Änderungen und App-Neustarts können bereits behandelte Wakes nicht erneut melden
+
 ### Updates
 
 - Automatische Updateprüfungen beim Start bleiben erhalten, installieren Updates aber niemals mehr still
