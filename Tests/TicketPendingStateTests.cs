@@ -68,6 +68,28 @@ public sealed class TicketPendingStateTests
         Assert.All(Enumerable.Range(0, 100), _ => Assert.False(TicketPendingState.IsWakeCandidate(task, Now.AddMinutes(1))));
     }
 
+    [Theory]
+    [InlineData(7200, 14, 0)]
+    [InlineData(300, 12, 5)]
+    [InlineData(-30, 11, 59)]
+    public void UntilTimeIsSignedDurationNotUnixTimestamp(long seconds, int expectedHour, int expectedMinute)
+    {
+        var responseReceivedUtc = new DateTime(2026, 8, 26, 12, 0, 0, DateTimeKind.Utc);
+        var resolved = TicketPendingState.ResolveRelativePendingUtc(responseReceivedUtc, seconds);
+        Assert.True(resolved.HasValue);
+        var value = resolved.GetValueOrDefault();
+        Assert.Equal(expectedHour, value.Hour);
+        Assert.Equal(expectedMinute, value.Minute);
+        Assert.Equal(2026, value.Year);
+    }
+
+    [Fact]
+    public void Legacy1970PendingValueNeverWakes()
+    {
+        Assert.False(TicketPendingState.IsWakeCandidate(
+            Ticket("pending reminder", new DateTime(1970, 1, 1, 2, 0, 0, DateTimeKind.Utc)), Now));
+    }
+
     private static TaskItem Ticket(string stateType, DateTime? until) => new()
     {
         Tags = "Znuny;ZnunyTicketID:123",

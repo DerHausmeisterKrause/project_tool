@@ -12,8 +12,21 @@ public static class TicketPendingState
     public static bool IsWakeCandidate(TaskItem task, DateTime utcNow)
         => task.IsZnunyTask && IsPendingStateType(task.TicketStateType)
            && task.TicketPendingUntilUtc is DateTime until
+           && NormalizePendingUtc(until) >= new DateTime(2000, 1, 1, 0, 0, 0, DateTimeKind.Utc)
            && NormalizePendingUtc(until) <= NormalizePendingUtc(utcNow)
            && !WasHandledFor(task, until);
+
+    public static DateTime? ResolveRelativePendingUtc(DateTime responseReceivedUtc, long untilTimeSeconds)
+    {
+        try
+        {
+            return NormalizePendingUtc(responseReceivedUtc).AddSeconds(untilTimeSeconds);
+        }
+        catch (ArgumentOutOfRangeException)
+        {
+            return null;
+        }
+    }
 
     public static DateTime NormalizePendingUtc(DateTime value)
     {
