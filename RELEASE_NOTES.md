@@ -1,5 +1,24 @@
 # Plenaro
 
+## Znuny / OTRS
+
+- Ticket-Synchronisierung auf eine lokale Cache-/Snapshot-Architektur umgestellt
+- Beim Programmstart wird genau ein kontrollierter Znuny-Abgleich durchgeführt
+- Ticketdaten werden anschließend lokal gespeichert und von der Oberfläche aus dem lokalen Cache verwendet
+- Automatische Aktualisierungen erfolgen ausschließlich nach dem in den Einstellungen festgelegten Synchronisationsintervall
+- Separate automatische Candidate- und Hintergrund-Refreshes entfernt
+- Ansichtswechsel und Einstellungsänderungen lösen keine zusätzlichen Znuny-Anfragen mehr aus
+- „Aktuelle Aufgaben“ und „Neue Aufgaben“ verwenden zwischen Synchronisierungen ausschließlich lokal gespeicherte Daten
+- Candidate-/Neue-Aufgaben-Daten werden lokal zwischengespeichert
+- Historische Tickets werden nicht mehr bei jedem Synchronisationslauf erneut vollständig vom Server abgefragt
+- Hintergrund-Synchronisierung lädt nur noch tatsächlich benötigte Ticketdaten
+- Schwere Ticketdetails und Artikel werden nicht unnötig bei jedem Sync erneut geladen
+- Automatische Fehler führen nicht mehr zu schnellen Wiederholungsanfragen
+- Explizite Benutzeraktionen bleiben weiterhin möglich, lösen jedoch keinen unnötigen vollständigen Hintergrund-Sync aus
+- Mindestintervall für automatische Ticket-Synchronisierung auf fünf Minuten begrenzt
+- Zusätzliche Sicherheitsgrenze verhindert unerwartet große automatische Request-Mengen
+- Neue Diagnose-Logs zeigen die tatsächliche Anzahl von Znuny-Anfragen pro Synchronisationslauf
+
 ## Favoriten & eingebettete Webseiten
 
 - Fehler beim Wechsel zwischen mehreren eingebetteten Webseiten behoben

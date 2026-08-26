@@ -59,10 +59,11 @@ CREATE TABLE IF NOT EXISTS schema_version (
             MigrateToV16(conn);
             MigrateToV17(conn);
             MigrateToV18(conn);
+            MigrateToV19(conn);
 
-            if (currentVersion < 18)
+            if (currentVersion < 19)
             {
-                SetVersion(conn, 18);
+                SetVersion(conn, 19);
             }
         }
         catch (Exception ex)
@@ -291,6 +292,15 @@ CREATE VIRTUAL TABLE IF NOT EXISTS wiki_vocabulary_fts USING fts5(source_id UNIN
     private static void MigrateToV18(SqliteConnection conn)
     {
         // Reserved schema version retained for compatibility with existing databases.
+    }
+
+    private static void MigrateToV19(SqliteConnection conn)
+    {
+        Exec(conn, @"CREATE TABLE IF NOT EXISTS znuny_candidate_snapshot (
+ ticket_id TEXT PRIMARY KEY, ticket_number TEXT NOT NULL DEFAULT '', title TEXT NOT NULL DEFAULT '',
+ description_preview TEXT NOT NULL DEFAULT '', owner TEXT NOT NULL DEFAULT '', responsible TEXT NOT NULL DEFAULT '',
+ state TEXT NOT NULL DEFAULT '', web_url TEXT NOT NULL DEFAULT '', matched_keyword TEXT NOT NULL DEFAULT '',
+ last_synced_utc TEXT NOT NULL);");
     }
 
     private static void EnsureColumn(SqliteConnection conn, string table, string column, string definition)

@@ -18,6 +18,7 @@ public static class ServiceLocator
     public static UpdateService Updates { get; private set; } = null!;
     public static HomeOfficeService HomeOffice { get; private set; } = null!;
     public static TicketAssignmentSnapshotService TicketAssignmentSnapshots { get; private set; } = null!;
+    public static TicketCandidateSnapshotService TicketCandidateSnapshots { get; private set; } = null!;
     public static WikiSearchService WikiSearch { get; private set; } = null!;
     public static WikiVocabularyIndexService WikiVocabulary { get; private set; } = null!;
     public static WebShortcutBrowserSessionManager WebShortcutBrowsers { get; private set; } = null!;
@@ -40,9 +41,10 @@ public static class ServiceLocator
         Outlook = new OutlookInteropService(Logger, Settings);
         Tasks = new TaskService(Database, Logger, Outlook, Settings);
         TicketAssignmentSnapshots = new TicketAssignmentSnapshotService(Database);
+        TicketCandidateSnapshots = new TicketCandidateSnapshotService(Database);
         WorkDays = new WorkDayService(Database, Logger);
         Notifications = new NotificationService(Logger, Settings, Tasks);
-        TicketSystem = new TicketSystemService(Settings, Tasks, TicketAssignmentSnapshots, Notifications, Logger);
+        TicketSystem = new TicketSystemService(Settings, Tasks, TicketAssignmentSnapshots, TicketCandidateSnapshots, Notifications, Logger);
         OutlookCalendar = new OutlookCalendarService(Logger, Settings, Outlook, WorkDays);
         HomeOffice = new HomeOfficeService(WorkDays, Settings, Outlook, OutlookCalendar, Logger);
         MainViewModel = new MainViewModel(Tasks, WorkDays, Settings, Notifications, OutlookCalendar, TicketSystem, Updates, HomeOffice, GermanTime, Logger);

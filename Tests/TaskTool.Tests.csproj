@@ -12,5 +12,6 @@
     <Compile Include="../Models/TaskItem.cs" Link="Models/TaskItem.cs" />
     <Compile Include="../Models/TaskStatus.cs" Link="Models/TaskStatus.cs" />
     <Compile Include="../Models/SegmentAvailabilitySlot.cs" Link="Models/SegmentAvailabilitySlot.cs" />
+    <Compile Include="../Models/ZnunySyncPolicy.cs" Link="Models/ZnunySyncPolicy.cs" />
   </ItemGroup>
 </Project>

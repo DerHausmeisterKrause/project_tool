@@ -11,4 +11,5 @@ public sealed class ZnunyCandidateTicket
     public string State { get; init; } = string.Empty;
     public string WebUrl { get; init; } = string.Empty;
     public string MatchedKeyword { get; init; } = string.Empty;
+    public DateTime LastSyncedUtc { get; init; }
 }

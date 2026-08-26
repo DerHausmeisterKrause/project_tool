@@ -242,7 +242,7 @@ public class SettingsService
         settings.TicketSystemOrderOptions = settings.TicketSystemOrderOptions?.Trim() ?? string.Empty;
         settings.HomeOfficeMailRecipient1 = settings.HomeOfficeMailRecipient1?.Trim() ?? string.Empty;
         settings.HomeOfficeMailRecipient2 = settings.HomeOfficeMailRecipient2?.Trim() ?? string.Empty;
-        settings.TicketSystemSyncIntervalMinutes = settings.TicketSystemSyncIntervalMinutes <= 0 ? 15 : Math.Clamp(settings.TicketSystemSyncIntervalMinutes, 1, 1440);
+        settings.TicketSystemSyncIntervalMinutes = ZnunySyncPolicy.NormalizeIntervalMinutes(settings.TicketSystemSyncIntervalMinutes);
         if (!settings.TicketSystemIncludeOwner && !settings.TicketSystemIncludeResponsible)
             settings.TicketSystemIncludeOwner = true;
         if (settings.TicketSystemOnlyOpenTickets)

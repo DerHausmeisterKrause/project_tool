@@ -18,6 +18,7 @@ public class TicketSystemService : IDisposable
     private readonly SettingsService _settings;
     private readonly TaskService _tasks;
     private readonly TicketAssignmentSnapshotService _assignmentSnapshots;
+    private readonly TicketCandidateSnapshotService _candidateSnapshots;
     private readonly NotificationService _notifications;
     private readonly LoggerService _logger;
     private readonly HttpClient _client = new() { Timeout = TimeSpan.FromSeconds(45) };
@@ -27,6 +28,7 @@ public class TicketSystemService : IDisposable
     private readonly System.Threading.Timer _timer;
     private bool _scheduledSyncStarted;
     private bool _scheduledSyncHasRun;
+    private readonly AsyncLocal<SyncTraffic?> _syncTraffic = new();
     private IReadOnlyDictionary<string, IReadOnlyList<TicketFieldOption>> _dynamicFieldOptionsCache = new Dictionary<string, IReadOnlyList<TicketFieldOption>>(StringComparer.OrdinalIgnoreCase);
     private DateTime _dynamicFieldOptionsCacheExpiresUtc;
     private bool _dynamicFieldOptionsCacheValid;
@@ -44,25 +46,27 @@ public class TicketSystemService : IDisposable
 
     private const int MaxIndividualAssignmentNotifications = 5;
 
-    public TicketSystemService(SettingsService settings, TaskService tasks, TicketAssignmentSnapshotService assignmentSnapshots, NotificationService notifications, LoggerService logger)
+    public TicketSystemService(SettingsService settings, TaskService tasks, TicketAssignmentSnapshotService assignmentSnapshots, TicketCandidateSnapshotService candidateSnapshots, NotificationService notifications, LoggerService logger)
     {
         _settings = settings;
         _tasks = tasks;
         _assignmentSnapshots = assignmentSnapshots;
+        _candidateSnapshots = candidateSnapshots;
         _notifications = notifications;
         _logger = logger;
         _timer = new System.Threading.Timer(async _ => await RunScheduledSyncAsync(), null, Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
         _lastCandidateUserId = _settings.Current.TicketSystemCandidateUserId;
         _lastCandidateKeywords = _settings.Current.TicketSystemCandidateKeywords;
         _lastCandidateExcludeKeywords = _settings.Current.TicketSystemCandidateExcludeKeywords;
+        _candidateTickets = _candidateSnapshots.Load();
         HandleSettingsChanged();
     }
 
     public void HandleSettingsChanged()
     {
-        var interval = Math.Clamp(_settings.Current.TicketSystemSyncIntervalMinutes, 1, 1440);
+        var interval = ZnunySyncPolicy.NormalizeIntervalMinutes(_settings.Current.TicketSystemSyncIntervalMinutes);
         if (_scheduledSyncStarted)
-            _timer.Change(_scheduledSyncHasRun ? TimeSpan.FromMinutes(interval) : TimeSpan.FromSeconds(10), TimeSpan.FromMinutes(interval));
+            _timer.Change(TimeSpan.FromMinutes(interval), Timeout.InfiniteTimeSpan);
         var candidateSettingsChanged = _lastCandidateUserId != _settings.Current.TicketSystemCandidateUserId
             || !string.Equals(_lastCandidateKeywords, _settings.Current.TicketSystemCandidateKeywords, StringComparison.Ordinal)
             || !string.Equals(_lastCandidateExcludeKeywords, _settings.Current.TicketSystemCandidateExcludeKeywords, StringComparison.Ordinal);
@@ -70,9 +74,7 @@ public class TicketSystemService : IDisposable
         _lastCandidateKeywords = _settings.Current.TicketSystemCandidateKeywords;
         _lastCandidateExcludeKeywords = _settings.Current.TicketSystemCandidateExcludeKeywords;
         if (candidateSettingsChanged)
-        {
-            _ = RefreshCandidateTicketsAsync("settings");
-        }
+            CandidateTicketsError = "Candidate-Einstellungen werden beim nächsten Ticket-Sync angewendet.";
         NotifyTasksChanged();
     }
 
@@ -82,19 +84,20 @@ public class TicketSystemService : IDisposable
             return;
 
         _scheduledSyncStarted = true;
-        var interval = Math.Clamp(_settings.Current.TicketSystemSyncIntervalMinutes, 1, 1440);
-        _timer.Change(TimeSpan.FromSeconds(10), TimeSpan.FromMinutes(interval));
-        _logger.Info($"[ZnunyScheduledSync] action=started firstRunSeconds=10 intervalMinutes={interval} candidateRefresh=true");
+        var interval = ZnunySyncPolicy.NormalizeIntervalMinutes(_settings.Current.TicketSystemSyncIntervalMinutes);
+        _timer.Change(TimeSpan.FromSeconds(1), Timeout.InfiniteTimeSpan);
+        _logger.Info($"[ZnunyScheduledSync] action=started firstRunSeconds=1 intervalMinutes={interval} centralSyncOnly=true");
     }
 
     private async Task RunScheduledSyncAsync()
     {
+        var reason = _scheduledSyncHasRun ? "timer" : "startup";
         _scheduledSyncHasRun = true;
-        var interval = Math.Clamp(_settings.Current.TicketSystemSyncIntervalMinutes, 1, 1440);
-        _logger.Info($"[ZnunyScheduledSync] reason=timer intervalMinutes={interval} candidateRefresh=true");
+        var interval = ZnunySyncPolicy.NormalizeIntervalMinutes(_settings.Current.TicketSystemSyncIntervalMinutes);
+        _logger.Info($"[ZnunyScheduledSync] reason={reason} intervalMinutes={interval} centralSyncOnly=true");
         try
         {
-            await SyncAssignedTicketsAsync("timer");
+            await SyncAssignedTicketsAsync(reason);
             if (!string.IsNullOrWhiteSpace(LastError))
                 _logger.Warning($"[ZnunyCandidates] scheduled refresh failed message='{LogValue(LastError)}'");
         }
@@ -102,10 +105,20 @@ public class TicketSystemService : IDisposable
         {
             _logger.Warning($"[ZnunyCandidates] scheduled refresh failed message='{LogValue(ex.Message)}'");
         }
+        finally
+        {
+            var nextInterval = ZnunySyncPolicy.NormalizeIntervalMinutes(_settings.Current.TicketSystemSyncIntervalMinutes);
+            _timer.Change(TimeSpan.FromMinutes(nextInterval), Timeout.InfiniteTimeSpan);
+        }
     }
 
-    public Task<(int created, int updated, int skipped)> ImportAssignedOpenTicketsAsync()
-        => SyncAssignedTicketsAsync("manual");
+    public async Task<(int created, int updated, int skipped)> ImportAssignedOpenTicketsAsync()
+    {
+        var result = await SyncAssignedTicketsAsync("manual");
+        if (_scheduledSyncStarted)
+            _timer.Change(TimeSpan.FromMinutes(ZnunySyncPolicy.NormalizeIntervalMinutes(_settings.Current.TicketSystemSyncIntervalMinutes)), Timeout.InfiniteTimeSpan);
+        return result;
+    }
 
     public async Task<AssignTicketResult> AssignCandidateToCurrentAgentAsync(ZnunyCandidateTicket candidate)
     {
@@ -162,7 +175,7 @@ public class TicketSystemService : IDisposable
             try
             {
                 stepStopwatch.Restart();
-                var ticket = await GetTicketAsync(ticketId, sessionId, sessionHash);
+                var ticket = await GetTicketDetailsAsync(ticketId, sessionId, sessionHash);
                 ticketGetMs = stepStopwatch.ElapsedMilliseconds;
                 if (ticket != null && ticket.OwnerId == targetAgentId && ticket.ResponsibleId == targetAgentId)
                 {
@@ -342,37 +355,8 @@ public class TicketSystemService : IDisposable
 
     public async Task<bool> RefreshCandidateTicketsAsync(string reason = "manual")
     {
-        if (!await _syncGate.WaitAsync(0))
-        {
-            _logger.Info($"[ZnunyCandidates] action=refresh-skipped reason={reason} activeSync=true");
-            return false;
-        }
-
-        try
-        {
-            IsCandidateRefreshRunning = true;
-            CandidateTicketsError = string.Empty;
-            CandidateTicketsChanged?.Invoke();
-            var configError = ValidateConfiguration(requireAgentId: true);
-            if (!string.IsNullOrWhiteSpace(configError))
-                throw new InvalidOperationException(configError);
-            var sessionId = await CreateSessionAsync();
-            await RefreshCandidateTicketsCoreAsync(sessionId, HashSessionId(sessionId), reason);
-            return true;
-        }
-        catch (Exception ex)
-        {
-            CandidateTicketsError = "Neue Aufgaben konnten nicht aktualisiert werden.";
-            _logger.Error($"[ZnunyCandidates] action=refresh-failed reason={reason} message={ex.Message}");
-            CandidateTicketsChanged?.Invoke();
-            return false;
-        }
-        finally
-        {
-            IsCandidateRefreshRunning = false;
-            CandidateTicketsChanged?.Invoke();
-            _syncGate.Release();
-        }
+        await ImportAssignedOpenTicketsAsync();
+        return string.IsNullOrWhiteSpace(LastError);
     }
 
     public async Task<TicketBookingContext> GetTicketBookingContextAsync(TaskItem task)
@@ -386,7 +370,7 @@ public class TicketSystemService : IDisposable
             throw new InvalidOperationException(configError);
 
         var sessionId = await CreateSessionAsync();
-        var ticket = await GetTicketAsync(ticketId, sessionId, HashSessionId(sessionId))
+        var ticket = await GetTicketDetailsAsync(ticketId, sessionId, HashSessionId(sessionId))
                      ?? throw new InvalidOperationException("TicketGet lieferte keine Ticketdaten.");
         var costField = _settings.Current.TicketSystemCostCenterFieldName;
         var orderField = _settings.Current.TicketSystemOrderFieldName;
@@ -586,7 +570,7 @@ public class TicketSystemService : IDisposable
             var pending = _tasks.GetPendingTicketTimeBooking(task.Id);
             if (pending != null)
             {
-                var currentTicket = await GetTicketAsync(ticketId, sessionId, sessionHash);
+                var currentTicket = await GetTicketDetailsAsync(ticketId, sessionId, sessionHash);
                 var reconciledArticleId = currentTicket?.FindArticleIdContaining(BookingMarker(pending.BookingId));
                 if (!string.IsNullOrWhiteSpace(reconciledArticleId))
                 {
@@ -665,7 +649,7 @@ public class TicketSystemService : IDisposable
         try
         {
             var sessionId = await CreateSessionAsync();
-            var ticket = await GetTicketAsync(booking.TicketId, sessionId, HashSessionId(sessionId));
+            var ticket = await GetTicketDetailsAsync(booking.TicketId, sessionId, HashSessionId(sessionId));
             var articleId = ticket?.FindArticleIdContaining(BookingMarker(booking.BookingId));
             if (!string.IsNullOrWhiteSpace(articleId))
             {
@@ -690,7 +674,7 @@ public class TicketSystemService : IDisposable
         {
             var sessionId = await CreateSessionAsync();
             var sessionHash = HashSessionId(sessionId);
-            var ticket = await GetTicketAsync(booking.TicketId, sessionId, sessionHash);
+            var ticket = await GetTicketDetailsAsync(booking.TicketId, sessionId, sessionHash);
             var existingArticleId = ticket?.FindArticleIdContaining(BookingMarker(booking.BookingId));
             if (!string.IsNullOrWhiteSpace(existingArticleId))
             {
@@ -745,7 +729,7 @@ public class TicketSystemService : IDisposable
             var ticketGetStatus = "Nicht ausgeführt, keine Tickets gefunden.";
             if (uniqueIds.Count > 0)
             {
-                var ticket = await GetTicketAsync(uniqueIds[0], sessionId, sessionHash);
+                var ticket = await GetTicketDetailsAsync(uniqueIds[0], sessionId, sessionHash);
                 ticketGetStatus = ticket == null ? "Fehlgeschlagen, keine Ticketdaten in der Antwort." : "Erfolgreich";
             }
 
@@ -822,6 +806,8 @@ public class TicketSystemService : IDisposable
         var updated = 0;
         var skipped = 0;
         var hasTaskChanges = false;
+        var traffic = new SyncTraffic(reason, Stopwatch.StartNew());
+        _syncTraffic.Value = traffic;
 
         try
         {
@@ -871,19 +857,16 @@ public class TicketSystemService : IDisposable
             foreach (var ambiguousTicketId in ambiguousTicketIds)
                 _logger.Error($"[ZnunyTaskMapping] ticketId={ambiguousTicketId} action=skipped-ambiguous-task-mapping");
 
-            // An open-only TicketSearch no longer returns a ticket as soon as it is closed.
-            // Re-fetch already synchronized IDs explicitly so TicketGet can provide their
-            // authoritative State/StateType and closure is never inferred from absence.
-            var ticketIds = uniqueTicketIds
-                .Concat(_settings.Current.TicketSystemOnlyOpenTickets ? existingGroups.Select(group => group.Key) : Array.Empty<string>())
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .ToList();
+            var previouslyAssignedNowMissing = previousAssignmentSnapshot.Initialized
+                ? previousAssignmentSnapshot.TicketIds.Except(currentAssignedIds, StringComparer.OrdinalIgnoreCase)
+                : Array.Empty<string>();
+            var ticketIds = ZnunySyncPolicy.SelectTicketIds(uniqueTicketIds, previouslyAssignedNowMissing);
             var duplicateCount = ownerIds.Count + responsibleIds.Count - uniqueTicketIds.Count;
             _logger.Info($"[ZnunySearchMerge] ownerTickets={ownerIds.Count} responsibleTickets={responsibleIds.Count} uniqueTickets={uniqueTicketIds.Count} existingTicketsRechecked={ticketIds.Count - uniqueTicketIds.Count} duplicateOwnerResponsibleTickets={duplicateCount}");
 
             foreach (var ticketId in ticketIds)
             {
-                var ticket = await GetTicketAsync(ticketId, sessionId, sessionHash);
+                var ticket = await GetTicketMetadataAsync(ticketId, sessionId, sessionHash);
                 if (ticket == null)
                 {
                     skipped++;
@@ -1040,6 +1023,10 @@ public class TicketSystemService : IDisposable
             {
                 await RefreshCandidateTicketsCoreAsync(sessionId, sessionHash, reason);
             }
+            catch (ZnunySyncBudgetExceededException)
+            {
+                throw;
+            }
             catch (Exception ex)
             {
                 CandidateTicketsError = "Neue Aufgaben konnten nicht aktualisiert werden.";
@@ -1070,7 +1057,10 @@ public class TicketSystemService : IDisposable
             _syncGate.Release();
             if (hasTaskChanges)
                 NotifyTasksChanged();
-            }
+            traffic.Stopwatch.Stop();
+            _logger.Info($"[ZnunySyncTraffic] reason={traffic.Reason} searchRequests={traffic.SearchRequests} ticketMetadataRequests={traffic.MetadataRequests} ticketDetailRequests={traffic.DetailRequests} candidateRequests={traffic.CandidateRequests} totalRequests={traffic.TotalRequests} durationMs={traffic.Stopwatch.ElapsedMilliseconds}");
+            _syncTraffic.Value = null;
+        }
     }
 
     private string BuildAssignmentContextKey(int agentId)
@@ -1251,47 +1241,32 @@ public class TicketSystemService : IDisposable
         _logger.Info($"[ZnunyCandidates] action=refresh-start reason={reason} candidateUserId={candidateUserId} includeKeywordCount={includeKeywords.Count} excludeKeywordCount={excludeKeywords.Count}");
         if (includeKeywords.Count == 0)
         {
+            _candidateSnapshots.Replace(Array.Empty<ZnunyCandidateTicket>());
             PublishCandidateTickets(Array.Empty<ZnunyCandidateTicket>(), string.Empty);
             _logger.Info($"[ZnunyCandidates] source=0 closed=0 wrongAssignment=0 noKeywordMatch=0 excluded=0 matched=0 durationMs={stopwatch.ElapsedMilliseconds}");
             return;
         }
 
-        // StateType is an array in TicketSearch. Some older/custom GenericInterface
-        // mappings do not accept it, so the role-restricted unfiltered searches are
-        // also made. Their intersection remains small and closed tickets are removed
-        // after TicketGet; there is deliberately no all-visible-ticket fallback.
-        var ownerActiveTask = SearchCandidateRoleActiveTicketIdsAsync("Owner", candidateUserId, sessionId, sessionHash);
-        var responsibleActiveTask = SearchCandidateRoleActiveTicketIdsAsync("Responsible", candidateUserId, sessionId, sessionHash);
-        var ownerUnfilteredTask = SearchTicketsAsync("Owner", candidateUserId, _settings.Current.TicketSystemTicketSearchRoute,
-            _settings.Current.TicketSystemTicketSearchMethod, sessionId, sessionHash, onlyOpenOverride: false);
-        var responsibleUnfilteredTask = SearchTicketsAsync("Responsible", candidateUserId, _settings.Current.TicketSystemTicketSearchRoute,
-            _settings.Current.TicketSystemTicketSearchMethod, sessionId, sessionHash, onlyOpenOverride: false);
-        await Task.WhenAll(ownerActiveTask, responsibleActiveTask, ownerUnfilteredTask, responsibleUnfilteredTask);
-
-        var ownerActiveIds = await ownerActiveTask;
-        var responsibleActiveIds = await responsibleActiveTask;
-        var ownerIds = await ownerUnfilteredTask;
-        var responsibleIds = await responsibleUnfilteredTask;
+        var ownerIds = await SearchCandidateRoleActiveTicketIdsAsync("Owner", candidateUserId, sessionId, sessionHash);
+        var responsibleIds = await SearchCandidateRoleActiveTicketIdsAsync("Responsible", candidateUserId, sessionId, sessionHash);
         var candidateIds = ownerIds.Intersect(responsibleIds, StringComparer.OrdinalIgnoreCase).ToList();
-        _logger.Info($"[ZnunyCandidateSource] candidateUserId={candidateUserId} ownerAndResponsible=true ownerOpen={ownerActiveIds.Count} ownerUnfiltered={ownerIds.Count} responsibleOpen={responsibleActiveIds.Count} responsibleUnfiltered={responsibleIds.Count} intersection={candidateIds.Count}");
+        _logger.Info($"[ZnunyCandidateSource] candidateUserId={candidateUserId} ownerAndResponsible=true ownerOpen={ownerIds.Count} responsibleOpen={responsibleIds.Count} intersection={candidateIds.Count}");
 
-        var loadedTickets = new ConcurrentDictionary<string, ZnunyTicket>(StringComparer.OrdinalIgnoreCase);
-        var completed = 0;
-        await Parallel.ForEachAsync(candidateIds, new ParallelOptions { MaxDegreeOfParallelism = 4 }, async (ticketId, _) =>
+        var loadedTickets = new List<ZnunyTicket>();
+        foreach (var ticketId in candidateIds)
         {
-            var ticket = await GetTicketAsync(ticketId, sessionId, sessionHash)
+            var ticket = await GetCandidateTicketDetailsAsync(ticketId, sessionId, sessionHash)
                 ?? throw new InvalidOperationException($"TicketGet lieferte keine Daten für TicketID {ticketId}.");
-            loadedTickets[ticketId] = ticket;
-            var current = Interlocked.Increment(ref completed);
-            _logger.Info($"[ZnunyCandidateProgress] loaded={current} total={candidateIds.Count}");
-        });
+            loadedTickets.Add(ticket);
+            _logger.Info($"[ZnunyCandidateProgress] loaded={loadedTickets.Count} total={candidateIds.Count}");
+        }
 
         var matches = new List<ZnunyCandidateTicket>();
         var closed = 0;
         var wrongAssignment = 0;
         var noKeywordMatch = 0;
         var excluded = 0;
-        foreach (var ticket in loadedTickets.Values.OrderBy(ticket => ticket.TicketID, StringComparer.OrdinalIgnoreCase))
+        foreach (var ticket in loadedTickets.OrderBy(ticket => ticket.TicketID, StringComparer.OrdinalIgnoreCase))
         {
             if (ticket.OwnerId != candidateUserId || ticket.ResponsibleId != candidateUserId)
             {
@@ -1332,12 +1307,15 @@ public class TicketSystemService : IDisposable
                 Responsible = CandidateDisplayName(candidateUserId),
                 State = ticket.State,
                 WebUrl = ticket.WebUrl,
-                MatchedKeyword = match.Keyword
+                MatchedKeyword = match.Keyword,
+                LastSyncedUtc = DateTime.UtcNow
             });
             LogCandidateEvaluation(ticket, match.Keyword, match.Source, "matched");
         }
 
-        PublishCandidateTickets(matches.OrderByDescending(ticket => ticket.TicketNumber, StringComparer.OrdinalIgnoreCase).ToList(), string.Empty);
+        var snapshot = matches.OrderByDescending(ticket => ticket.TicketNumber, StringComparer.OrdinalIgnoreCase).ToList();
+        _candidateSnapshots.Replace(snapshot);
+        PublishCandidateTickets(snapshot, string.Empty);
         _logger.Info($"[ZnunyCandidates] source={candidateIds.Count} closed={closed} wrongAssignment={wrongAssignment} noKeywordMatch={noKeywordMatch} excluded={excluded} matched={matches.Count} durationMs={stopwatch.ElapsedMilliseconds}");
         if (string.Equals(reason, "timer", StringComparison.Ordinal))
             _logger.Info($"[ZnunyCandidates] action=scheduled-refresh matched={matches.Count}");
@@ -1401,19 +1379,8 @@ public class TicketSystemService : IDisposable
     private async Task<List<string>> SearchRoleTicketIdsWithOpenCompatibilityAsync(string role, int userId, string sessionId, string sessionHash)
     {
         var onlyOpen = _settings.Current.TicketSystemOnlyOpenTickets && !_settings.Current.TicketSystemShowClosedTickets;
-        var filteredIds = await SearchTicketsAsync(role, userId, _settings.Current.TicketSystemTicketSearchRoute, _settings.Current.TicketSystemTicketSearchMethod, sessionId, sessionHash, onlyOpen);
-
-        if (!onlyOpen)
-            return filteredIds;
-
-        var unfilteredIds = await SearchTicketsAsync(role, userId, _settings.Current.TicketSystemTicketSearchRoute, _settings.Current.TicketSystemTicketSearchMethod, sessionId, sessionHash, onlyOpenOverride: false);
-        var mergedIds = filteredIds
-            .Concat(unfilteredIds)
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToList();
-
-        _logger.Info($"[ZnunySearchCompatibility] role={role} stateTypeOpenTickets={filteredIds.Count} unfilteredTickets={unfilteredIds.Count} mergedTickets={mergedIds.Count}");
-        return mergedIds;
+        return await SearchTicketsAsync(role, userId, _settings.Current.TicketSystemTicketSearchRoute,
+            _settings.Current.TicketSystemTicketSearchMethod, sessionId, sessionHash, onlyOpen);
     }
 
     private async Task<List<string>> SearchTicketsAsync(string role, int userId, string route, string method, string sessionId, string sessionHash, bool? onlyOpenOverride = null)
@@ -1453,8 +1420,7 @@ public class TicketSystemService : IDisposable
         catch (Exception ex)
         {
             _logger.Warning($"[ZnunyCandidateSource] role={role} activeStateTypesSupported=false message='{LogValue(ex.Message)}'");
-            return await SearchTicketsAsync(role, userId, _settings.Current.TicketSystemTicketSearchRoute,
-                _settings.Current.TicketSystemTicketSearchMethod, sessionId, sessionHash, onlyOpenOverride: true);
+            return new List<string>();
         }
     }
 
@@ -1472,7 +1438,16 @@ public class TicketSystemService : IDisposable
         return new Dictionary<string, object?> { ["SessionID"] = sessionId };
     }
 
-    private async Task<ZnunyTicket?> GetTicketAsync(string ticketId, string sessionId, string sessionHash)
+    private Task<ZnunyTicket?> GetTicketMetadataAsync(string ticketId, string sessionId, string sessionHash)
+        => GetTicketAsync(ticketId, sessionId, sessionHash, allArticles: false, dynamicFields: false, "TicketGetMetadata");
+
+    private Task<ZnunyTicket?> GetTicketDetailsAsync(string ticketId, string sessionId, string sessionHash)
+        => GetTicketAsync(ticketId, sessionId, sessionHash, allArticles: true, dynamicFields: true, "TicketGetDetails");
+
+    private Task<ZnunyTicket?> GetCandidateTicketDetailsAsync(string ticketId, string sessionId, string sessionHash)
+        => GetTicketAsync(ticketId, sessionId, sessionHash, allArticles: true, dynamicFields: false, "CandidateTicketGetDetails");
+
+    private async Task<ZnunyTicket?> GetTicketAsync(string ticketId, string sessionId, string sessionHash, bool allArticles, bool dynamicFields, string operation)
     {
         var route = NormalizeRouteValue(_settings.Current.TicketSystemTicketGetRouteTemplate, "/Ticket/{TicketID}")
             .Replace("{TicketID}", Uri.EscapeDataString(ticketId), StringComparison.OrdinalIgnoreCase);
@@ -1485,26 +1460,31 @@ public class TicketSystemService : IDisposable
         {
             query["SessionID"] = sessionId;
         }
-        query["AllArticles"] = "1";
-        query["DynamicFields"] = "1";
+        query["AllArticles"] = allArticles ? "1" : "0";
+        query["DynamicFields"] = dynamicFields ? "1" : "0";
         var url = Combine(_settings.Current.TicketSystemApiUrl, route) + ToQueryString(query);
         using var request = new HttpRequestMessage(HttpMethod.Get, url);
 
-        _logger.Info($"[ZnunyTicket] method=GET route={route} ticketId={ticketId} auth={_settings.Current.TicketSystemTicketGetAuthMode} requestedDynamicFields=true allArticles=true sessionHash={sessionHash}");
-        var result = await SendZnunyAsync(request, "TicketGet", "[ZnunyTicketResponse]", logBody: false);
+        _logger.Info($"[ZnunyTicket] method=GET route={route} ticketId={ticketId} auth={_settings.Current.TicketSystemTicketGetAuthMode} requestedDynamicFields={dynamicFields.ToString().ToLowerInvariant()} allArticles={allArticles.ToString().ToLowerInvariant()} sessionHash={sessionHash}");
+        var result = await SendZnunyAsync(request, operation, "[ZnunyTicketResponse]", logBody: false);
         using var doc = JsonDocument.Parse(result.Body);
         ThrowIfApiError(doc.RootElement, "TicketGet");
         var ticketElement = FindFirstTicketElement(doc.RootElement);
         if (!ticketElement.HasValue)
             throw new ZnunyApiException("TicketGet", result.StatusCode, "Protocol", "TicketGet response contains no Ticket object.", result.Body);
 
-        var ticket = ZnunyTicket.FromJson(ticketElement.Value, _settings.Current.TicketSystemWebUrl, doc.RootElement);
+        var ticket = ZnunyTicket.FromJson(ticketElement.Value, _settings.Current.TicketSystemWebUrl, allArticles, doc.RootElement);
         _logger.Info($"[ZnunyFirstArticle] ticketId={ticket.TicketID} articleCount={ticket.ArticleCount} selectedArticleId='{ticket.FirstArticleId}' senderType='{ticket.FirstArticleSenderType}' created='{ticket.FirstArticleCreated}' bodyLength={ticket.FirstArticleBody.Length}");
         return ticket;
     }
 
     private async Task<ZnunyHttpResult> SendZnunyAsync(HttpRequestMessage request, string stage, string responseLogTag, bool logBody = true)
     {
+        if (_syncTraffic.Value is { } traffic && !traffic.TryRecord(stage))
+        {
+            _logger.Warning($"[ZnunyTrafficSafety] action=sync-aborted reason=request-budget-exceeded requests={traffic.TotalRequests}");
+            throw new ZnunySyncBudgetExceededException();
+        }
         using var response = await _client.SendAsync(request);
         var body = await response.Content.ReadAsStringAsync();
         var contentType = response.Content.Headers.ContentType?.ToString() ?? string.Empty;
@@ -1571,8 +1551,9 @@ public class TicketSystemService : IDisposable
     {
         var preserveLocalContent = (task.Tags ?? string.Empty).Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
             .Contains("PlenaroLocalOrigin", StringComparer.OrdinalIgnoreCase);
+        var preserveCachedDescription = task.IsZnunyTask && !ticket.HasArticleDetails;
         var title = preserveLocalContent ? task.Title : $"[{ticket.TicketNumber}] {ticket.Title}".Trim();
-        var description = preserveLocalContent ? task.Description : ticket.ToDescription();
+        var description = preserveLocalContent || preserveCachedDescription ? task.Description : ticket.ToDescription();
         var tags = preserveLocalContent
             ? AddZnunyTicketTags(task.Tags, ticket.TicketID, ticket.TicketNumber)
             : $"Znuny;ZnunyTicketID:{ticket.TicketID};ZnunyTicketNumber:{ticket.TicketNumber}";
@@ -2303,6 +2284,41 @@ public class TicketSystemService : IDisposable
         return (0, 0, 0);
     }
 
+    private sealed class SyncTraffic
+    {
+        public string Reason { get; }
+        public Stopwatch Stopwatch { get; }
+        public int SearchRequests { get; private set; }
+        public int MetadataRequests { get; private set; }
+        public int DetailRequests { get; private set; }
+        public int CandidateRequests { get; private set; }
+        public int TotalRequests { get; private set; }
+
+        public SyncTraffic(string reason, Stopwatch stopwatch)
+        {
+            Reason = reason;
+            Stopwatch = stopwatch;
+        }
+
+        public bool TryRecord(string operation)
+        {
+            if (Reason is "startup" or "timer" && TotalRequests >= ZnunySyncPolicy.MaximumAutomaticRequestsPerSync)
+                return false;
+            TotalRequests++;
+            if (operation.Contains("Candidate", StringComparison.OrdinalIgnoreCase)) CandidateRequests++;
+            else if (operation.Contains("Search", StringComparison.OrdinalIgnoreCase)) SearchRequests++;
+            else if (operation == "TicketGetMetadata") MetadataRequests++;
+            else if (operation.Contains("TicketGet", StringComparison.OrdinalIgnoreCase)) DetailRequests++;
+            return true;
+        }
+    }
+
+    private sealed class ZnunySyncBudgetExceededException : Exception
+    {
+        public ZnunySyncBudgetExceededException()
+            : base("Der automatische Znuny-Sync wurde wegen eines unerwartet hohen Anfragevolumens abgebrochen.") { }
+    }
+
     public void Dispose()
     {
         _timer.Dispose();
@@ -2364,6 +2380,7 @@ public class TicketSystemService : IDisposable
         public string FirstArticleSenderType { get; init; } = string.Empty;
         public string FirstArticleCreated { get; init; } = string.Empty;
         public int ArticleCount { get; init; }
+        public bool HasArticleDetails { get; init; }
         public bool IsClosed => IsClosedValue(StateType) || IsClosedValue(State);
 
         public string GetDynamicFieldValue(string name)
@@ -2432,7 +2449,7 @@ public class TicketSystemService : IDisposable
                    || normalized.StartsWith("merged ", StringComparison.OrdinalIgnoreCase);
         }
 
-        public static ZnunyTicket FromJson(JsonElement item, string webBaseUrl, JsonElement? responseRoot = null)
+        public static ZnunyTicket FromJson(JsonElement item, string webBaseUrl, bool hasArticleDetails, JsonElement? responseRoot = null)
         {
             var id = FirstString(item, "TicketID");
             var number = FirstString(item, "TicketNumber");
@@ -2479,6 +2496,7 @@ public class TicketSystemService : IDisposable
                 DynamicFieldValues = ExtractDynamicFieldValues(item),
                 Articles = articles,
                 ArticleCount = articles.Count,
+                HasArticleDetails = hasArticleDetails,
                 FirstArticleBody = selectedArticle?.Body ?? string.Empty,
                 ArticleSubjects = articleSubjects,
                 ContentText = articleBodies,
