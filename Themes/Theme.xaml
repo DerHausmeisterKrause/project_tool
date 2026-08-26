@@ -21,6 +21,9 @@
     <SolidColorBrush x:Key="AccentBrush" Color="{StaticResource Accent}"/>
     <SolidColorBrush x:Key="SuccessBrush" Color="{StaticResource Success}"/>
     <SolidColorBrush x:Key="DangerBrush" Color="{StaticResource Danger}"/>
+    <SolidColorBrush x:Key="AvailabilityFreeBrush" Color="#22C55E"/>
+    <SolidColorBrush x:Key="AvailabilityBusyBrush" Color="#EF4444"/>
+    <SolidColorBrush x:Key="AvailabilityUnknownBrush" Color="#475569"/>
 
     <!-- Ensure default WPF ComboBox selection text remains readable in dark theme -->
     <SolidColorBrush x:Key="{x:Static SystemColors.WindowTextBrushKey}" Color="#E5E7EB"/>
