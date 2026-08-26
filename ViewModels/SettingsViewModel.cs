@@ -138,6 +138,8 @@ public class SettingsViewModel : ObservableObject
     }
     public int TicketSystemAgentId { get => _settings.Current.TicketSystemAgentId; set { _settings.Current.TicketSystemAgentId = value; Save(); } }
     public int TicketSystemCandidateUserId { get => _settings.Current.TicketSystemCandidateUserId; set { _settings.Current.TicketSystemCandidateUserId = value; Save(); } }
+    public bool TicketSystemHidePendingTickets { get => _settings.Current.TicketSystemHidePendingTickets; set { _settings.Current.TicketSystemHidePendingTickets = value; Save(); } }
+    public bool TicketSystemNotifyPendingTickets { get => _settings.Current.TicketSystemNotifyPendingTickets; set { _settings.Current.TicketSystemNotifyPendingTickets = value; Save(); } }
     public string TicketSystemCandidateKeywords { get => _settings.Current.TicketSystemCandidateKeywords; set { _settings.Current.TicketSystemCandidateKeywords = value; Save(); } }
     public string TicketSystemCandidateExcludeKeywords { get => _settings.Current.TicketSystemCandidateExcludeKeywords; set { _settings.Current.TicketSystemCandidateExcludeKeywords = value ?? string.Empty; Save(); } }
     public string TicketSystemTicketSearchRoute { get => _settings.Current.TicketSystemTicketSearchRoute; set { _settings.Current.TicketSystemTicketSearchRoute = value; Save(); } }

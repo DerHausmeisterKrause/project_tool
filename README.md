@@ -4,6 +4,15 @@ Lokale Aufgaben- und Zeitverwaltungs-App mit SQLite und Outlook Busy-Blocker via
 
 ## Release Notes
 
+### Wartende Znuny-Tickets
+
+- Wartende Znuny-/OTRS-Tickets mit `pending reminder` oder `pending auto` können optional aus „Heute“ und „Aktuelle Aufgaben“ ausgeblendet werden
+- Neue Ansicht „Wartend“ und neue Einstellungen unter **Ticketsystem → Wartende Tickets**
+- Znuny-Wartezeiten werden lokal gespeichert und nach einem Neustart unmittelbar nachgeprüft
+- Ein lokaler Einzeltimer plant jeweils den nächsten Wartetermin und führt danach ein gezieltes TicketGet aus
+- Verlängerte Wartezeiten werden neu eingeplant; geschlossene oder anders zugewiesene Tickets erzeugen keine Benachrichtigung
+- Wake-Benachrichtigungen werden pro Wartetermin persistent dedupliziert und bei vielen gleichzeitig fälligen Tickets zusammengefasst
+
 ### Einstellungen
 
 - Einstellungsbereich mit einem dauerhaft sichtbaren horizontalen Menüband neu strukturiert
