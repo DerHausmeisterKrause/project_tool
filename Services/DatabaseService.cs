@@ -286,20 +286,11 @@ CREATE VIRTUAL TABLE IF NOT EXISTS wiki_vocabulary_fts USING fts5(source_id UNIN
     {
         EnsureColumn(conn, "tasks", "ticket_state", "TEXT NOT NULL DEFAULT ''");
         EnsureColumn(conn, "tasks", "ticket_state_type", "TEXT NOT NULL DEFAULT ''");
-        EnsureColumn(conn, "tasks", "ticket_pending_until_utc", "TEXT NULL");
-        EnsureColumn(conn, "tasks", "pending_wake_notification_for_utc", "TEXT NULL");
-        Exec(conn, "CREATE INDEX IF NOT EXISTS idx_tasks_ticket_pending_until ON tasks(ticket_pending_until_utc) WHERE ticket_pending_until_utc IS NOT NULL;");
     }
 
     private static void MigrateToV18(SqliteConnection conn)
     {
-        EnsureColumn(conn, "tasks", "pending_wake_handled_for_utc", "TEXT NULL");
-        // Every previously recorded notification necessarily represents an already
-        // processed wake. Seed handled state to prevent a one-time re-notification.
-        Exec(conn, @"UPDATE tasks
-SET pending_wake_handled_for_utc = pending_wake_notification_for_utc
-WHERE pending_wake_handled_for_utc IS NULL
-  AND pending_wake_notification_for_utc IS NOT NULL;");
+        // Reserved schema version retained for compatibility with existing databases.
     }
 
     private static void EnsureColumn(SqliteConnection conn, string table, string column, string definition)

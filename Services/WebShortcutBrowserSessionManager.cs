@@ -14,6 +14,8 @@ public sealed class WebShortcutBrowserSessionManager : IDisposable
     private readonly Dictionary<string, WebShortcutBrowserSession> _sessions = new(StringComparer.Ordinal);
     private readonly SettingsService _settings;
     private readonly LoggerService _logger;
+    private Panel? _persistentHost;
+    private string? _activeShortcutId;
 
     public WebShortcutBrowserSessionManager(SettingsService settings, LoggerService logger)
     {
@@ -23,6 +25,38 @@ public sealed class WebShortcutBrowserSessionManager : IDisposable
 
     public static string GetEnvironmentKey(WebShortcutSettings shortcut)
         => $"{shortcut.Id}|cors={(shortcut.DisableWebSecurity ? 1 : 0)}|mixed={(shortcut.AllowInsecureContent ? 1 : 0)}";
+
+    public void AttachPersistentHost(Panel host)
+    {
+        if (_persistentHost != null && !ReferenceEquals(_persistentHost, host))
+            throw new InvalidOperationException("Der persistente Favoriten-Host darf während der Sitzung nicht ausgetauscht werden.");
+        _persistentHost = host;
+    }
+
+    public WebShortcutBrowserSession Activate(WebShortcutSettings shortcut)
+    {
+        _activeShortcutId = shortcut.Id;
+        var session = GetOrCreate(shortcut);
+        if (_persistentHost == null)
+            throw new InvalidOperationException("Der persistente Favoriten-Host ist noch nicht verfügbar.");
+        _persistentHost.Visibility = Visibility.Visible;
+        foreach (var configured in _sessions.Values)
+            configured.Browser.Visibility = ReferenceEquals(configured, session) ? Visibility.Visible : Visibility.Collapsed;
+        if (session.Browser.Parent == null)
+            _persistentHost.Children.Add(session.Browser);
+        else if (!ReferenceEquals(session.Browser.Parent, _persistentHost))
+            throw new InvalidOperationException("Eine Favoriten-Browserinstanz darf nicht zwischen Visual Parents verschoben werden.");
+        return session;
+    }
+
+    public void HideAll()
+    {
+        _activeShortcutId = null;
+        if (_persistentHost != null)
+            _persistentHost.Visibility = Visibility.Collapsed;
+        foreach (var session in _sessions.Values)
+            session.Browser.Visibility = Visibility.Collapsed;
+    }
 
     public WebShortcutBrowserSession GetOrCreate(WebShortcutSettings shortcut)
     {
@@ -60,6 +94,20 @@ public sealed class WebShortcutBrowserSessionManager : IDisposable
                 continue;
             }
             entry.Value.UpdateConfiguration(shortcut);
+        }
+        if (_activeShortcutId != null && configured.TryGetValue(_activeShortcutId, out var active))
+        {
+            var session = Activate(active);
+            _ = InitializeActivatedSessionAsync(session);
+        }
+    }
+
+    private async Task InitializeActivatedSessionAsync(WebShortcutBrowserSession session)
+    {
+        try { await session.EnsureInitializedAsync(); }
+        catch (Exception ex)
+        {
+            _logger.Warning($"[WebShortcutBrowser] shortcutId={session.ShortcutId} action=reinitialize-failed errorType={ex.GetType().Name}");
         }
     }
 
@@ -124,19 +172,6 @@ public sealed class WebShortcutBrowserSession : IDisposable
             _logger.Info($"[WebShortcutBrowser] shortcutId={ShortcutId} action=navigate-configured-url host={uri.Host}");
             Browser.CoreWebView2.Navigate(uri.ToString());
         }
-    }
-
-    public void AttachTo(Panel host)
-    {
-        if (Browser.Parent is Panel previousHost && !ReferenceEquals(previousHost, host)) previousHost.Children.Remove(Browser);
-        if (!host.Children.Contains(Browser)) host.Children.Add(Browser);
-        Browser.Visibility = Visibility.Visible;
-    }
-
-    public void DetachFrom(Panel host)
-    {
-        Browser.Visibility = Visibility.Collapsed;
-        if (host.Children.Contains(Browser)) host.Children.Remove(Browser);
     }
 
     private async Task InitializeAsync()

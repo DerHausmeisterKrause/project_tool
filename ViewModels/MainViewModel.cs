@@ -27,6 +27,14 @@ public class MainViewModel : ObservableObject
         {
             if (Set(ref _selectedView, value))
             {
+                if (_selectedView is WebShortcutViewModel shortcut)
+                {
+                    ServiceLocator.WebShortcutBrowsers.Activate(shortcut.Shortcut);
+                }
+                else
+                {
+                    ServiceLocator.WebShortcutBrowsers.HideAll();
+                }
                 if (_selectedView is WeekViewModel)
                 {
                     _weekViewModel.Refresh();

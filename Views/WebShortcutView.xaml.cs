@@ -41,10 +41,9 @@ public partial class WebShortcutView : UserControl
         BrowserStatus.Text = "Webseite wird geladen …";
         try
         {
-            var session = ServiceLocator.WebShortcutBrowsers.GetOrCreate(viewModel.Shortcut);
+            var session = ServiceLocator.WebShortcutBrowsers.Activate(viewModel.Shortcut);
             _session = session;
             _session.StatusChanged += OnStatusChanged;
-            _session.AttachTo(BrowserHost);
             await session.EnsureInitializedAsync();
             if (generation != _attachGeneration
                 || !IsLoaded
@@ -68,7 +67,6 @@ public partial class WebShortcutView : UserControl
     {
         if (_session == null) return;
         _session.StatusChanged -= OnStatusChanged;
-        _session.DetachFrom(BrowserHost);
         _session = null;
     }
 }

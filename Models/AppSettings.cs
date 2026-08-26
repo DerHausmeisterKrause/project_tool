@@ -49,8 +49,6 @@ public class AppSettings
     public string TicketSystemPassword { get; set; } = string.Empty;
     public int TicketSystemAgentId { get; set; } = 0;
     public int TicketSystemCandidateUserId { get; set; } = 1;
-    public bool TicketSystemHidePendingTickets { get; set; } = false;
-    public bool TicketSystemNotifyPendingTickets { get; set; } = true;
     public string TicketSystemCandidateKeywords { get; set; } = string.Empty;
     public string TicketSystemCandidateExcludeKeywords { get; set; } = string.Empty;
     public string TicketSystemTicketSearchRoute { get; set; } = "/Ticket";
