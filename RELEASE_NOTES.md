@@ -7,15 +7,13 @@
 
 ## Aufgaben
 
-- Lokale Aufgaben werden beim Start von Plenaro jetzt sofort aus der Datenbank geladen.
-- „Aktuelle Aufgaben“ stehen unmittelbar nach dem Programmstart zur Verfügung.
-- Die Anzeige bestehender Aufgaben wartet nicht mehr auf die Znuny-Synchronisierung.
-- Aufgaben erscheinen nicht mehr erst nach einem Wechsel zu einer anderen Ansicht.
-- Znuny-Synchronisierung läuft weiterhin unabhängig im Hintergrund.
-- Nach Abschluss der Synchronisierung werden die Aufgabenlisten automatisch aktualisiert.
-- Bereits lokal vorhandene Aufgaben bleiben auch bei langsamem oder nicht erreichbarem Znuny sichtbar.
-- Wartende Tickets blockieren den initialen Aufbau der Aufgabenlisten nicht mehr.
-- Unsichere, noch nicht remote validierte Pending-Daten führen beim Start nicht mehr zum vorzeitigen Ausblenden von Aufgaben.
+- Fehler behoben, durch den „Aktuelle Aufgaben“ nach dem Programmstart zunächst leer erscheinen konnten.
+- Lokal gespeicherte Aufgaben werden jetzt unabhängig vom noch ausstehenden Znuny-Sync sofort angezeigt.
+- Veraltete lokale Zuweisungsinformationen blenden Znuny-Tickets während des Startvorgangs nicht mehr vorzeitig aus.
+- Owner- und Responsible-Zuweisungen werden erst nach dem ersten erfolgreichen Znuny-Abgleich als verbindlicher Sichtbarkeitsfilter verwendet.
+- Nach Abschluss der Znuny-Synchronisierung werden die Aufgabenlisten automatisch mit dem aktuellen Remote-Zustand abgeglichen.
+- Lokale Aufgaben bleiben auch bei langsamem oder nicht erreichbarem Znuny sofort sichtbar.
+- Rückkehr zur Heute-Ansicht aktualisiert die Aufgabenliste zusätzlich zuverlässig.
 
 # Plenaro V2.2.3
 

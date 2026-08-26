@@ -90,6 +90,25 @@ public sealed class TicketPendingStateTests
             Ticket("pending reminder", new DateTime(1970, 1, 1, 2, 0, 0, DateTimeKind.Utc)), Now));
     }
 
+    [Fact]
+    public void StaleUnassignedZnunyTaskRemainsVisibleUntilInitialSyncCompletes()
+    {
+        var task = Ticket("open", null);
+        task.IsZnunyAssigned = false;
+
+        Assert.True(task.IsOperationallyVisibleWithRemoteState(canTrustRemoteTicketState: false));
+        Assert.False(task.IsOperationallyVisibleWithRemoteState(canTrustRemoteTicketState: true));
+    }
+
+    [Fact]
+    public void LocalTaskVisibilityNeverDependsOnZnunySync()
+    {
+        var task = new TaskItem { IsZnunyAssigned = false };
+
+        Assert.True(task.IsOperationallyVisibleWithRemoteState(canTrustRemoteTicketState: false));
+        Assert.True(task.IsOperationallyVisibleWithRemoteState(canTrustRemoteTicketState: true));
+    }
+
     private static TaskItem Ticket(string stateType, DateTime? until) => new()
     {
         Tags = "Znuny;ZnunyTicketID:123",

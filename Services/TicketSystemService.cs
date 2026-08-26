@@ -52,7 +52,7 @@ public class TicketSystemService : IDisposable
     public IReadOnlyList<ZnunyCandidateTicket> CurrentCandidateTickets => _candidateTickets;
     public string CandidateTicketsError { get; private set; } = string.Empty;
     public bool IsCandidateRefreshRunning { get; private set; }
-    public bool HasValidatedPendingData => _initialAssignedTicketSyncCompleted;
+    public bool HasCompletedInitialAssignedTicketSync => _initialAssignedTicketSyncCompleted;
 
     private const int MaxIndividualAssignmentNotifications = 5;
 

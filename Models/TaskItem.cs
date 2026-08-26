@@ -23,6 +23,8 @@ public class TaskItem
     public DateTime? PendingWakeNotificationForUtc { get; set; }
     public bool IsZnunyTask => (Tags ?? string.Empty).Contains("ZnunyTicketID:", StringComparison.OrdinalIgnoreCase);
     public bool IsOperationallyVisible => !IsZnunyTask || IsZnunyAssigned;
+    public bool IsOperationallyVisibleWithRemoteState(bool canTrustRemoteTicketState)
+        => !IsZnunyTask || !canTrustRemoteTicketState || IsZnunyAssigned;
     public bool IsActivelyTicketPending(DateTime utcNow) => IsZnunyTask
         && TicketPendingState.IsPendingStateType(TicketStateType)
         && TicketPendingUntilUtc is DateTime until && until > utcNow;
