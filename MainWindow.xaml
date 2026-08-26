@@ -54,6 +54,7 @@
                     </ListBox.ItemTemplate>
                 </ListBox>
                 <Button Command="{Binding NavigateToSettingsCommand}"
+                        CommandParameter="Updates"
                         Visibility="{Binding SettingsViewModel.IsUpdateAvailable, Converter={StaticResource BooleanToVisibilityConverter}}"
                         Foreground="#EF4444" FontWeight="SemiBold" FontSize="12"
                         Background="Transparent" BorderThickness="0" Padding="8,4"
