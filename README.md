@@ -4,6 +4,13 @@ Lokale Aufgaben- und Zeitverwaltungs-App mit SQLite und Outlook Busy-Blocker via
 
 ## Release Notes
 
+### Segmentplanung
+
+- Neue visuelle Tages-Verfügbarkeitsanzeige von 06:00 bis 18:00 mit 48 proportionalen 15-Minuten-Segmenten
+- Freie Zeiträume werden grün, durch Outlook-Termine belegte Zeiträume rot und nicht verfügbare Kalenderdaten neutral dargestellt
+- Die Anzeige folgt dem ausgewählten Segmentdatum und aktualisiert sich nach Outlook-Synchronisationen automatisch
+- Abgesagte, als frei markierte und ganztägige Termine blockieren die Anzeige nicht
+
 **Plenaro 2.1.0**
 
 - Neue Ausschlusswörter für „Neue Aufgaben“
