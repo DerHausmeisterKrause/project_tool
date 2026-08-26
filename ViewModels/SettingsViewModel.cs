@@ -15,6 +15,32 @@ namespace TaskTool.ViewModels;
 
 public class SettingsViewModel : ObservableObject
 {
+    private static readonly IReadOnlyDictionary<string, int> SettingsSectionIndexes =
+        new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["General"] = 0, ["Allgemein"] = 0,
+            ["Tasks"] = 1, ["Aufgaben & Zeiten"] = 1,
+            ["Outlook"] = 2,
+            ["Homeoffice"] = 3,
+            ["Ticketsystem"] = 4,
+            ["Wiki"] = 5,
+            ["Favorites"] = 6, ["Favoriten"] = 6,
+            ["Updates"] = 7
+        };
+
+    private int _selectedSettingsSectionIndex;
+    public int SelectedSettingsSectionIndex
+    {
+        get => _selectedSettingsSectionIndex;
+        set => Set(ref _selectedSettingsSectionIndex, Math.Clamp(value, 0, 7));
+    }
+
+    public void SelectSection(string? section)
+    {
+        if (!string.IsNullOrWhiteSpace(section) && SettingsSectionIndexes.TryGetValue(section, out var index))
+            SelectedSettingsSectionIndex = index;
+    }
+
     private readonly SettingsService _settings;
     private readonly NotificationService _notifications;
     private readonly OutlookCalendarService _outlookCalendar;
@@ -112,6 +138,8 @@ public class SettingsViewModel : ObservableObject
     }
     public int TicketSystemAgentId { get => _settings.Current.TicketSystemAgentId; set { _settings.Current.TicketSystemAgentId = value; Save(); } }
     public int TicketSystemCandidateUserId { get => _settings.Current.TicketSystemCandidateUserId; set { _settings.Current.TicketSystemCandidateUserId = value; Save(); } }
+    public bool TicketSystemHidePendingTickets { get => _settings.Current.TicketSystemHidePendingTickets; set { _settings.Current.TicketSystemHidePendingTickets = value; Save(); } }
+    public bool TicketSystemNotifyPendingTickets { get => _settings.Current.TicketSystemNotifyPendingTickets; set { _settings.Current.TicketSystemNotifyPendingTickets = value; Save(); } }
     public string TicketSystemCandidateKeywords { get => _settings.Current.TicketSystemCandidateKeywords; set { _settings.Current.TicketSystemCandidateKeywords = value; Save(); } }
     public string TicketSystemCandidateExcludeKeywords { get => _settings.Current.TicketSystemCandidateExcludeKeywords; set { _settings.Current.TicketSystemCandidateExcludeKeywords = value ?? string.Empty; Save(); } }
     public string TicketSystemTicketSearchRoute { get => _settings.Current.TicketSystemTicketSearchRoute; set { _settings.Current.TicketSystemTicketSearchRoute = value; Save(); } }

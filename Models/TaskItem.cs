@@ -16,8 +16,17 @@ public class TaskItem
     public long TicketSecondsBooked { get; set; }
     public bool IsPinned { get; set; }
     public bool IsZnunyAssigned { get; set; } = true;
+    public string TicketState { get; set; } = string.Empty;
+    public string TicketStateType { get; set; } = string.Empty;
+    public DateTime? TicketPendingUntilUtc { get; set; }
+    public DateTime? PendingWakeNotificationForUtc { get; set; }
     public bool IsZnunyTask => (Tags ?? string.Empty).Contains("ZnunyTicketID:", StringComparison.OrdinalIgnoreCase);
     public bool IsOperationallyVisible => !IsZnunyTask || IsZnunyAssigned;
+    public bool IsActivelyTicketPending(DateTime utcNow) => IsZnunyTask
+        && TicketPendingState.IsPendingStateType(TicketStateType)
+        && TicketPendingUntilUtc is DateTime until && until > utcNow;
+    // Derived presentation state; populated with the configured calendar time zone.
+    public string TicketPendingDisplayText { get; set; } = string.Empty;
     // Derived presentation state; never persisted.
     public string CurrentListBadgeText { get; set; } = string.Empty;
     public bool ShowCurrentListBadge => !string.IsNullOrWhiteSpace(CurrentListBadgeText);

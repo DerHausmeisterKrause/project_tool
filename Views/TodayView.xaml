@@ -164,6 +164,9 @@
                                      IsChecked="{Binding SelectedTaskScope, Converter={StaticResource EqualityConverter}, ConverterParameter=Current}" Command="{Binding ShowCurrentTasksCommand}"/>
                         <RadioButton GroupName="TaskScope" Content="{Binding CandidateTabTitle}" MinWidth="165" Style="{StaticResource TaskFilterMiddleSegmentStyle}"
                                      IsChecked="{Binding SelectedTaskScope, Converter={StaticResource EqualityConverter}, ConverterParameter=CandidateTickets}" Command="{Binding ShowNewTasksCommand}"/>
+                        <RadioButton GroupName="TaskScope" Content="{Binding PendingTicketTabTitle}" MinWidth="130" Style="{StaticResource TaskFilterMiddleSegmentStyle}"
+                                     Visibility="{Binding ShowPendingTicketTab, Converter={StaticResource BooleanToVisibilityConverter}}"
+                                     IsChecked="{Binding SelectedTaskScope, Converter={StaticResource EqualityConverter}, ConverterParameter=PendingTickets}" Command="{Binding ShowPendingTicketTasksCommand}"/>
                         <RadioButton GroupName="TaskScope" Content="Erledigte Aufgaben" MinWidth="165" Style="{StaticResource TaskFilterRightSegmentStyle}"
                                      IsChecked="{Binding SelectedTaskScope, Converter={StaticResource EqualityConverter}, ConverterParameter=Completed}" Command="{Binding ShowCompletedTasksCommand}"/>
                     </StackPanel>
@@ -286,7 +289,7 @@
                 </ScrollViewer>
 
                 <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto" Background="Transparent"
-                              Visibility="{Binding ShowCurrentTaskList, Converter={StaticResource BooleanToVisibilityConverter}}">
+                              Visibility="{Binding ShowActiveOrPendingTaskList, Converter={StaticResource BooleanToVisibilityConverter}}">
                     <ItemsControl x:Name="CurrentTasksItems" ItemsSource="{Binding DisplayedTasks}">
                         <ItemsControl.ItemTemplate>
                             <DataTemplate>
@@ -308,6 +311,8 @@
                                             <TextBlock Text="{Binding CurrentListPreviewText, Mode=OneWay}" Foreground="{StaticResource MutedTextBrush}" TextWrapping="Wrap"
                                                        MaxHeight="58" Margin="0,5,0,0"
                                                        Visibility="{Binding ShowCurrentListPreview, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}"/>
+                                            <TextBlock Text="{Binding TicketPendingDisplayText}" Foreground="#FBBF24" FontWeight="SemiBold" Margin="0,6,0,0"
+                                                       Visibility="{Binding TicketPendingDisplayText, Converter={StaticResource StringEmptyToVisibilityConverter}}"/>
                                             <WrapPanel Margin="0,8,0,0">
                                                 <Border Visibility="{Binding ShowCurrentListBadge, Converter={StaticResource BooleanToVisibilityConverter}}">
                                                     <Border.Style>
