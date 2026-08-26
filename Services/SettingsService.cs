@@ -18,7 +18,8 @@ public class SettingsService
         InstalledVersion = 2,
         SegmentDuration = 4,
         LogLevel = 8,
-        TicketCreateRoute = 16
+        TicketCreateRoute = 16,
+        WebShortcutOrder = 32
     }
 
     private readonly LoggerService _logger;
@@ -75,6 +76,8 @@ public class SettingsService
             _logger.Info($"[ZnunySettingsMigration] TicketSystemTicketCreateRoute old='{AppSettings.LegacyTicketSystemTicketCreateRoute}' new='{AppSettings.DefaultTicketSystemTicketCreateRoute}'");
         if (changes.HasFlag(NormalizationChanges.InstalledVersion))
             _logger.Info($"[SettingsMigration] InstalledVersion missing initializedVersion={AppSettings.InitialInstalledVersion}");
+        if (changes.HasFlag(NormalizationChanges.WebShortcutOrder))
+            _logger.Info("[SettingsMigration] WebShortcut SortOrder normalized=true");
     }
 
     private static NormalizationChanges Normalize(AppSettings settings)
@@ -109,6 +112,19 @@ public class SettingsService
         settings.CurrentTasksSortField = string.Equals(settings.CurrentTasksSortField, "Created", StringComparison.OrdinalIgnoreCase)
             ? "Created"
             : "Updated";
+        settings.UpdateChannel = string.Equals(settings.UpdateChannel, "Test", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(settings.UpdateChannel, "PreRelease", StringComparison.OrdinalIgnoreCase)
+            ? "Test"
+            : "Stable";
+        settings.WebShortcuts ??= new(); settings.WebShortcuts = settings.WebShortcuts.OfType<WebShortcutSettings>().ToList();
+        foreach (var shortcut in settings.WebShortcuts) { shortcut.Id = string.IsNullOrWhiteSpace(shortcut.Id) ? Guid.NewGuid().ToString() : shortcut.Id.Trim(); shortcut.Name = shortcut.Name?.Trim() ?? string.Empty; shortcut.Url = shortcut.Url?.Trim() ?? string.Empty; shortcut.Username = shortcut.Username?.Trim() ?? string.Empty; shortcut.PasswordEncrypted ??= string.Empty; }
+        var hasCanonicalShortcutOrder = settings.WebShortcuts.Select(x => x.SortOrder).OrderBy(x => x).SequenceEqual(Enumerable.Range(0, settings.WebShortcuts.Count));
+        if (hasCanonicalShortcutOrder) settings.WebShortcuts = settings.WebShortcuts.OrderBy(x => x.SortOrder).ToList();
+        else
+        {
+            for (var index = 0; index < settings.WebShortcuts.Count; index++) settings.WebShortcuts[index].SortOrder = index;
+            changes |= NormalizationChanges.WebShortcutOrder;
+        }
         if (settings.DefaultSegmentDurationMinutes is < 15 or > 240)
         {
             settings.DefaultSegmentDurationMinutes = 30;
@@ -148,6 +164,40 @@ public class SettingsService
         settings.TicketSystemUsername = settings.TicketSystemUsername?.Trim() ?? string.Empty;
         settings.TicketSystemPasswordEncrypted ??= string.Empty;
         settings.TicketSystemPassword ??= string.Empty;
+        settings.WikiSources ??= new();
+        settings.WikiSources = settings.WikiSources.OfType<WikiSourceSettings>().ToList();
+        foreach (var source in settings.WikiSources)
+        {
+            source.Id = string.IsNullOrWhiteSpace(source.Id) ? Guid.NewGuid().ToString() : source.Id.Trim();
+            source.Name = source.Name?.Trim() ?? string.Empty;
+            source.BaseUrl = source.BaseUrl?.Trim() ?? string.Empty;
+            source.ProviderType = NormalizeChoice(source.ProviderType, WikiSourceValidation.ProviderTypes, "ConfluenceDataCenter");
+            source.AuthMode = NormalizeChoice(source.AuthMode, WikiSourceValidation.AuthModes, "BearerToken");
+            source.Username = source.Username?.Trim() ?? string.Empty;
+            source.SecretEncrypted ??= string.Empty;
+            source.ApiKeyHeaderName = string.IsNullOrWhiteSpace(source.ApiKeyHeaderName) ? "X-API-Key" : source.ApiKeyHeaderName.Trim();
+            source.SpaceKey = source.SpaceKey?.Trim() ?? string.Empty;
+            source.SpaceKeys ??= new();
+            source.SpaceKeys = source.SpaceKeys.Where(x => !string.IsNullOrWhiteSpace(x)).Select(x => x.Trim()).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+            if (source.SpaceKeys.Count == 0 && !string.IsNullOrWhiteSpace(source.SpaceKey)) { source.SpaceKeys.Add(source.SpaceKey); source.SearchAllSpaces = false; }
+            source.BrowserHomeUrl = source.BrowserHomeUrl?.Trim() ?? string.Empty;
+            source.BrowserLoginMode = NormalizeChoice(source.BrowserLoginMode, new[] { "BrowserSession", "WindowsIntegrated", "UsernamePassword", "None" }, "BrowserSession");
+            source.BrowserUsername = source.BrowserUsername?.Trim() ?? string.Empty;
+            source.BrowserPasswordEncrypted ??= string.Empty;
+            if (source.BrowserLoginMode == "UsernamePassword") source.BrowserAutoSubmit = true;
+            source.MaxResults = Math.Clamp(source.MaxResults, 1, 20);
+            source.HttpMethod = string.Equals(source.HttpMethod, "POST", StringComparison.OrdinalIgnoreCase) ? "POST" : "GET";
+            source.SearchUrlTemplate = source.SearchUrlTemplate?.Trim() ?? string.Empty;
+            source.RequestBodyTemplate ??= string.Empty;
+            source.ResultArrayPath = string.IsNullOrWhiteSpace(source.ResultArrayPath) ? "$.results" : source.ResultArrayPath.Trim();
+            source.ResultIdPath = string.IsNullOrWhiteSpace(source.ResultIdPath) ? "id" : source.ResultIdPath.Trim();
+            source.ResultTitlePath = string.IsNullOrWhiteSpace(source.ResultTitlePath) ? "title" : source.ResultTitlePath.Trim();
+            source.ResultUrlPath = string.IsNullOrWhiteSpace(source.ResultUrlPath) ? "url" : source.ResultUrlPath.Trim();
+            source.ResultExcerptPath = string.IsNullOrWhiteSpace(source.ResultExcerptPath) ? "excerpt" : source.ResultExcerptPath.Trim();
+        }
+        settings.DefaultWikiSourceId ??= string.Empty;
+        var activeWikiSources = settings.WikiSources.Where(x => x.Enabled).ToList();
+        if (activeWikiSources.Count == 1 || !activeWikiSources.Any(x => x.Id == settings.DefaultWikiSourceId)) settings.DefaultWikiSourceId = activeWikiSources.FirstOrDefault()?.Id ?? string.Empty;
         settings.TicketSystemAgentId = Math.Max(0, settings.TicketSystemAgentId);
         settings.TicketSystemCandidateUserId = Math.Max(1, settings.TicketSystemCandidateUserId);
         settings.TicketSystemCandidateKeywords = settings.TicketSystemCandidateKeywords?.Trim() ?? string.Empty;
@@ -199,6 +249,9 @@ public class SettingsService
         return route.StartsWith('/') ? route : "/" + route;
     }
 
+    private static string NormalizeChoice(string? value, IReadOnlyList<string> validValues, string fallback)
+        => validValues.FirstOrDefault(x => string.Equals(x, value?.Trim(), StringComparison.OrdinalIgnoreCase)) ?? fallback;
+
     public string GetTicketSystemPassword()
     {
         if (!string.IsNullOrWhiteSpace(Current.TicketSystemPasswordEncrypted))
@@ -219,6 +272,23 @@ public class SettingsService
         Current.TicketSystemPasswordEncrypted = string.IsNullOrEmpty(password) ? string.Empty : Protect(password);
         Current.TicketSystemPassword = string.Empty;
     }
+
+    public string GetWikiSecret(WikiSourceSettings source)
+        => string.IsNullOrWhiteSpace(source.SecretEncrypted) ? string.Empty : Unprotect(source.SecretEncrypted);
+
+    public void SetWikiSecret(WikiSourceSettings source, string secret)
+    {
+        source.SecretEncrypted = string.IsNullOrEmpty(secret) ? string.Empty : Protect(secret);
+    }
+
+    public string GetWikiBrowserPassword(WikiSourceSettings source)
+        => string.IsNullOrWhiteSpace(source.BrowserPasswordEncrypted) ? string.Empty : Unprotect(source.BrowserPasswordEncrypted);
+
+    public void SetWikiBrowserPassword(WikiSourceSettings source, string password)
+        => source.BrowserPasswordEncrypted = string.IsNullOrEmpty(password) ? string.Empty : Protect(password);
+
+    public string GetWebShortcutPassword(WebShortcutSettings shortcut) => string.IsNullOrWhiteSpace(shortcut.PasswordEncrypted) ? string.Empty : Unprotect(shortcut.PasswordEncrypted);
+    public void SetWebShortcutPassword(WebShortcutSettings shortcut, string password) => shortcut.PasswordEncrypted = string.IsNullOrEmpty(password) ? string.Empty : Protect(password);
 
     public void Save()
     {

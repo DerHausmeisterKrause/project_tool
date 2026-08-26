@@ -14,6 +14,7 @@ public class AppSettings
     public bool NotificationSoundEnabled { get; set; } = true;
     public bool CheckForUpdatesOnStartup { get; set; } = true;
     public bool AutoInstallUpdatesOnStartup { get; set; } = true;
+    public string UpdateChannel { get; set; } = "Stable";
     public string InstalledVersion { get; set; } = string.Empty;
     public string CurrentTasksSortField { get; set; } = "Updated";
     public bool CurrentTasksSortDescending { get; set; } = true;
@@ -77,6 +78,9 @@ public class AppSettings
     public bool NotifyOnNewAssignedTickets { get; set; } = true;
     public bool TicketSystemAutofillCredentials { get; set; } = false;
     public bool TicketSystemAutoLogin { get; set; } = false;
+    public List<WikiSourceSettings> WikiSources { get; set; } = new();
+    public string DefaultWikiSourceId { get; set; } = string.Empty;
+    public List<WebShortcutSettings> WebShortcuts { get; set; } = new();
 
     public int MondayTargetMinutes { get; set; } = 480;
     public int TuesdayTargetMinutes { get; set; } = 480;
@@ -97,4 +101,42 @@ public class AppSettings
         DayOfWeek.Sunday => SundayTargetMinutes,
         _ => 0
     };
+}
+
+public sealed class WebShortcutSettings
+{
+    public string Id { get; set; } = Guid.NewGuid().ToString(); public string Name { get; set; } = string.Empty; public string Url { get; set; } = string.Empty;
+    public string Username { get; set; } = string.Empty; public string PasswordEncrypted { get; set; } = string.Empty; public bool Enabled { get; set; } = true; public bool AutoLogin { get; set; }
+    public bool DisableWebSecurity { get; set; } = false;
+    public int SortOrder { get; set; }
+}
+
+public sealed class WikiSourceSettings
+{
+    public string Id { get; set; } = Guid.NewGuid().ToString();
+    public string Name { get; set; } = string.Empty;
+    public bool Enabled { get; set; } = true;
+    public string ProviderType { get; set; } = "ConfluenceDataCenter";
+    public string BaseUrl { get; set; } = string.Empty;
+    public string AuthMode { get; set; } = "BearerToken";
+    public string Username { get; set; } = string.Empty;
+    public string SecretEncrypted { get; set; } = string.Empty;
+    public string ApiKeyHeaderName { get; set; } = "X-API-Key";
+    public string SpaceKey { get; set; } = string.Empty;
+    public bool SearchAllSpaces { get; set; } = true;
+    public List<string> SpaceKeys { get; set; } = new();
+    public string BrowserHomeUrl { get; set; } = string.Empty;
+    public string BrowserLoginMode { get; set; } = "BrowserSession";
+    public string BrowserUsername { get; set; } = string.Empty;
+    public string BrowserPasswordEncrypted { get; set; } = string.Empty;
+    public bool BrowserAutoSubmit { get; set; } = true;
+    public int MaxResults { get; set; } = 5;
+    public string HttpMethod { get; set; } = "GET";
+    public string SearchUrlTemplate { get; set; } = string.Empty;
+    public string RequestBodyTemplate { get; set; } = string.Empty;
+    public string ResultArrayPath { get; set; } = "$.results";
+    public string ResultIdPath { get; set; } = "id";
+    public string ResultTitlePath { get; set; } = "title";
+    public string ResultUrlPath { get; set; } = "url";
+    public string ResultExcerptPath { get; set; } = "excerpt";
 }

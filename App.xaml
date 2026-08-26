@@ -256,6 +256,10 @@
             <DataTemplate DataType="{x:Type vm:TicketSystemViewModel}">
                 <views:TicketSystemView />
             </DataTemplate>
+            <DataTemplate DataType="{x:Type vm:WikiBrowserViewModel}">
+                <views:WikiBrowserView />
+            </DataTemplate>
+            <DataTemplate DataType="{x:Type vm:WebShortcutViewModel}"><views:WebShortcutView /></DataTemplate>
             <DataTemplate DataType="{x:Type vm:SettingsViewModel}">
                 <views:SettingsView />
             </DataTemplate>
