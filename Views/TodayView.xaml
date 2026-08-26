@@ -286,7 +286,7 @@
                 </ScrollViewer>
 
                 <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto" Background="Transparent"
-                              Visibility="{Binding ShowCurrentTaskList, Converter={StaticResource BooleanToVisibilityConverter}}">
+                              Visibility="{Binding ShowCurrentTaskListContent, Converter={StaticResource BooleanToVisibilityConverter}}">
                     <ItemsControl x:Name="CurrentTasksItems" ItemsSource="{Binding DisplayedTasks}">
                         <ItemsControl.ItemTemplate>
                             <DataTemplate>

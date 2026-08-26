@@ -17,7 +17,7 @@ public class MainViewModel : ObservableObject
     private readonly List<WebShortcutViewModel> _webShortcutViews = new();
     private readonly LoggerService _logger;
     public SettingsViewModel SettingsViewModel { get; }
-    public RelayCommand NavigateToSettingsCommand { get; }
+    public RelayCommand<string> NavigateToSettingsCommand { get; }
 
     private object _selectedView;
     public object SelectedView
@@ -27,6 +27,14 @@ public class MainViewModel : ObservableObject
         {
             if (Set(ref _selectedView, value))
             {
+                if (_selectedView is WebShortcutViewModel shortcut)
+                {
+                    ServiceLocator.WebShortcutBrowsers.Activate(shortcut.Shortcut);
+                }
+                else
+                {
+                    ServiceLocator.WebShortcutBrowsers.HideAll();
+                }
                 if (_selectedView is WeekViewModel)
                 {
                     _weekViewModel.Refresh();
@@ -89,6 +97,12 @@ public class MainViewModel : ObservableObject
         if (NavigationItems.Contains(WikiBrowserViewModel)) SelectedView = WikiBrowserViewModel;
     }
 
+    public void NavigateToSettings(string? section = null)
+    {
+        SettingsViewModel.SelectSection(section);
+        SelectedView = SettingsViewModel;
+    }
+
     public MainViewModel(TaskService taskService, WorkDayService workDayService, SettingsService settingsService, NotificationService notifications, OutlookCalendarService outlookCalendar, TicketSystemService ticketSystem, UpdateService updates, HomeOfficeService homeOffice, GermanTimeService germanTime, LoggerService logger)
     {
         _logger = logger;
@@ -100,7 +114,7 @@ public class MainViewModel : ObservableObject
         WikiBrowserViewModel = new WikiBrowserViewModel(settingsService);
         _reportsViewModel = new ReportsViewModel(taskService, workDayService, settingsService, germanTime, logger);
         SettingsViewModel = new SettingsViewModel(settingsService, notifications, outlookCalendar, taskService, ticketSystem, updates);
-        NavigateToSettingsCommand = new RelayCommand(() => SelectedView = SettingsViewModel);
+        NavigateToSettingsCommand = new RelayCommand<string>(NavigateToSettings);
 
         NavigationItems = new ObservableCollection<object> { TodayViewModel, _weekViewModel, _ticketSystemViewModel, _reportsViewModel, SettingsViewModel };
         settingsService.SettingsChanged += RefreshDynamicNavigation;
@@ -123,21 +137,35 @@ public class MainViewModel : ObservableObject
     private void RefreshDynamicNavigation()
     {
         RefreshWikiNavigation();
+        ServiceLocator.WebShortcutBrowsers.Synchronize(ServiceLocator.Settings.Current.WebShortcuts);
         var selectedShortcut = SelectedView as WebShortcutViewModel;
-        foreach (var view in _webShortcutViews) NavigationItems.Remove(view);
-        _webShortcutViews.Clear();
-        foreach (var shortcut in ServiceLocator.Settings.Current.WebShortcuts.Where(x => x.Enabled))
+        var existingById = _webShortcutViews.ToDictionary(x => x.ShortcutId, StringComparer.Ordinal);
+        var desiredViews = new List<WebShortcutViewModel>();
+        foreach (var shortcut in ServiceLocator.Settings.Current.WebShortcuts.Where(x => x.Enabled).OrderBy(x => x.SortOrder))
         {
-            var view = new WebShortcutViewModel(shortcut);
-            _webShortcutViews.Add(view);
-            NavigationItems.Insert(NavigationItems.IndexOf(SettingsViewModel), view);
+            if (!existingById.TryGetValue(shortcut.Id, out var view)) view = new WebShortcutViewModel(shortcut);
+            else view.Update(shortcut);
+            desiredViews.Add(view);
         }
+
+        foreach (var obsolete in _webShortcutViews.Where(x => !desiredViews.Contains(x)).ToList()) NavigationItems.Remove(obsolete);
+        var firstShortcutIndex = NavigationItems.IndexOf(_reportsViewModel) + 1;
+        for (var index = 0; index < desiredViews.Count; index++)
+        {
+            var view = desiredViews[index];
+            var targetIndex = firstShortcutIndex + index;
+            var currentIndex = NavigationItems.IndexOf(view);
+            if (currentIndex < 0) NavigationItems.Insert(targetIndex, view);
+            else if (currentIndex != targetIndex) NavigationItems.Move(currentIndex, targetIndex);
+        }
+        _webShortcutViews.Clear();
+        _webShortcutViews.AddRange(desiredViews);
+
         if (selectedShortcut != null)
         {
             var replacement = _webShortcutViews.FirstOrDefault(x => x.ShortcutId == selectedShortcut.ShortcutId);
-            SelectedView = replacement is not null
-                ? replacement
-                : TodayViewModel;
+            if (replacement == null) SelectedView = TodayViewModel;
+            else if (!ReferenceEquals(replacement, selectedShortcut)) SelectedView = replacement;
         }
     }
 }

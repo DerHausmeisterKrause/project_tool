@@ -20,6 +20,7 @@ public static class ServiceLocator
     public static TicketAssignmentSnapshotService TicketAssignmentSnapshots { get; private set; } = null!;
     public static WikiSearchService WikiSearch { get; private set; } = null!;
     public static WikiVocabularyIndexService WikiVocabulary { get; private set; } = null!;
+    public static WebShortcutBrowserSessionManager WebShortcutBrowsers { get; private set; } = null!;
     public static MainViewModel MainViewModel { get; private set; } = null!;
 
     public static void Initialize()
@@ -34,6 +35,7 @@ public static class ServiceLocator
         Database.Initialize();
         WikiVocabulary = new WikiVocabularyIndexService(Database, Settings, Logger);
         WikiSearch = new WikiSearchService(Database, Settings, Logger, vocabulary: WikiVocabulary);
+        WebShortcutBrowsers = new WebShortcutBrowserSessionManager(Settings, Logger);
         _ = WikiVocabulary.RefreshStaleAsync();
         Outlook = new OutlookInteropService(Logger, Settings);
         Tasks = new TaskService(Database, Logger, Outlook, Settings);

@@ -13,7 +13,8 @@ public class AppSettings
     public string LogLevel { get; set; } = "Warning";
     public bool NotificationSoundEnabled { get; set; } = true;
     public bool CheckForUpdatesOnStartup { get; set; } = true;
-    public bool AutoInstallUpdatesOnStartup { get; set; } = true;
+    // Retained for old settings.json files only; silent installation is never authorized by this value.
+    public bool AutoInstallUpdatesOnStartup { get; set; } = false;
     public string UpdateChannel { get; set; } = "Stable";
     public string InstalledVersion { get; set; } = string.Empty;
     public string CurrentTasksSortField { get; set; } = "Updated";
@@ -108,6 +109,8 @@ public sealed class WebShortcutSettings
     public string Id { get; set; } = Guid.NewGuid().ToString(); public string Name { get; set; } = string.Empty; public string Url { get; set; } = string.Empty;
     public string Username { get; set; } = string.Empty; public string PasswordEncrypted { get; set; } = string.Empty; public bool Enabled { get; set; } = true; public bool AutoLogin { get; set; }
     public bool DisableWebSecurity { get; set; } = false;
+    public bool AllowInsecureContent { get; set; } = false;
+    public int SortOrder { get; set; }
 }
 
 public sealed class WikiSourceSettings

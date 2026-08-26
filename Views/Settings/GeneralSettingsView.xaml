@@ -1,0 +1,44 @@
+<UserControl x:Class="TaskTool.Views.Settings.GeneralSettingsView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             Background="Transparent">
+    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Padding="0,0,8,16">
+        <StackPanel MaxWidth="1200" HorizontalAlignment="Center" Grid.IsSharedSizeScope="True">
+            <TextBlock Text="Allgemein" Style="{StaticResource SettingsSectionTitleStyle}"/>
+            <TextBlock Text="Darstellung, Benachrichtigungen und Verhalten von Plenaro." Style="{StaticResource SettingsSectionDescriptionStyle}"/>
+                <Border Style="{StaticResource CardStyle}">
+                    <StackPanel>
+                        <TextBlock Text="Allgemein &amp; Benachrichtigungen" Style="{StaticResource SettingsCardTitleStyle}"/>
+                        <CheckBox Content="Dynamic Island aktiv" IsChecked="{Binding DynamicIslandEnabled}" Margin="0,0,0,8"/>
+                        <CheckBox Content="Ton bei Benachrichtigungen abspielen" IsChecked="{Binding NotificationSoundEnabled}" Margin="0,0,0,4"/>
+                        <TextBlock Text="Spielt einen kurzen Windows-Benachrichtigungston ab, sobald ein Popup angezeigt wird."
+                                   Style="{StaticResource SettingsHelpStyle}" Margin="24,0,0,10"/>
+                        <Grid>
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="240"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions><RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/></Grid.RowDefinitions>
+                            <TextBlock Grid.Row="0" Text="Log-Level" Style="{StaticResource SettingsLabelStyle}"/>
+                            <StackPanel Grid.Row="0" Grid.Column="1" MaxWidth="360" HorizontalAlignment="Stretch">
+                                <ComboBox Style="{StaticResource SettingsComboStyle}" ItemsSource="{Binding LogLevels}" SelectedItem="{Binding LogLevel}"/>
+                                <TextBlock Text="Info: Alle Meldungen · Warning: Warnungen und Fehler · Error: Nur Fehler" Style="{StaticResource SettingsHelpStyle}"/>
+                            </StackPanel>
+                            <TextBlock Grid.Row="1" Text="Reminder Vorlauf (Minuten)" Style="{StaticResource SettingsLabelStyle}"/>
+                            <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding ReminderLeadMinutes}" Width="120" HorizontalAlignment="Left" Margin="0,0,0,8"/>
+                            <TextBlock Grid.Row="2" Text="Datum/Zeit-Format" Style="{StaticResource SettingsLabelStyle}"/>
+                            <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding DateTimeFormat}" Style="{StaticResource SettingsTextBoxStyle}"/>
+                        </Grid>
+                        <Button Content="Reminder testen" Width="170" HorizontalAlignment="Left" Command="{Binding TestReminderCommand}"/>
+                    </StackPanel>
+                </Border>
+
+                <Border Style="{StaticResource CardStyle}">
+                    <StackPanel>
+                        <TextBlock Text="Heute &amp; Aufgaben" Style="{StaticResource SettingsCardTitleStyle}"/>
+                        <CheckBox Content="Bereits vergangene Termine und Aufgaben ausblenden" IsChecked="{Binding HidePastTodayItems}"/>
+                        <TextBlock Text="Vergangene Termine und Task-Segmente werden automatisch aus „Heute“ entfernt. Aufgaben ohne weitere heutige Segmente erscheinen wieder unter „Aktuelle Aufgaben“."
+                                   Style="{StaticResource SettingsHelpStyle}" Margin="24,4,0,0"/>
+                    </StackPanel>
+                </Border>
+
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>

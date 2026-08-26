@@ -10,11 +10,38 @@ using System.Windows.Threading;
 using TaskTool.Infrastructure;
 using TaskTool.Models;
 using TaskTool.Services;
+using TaskTool.Views;
 
 namespace TaskTool.ViewModels;
 
 public class SettingsViewModel : ObservableObject
 {
+    private static readonly IReadOnlyDictionary<string, int> SettingsSectionIndexes =
+        new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["General"] = 0, ["Allgemein"] = 0,
+            ["Tasks"] = 1, ["Aufgaben & Zeiten"] = 1,
+            ["Outlook"] = 2,
+            ["Homeoffice"] = 3,
+            ["Ticketsystem"] = 4,
+            ["Wiki"] = 5,
+            ["Favorites"] = 6, ["Favoriten"] = 6,
+            ["Updates"] = 7
+        };
+
+    private int _selectedSettingsSectionIndex;
+    public int SelectedSettingsSectionIndex
+    {
+        get => _selectedSettingsSectionIndex;
+        set => Set(ref _selectedSettingsSectionIndex, Math.Clamp(value, 0, 7));
+    }
+
+    public void SelectSection(string? section)
+    {
+        if (!string.IsNullOrWhiteSpace(section) && SettingsSectionIndexes.TryGetValue(section, out var index))
+            SelectedSettingsSectionIndex = index;
+    }
+
     private readonly SettingsService _settings;
     private readonly NotificationService _notifications;
     private readonly OutlookCalendarService _outlookCalendar;
@@ -25,9 +52,11 @@ public class SettingsViewModel : ObservableObject
     private readonly DispatcherTimer _hourlyUpdateTimer;
     private const string ShortcutPasswordMask = "••••••••";
     public ObservableCollection<WebShortcutEditorViewModel> WebShortcuts { get; }
-    private WebShortcutEditorViewModel? _selectedWebShortcut; public WebShortcutEditorViewModel? SelectedWebShortcut { get=>_selectedWebShortcut; set=>Set(ref _selectedWebShortcut,value); }
+    private WebShortcutEditorViewModel? _selectedWebShortcut; public WebShortcutEditorViewModel? SelectedWebShortcut { get=>_selectedWebShortcut; set { if (Set(ref _selectedWebShortcut,value)) RaiseWebShortcutMoveCanExecute(); } }
     private string _webShortcutStatus=""; public string WebShortcutStatus { get=>_webShortcutStatus; set=>Set(ref _webShortcutStatus,value); }
     public RelayCommand AddWebShortcutCommand { get; } public RelayCommand SaveWebShortcutCommand { get; } public RelayCommand RemoveWebShortcutCommand { get; }
+    public RelayCommand MoveWebShortcutUpCommand { get; private set; } = null!;
+    public RelayCommand MoveWebShortcutDownCommand { get; private set; } = null!;
     public ObservableCollection<WikiSourceEditorViewModel> WikiSources { get; }
     private WikiSourceEditorViewModel? _selectedWikiSource;
     public WikiSourceEditorViewModel? SelectedWikiSource { get => _selectedWikiSource; set { if (Set(ref _selectedWikiSource, value)) Raise(nameof(WikiIndexStatus)); } }
@@ -50,13 +79,13 @@ public class SettingsViewModel : ObservableObject
     public RelayCommand RefreshWikiIndexCommand { get; }
     public string WikiIndexStatus => SelectedWikiSource == null ? "Kein Wiki ausgewählt." : FormatWikiIndexStatus(SelectedWikiSource.ToModel());
     private readonly SemaphoreSlim _updateCheckGate = new(1, 1);
+    private bool _startupUpdatePromptShown;
     public string Title => "Einstellungen";
     public string InstalledVersion => ServiceLocator.AppVersion.InstalledVersionText;
     public string UpdateChannel { get => _settings.Current.UpdateChannel; set { var normalized = value is "Test" or "Testversionen" or "PreRelease" or "Pre-Release / Tester" ? "Test" : "Stable"; if (_settings.Current.UpdateChannel == normalized) return; _settings.Current.UpdateChannel = normalized; Save(); Raise(); Raise(nameof(IsTestChannel)); _ = CheckForUpdatesAsync(false); } }
     public bool IsTestChannel => UpdateChannel is "Test" or "PreRelease";
     public IReadOnlyList<WikiChoice> UpdateChannels { get; } = new[] { new WikiChoice("Stable", "Stable"), new WikiChoice("Test", "Testversionen") };
     public bool CheckForUpdatesOnStartup { get => _settings.Current.CheckForUpdatesOnStartup; set { _settings.Current.CheckForUpdatesOnStartup = value; Save(); } }
-    public bool AutoInstallUpdatesOnStartup { get => _settings.Current.AutoInstallUpdatesOnStartup; set { _settings.Current.AutoInstallUpdatesOnStartup = value; Save(); } }
     public string LogLevel { get => _settings.Current.LogLevel; set { _settings.Current.LogLevel = value; Save(); } }
     public bool NotificationSoundEnabled { get => _settings.Current.NotificationSoundEnabled; set { _settings.Current.NotificationSoundEnabled = value; Save(); } }
     private UpdateState _updateState = UpdateState.Idle;
@@ -202,7 +231,7 @@ public class SettingsViewModel : ObservableObject
         _ticketSystem = ticketSystem;
         _updates = updates;
         _tasksChanged = tasksChanged;
-        WebShortcuts = new(_settings.Current.WebShortcuts.Select(x=>WebShortcutEditorViewModel.From(x,ShortcutPasswordMask))); SelectedWebShortcut=WebShortcuts.FirstOrDefault();
+        WebShortcuts = new(_settings.Current.WebShortcuts.OrderBy(x=>x.SortOrder).Select(x=>WebShortcutEditorViewModel.From(x,ShortcutPasswordMask))); SelectedWebShortcut=WebShortcuts.FirstOrDefault();
         WikiSources = new ObservableCollection<WikiSourceEditorViewModel>(_settings.Current.WikiSources.Select(x => WikiSourceEditorViewModel.FromModel(x, WikiSecretMask, x.Id == _settings.Current.DefaultWikiSourceId)));
         SelectedWikiSource = WikiSources.FirstOrDefault();
         _hourlyUpdateTimer = new DispatcherTimer { Interval = TimeSpan.FromHours(1) };
@@ -223,7 +252,10 @@ public class SettingsViewModel : ObservableObject
         TestWikiConnectionCommand = new RelayCommand(async () => await TestWikiAsync(false), () => !_isWikiTestRunning);
         TestWikiSearchCommand = new RelayCommand(async () => await TestWikiAsync(true), () => !_isWikiTestRunning);
         RefreshWikiIndexCommand = new RelayCommand(async () => await RefreshWikiIndexAsync());
-        AddWebShortcutCommand=new RelayCommand(()=>{var x=new WebShortcutEditorViewModel();WebShortcuts.Add(x);SelectedWebShortcut=x;WebShortcutStatus="Webseite angelegt. Bitte speichern.";}); SaveWebShortcutCommand=new RelayCommand(SaveWebShortcut); RemoveWebShortcutCommand=new RelayCommand(RemoveWebShortcut);
+        AddWebShortcutCommand=new RelayCommand(()=>{var x=new WebShortcutEditorViewModel{SortOrder=WebShortcuts.Count};WebShortcuts.Add(x);SelectedWebShortcut=x;WebShortcutStatus="Webseite angelegt. Bitte speichern.";}); SaveWebShortcutCommand=new RelayCommand(SaveWebShortcut); RemoveWebShortcutCommand=new RelayCommand(RemoveWebShortcut);
+        MoveWebShortcutUpCommand = new RelayCommand(() => MoveWebShortcut(-1), () => CanMoveWebShortcut(-1));
+        MoveWebShortcutDownCommand = new RelayCommand(() => MoveWebShortcut(1), () => CanMoveWebShortcut(1));
+        RaiseWebShortcutMoveCanExecute();
     }
 
     public void StartHourlyUpdateMonitor()
@@ -244,10 +276,37 @@ public class SettingsViewModel : ObservableObject
             return;
         }
         if (CurrentUpdateState != UpdateState.UpdateAvailable || _availableUpdate == null) return;
-        ServiceLocator.Logger.Info($"[StartupUpdate] installedVersion={InstalledVersion} remoteVersion={_availableUpdate.Version} updateAvailable=true");
-        ServiceLocator.Logger.Info($"[StartupUpdate] autoInstall={AutoInstallUpdatesOnStartup.ToString().ToLowerInvariant()}");
-        if (!AutoInstallUpdatesOnStartup) return;
-        await InstallUpdateAsync(true);
+        if (_startupUpdatePromptShown) return;
+        _startupUpdatePromptShown = true;
+        var remoteVersion = _availableUpdate.Version.ToString();
+        ServiceLocator.Logger.Info($"[StartupUpdate] installedVersion={InstalledVersion} remoteVersion={remoteVersion} updateAvailable=true action=prompt");
+
+        var application = Application.Current;
+        var owner = application?.MainWindow;
+        if (application == null || owner == null)
+        {
+            ServiceLocator.Logger.Warning($"[StartupUpdate] remoteVersion={remoteVersion} action=prompt-skipped reason=MainWindowUnavailable");
+            return;
+        }
+
+        var accepted = await owner.Dispatcher.InvokeAsync(() =>
+        {
+            var dialog = new UpdateAvailableDialog(InstalledVersion, remoteVersion, ReleaseNotes) { Owner = owner };
+            return dialog.ShowDialog() == true;
+        });
+        if (!accepted)
+        {
+            ServiceLocator.Logger.Info($"[StartupUpdate] remoteVersion={remoteVersion} action=deferred");
+            return;
+        }
+
+        ServiceLocator.Logger.Info($"[StartupUpdate] remoteVersion={remoteVersion} action=accepted");
+        if (!await InstallUpdateAsync(true))
+        {
+            MessageBox.Show(owner,
+                "Update konnte nicht installiert werden. Bitte versuchen Sie es später erneut.",
+                "Plenaro Update", MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
     }
 
     public void RefreshInstalledVersion() => Raise(nameof(InstalledVersion));
@@ -314,15 +373,15 @@ public class SettingsViewModel : ObservableObject
         Raise(nameof(UpdateBannerText));
     }
 
-    private Task InstallUpdateAsync() => InstallUpdateAsync(false);
+    private Task<bool> InstallUpdateAsync() => InstallUpdateAsync(false);
 
-    private async Task InstallUpdateAsync(bool startupAutomatic)
+    private async Task<bool> InstallUpdateAsync(bool startupConfirmed)
     {
-        if (_availableUpdate == null) return;
+        if (_availableUpdate == null) return false;
         try
         {
             CurrentUpdateState = UpdateState.Downloading; UpdateStatus = "Update wird heruntergeladen ...";
-            if (startupAutomatic) ServiceLocator.Logger.Info("[StartupUpdate] downloadStarted=true");
+            if (startupConfirmed) ServiceLocator.Logger.Info("[StartupUpdate] downloadStarted=true");
             var progress = new Progress<int>(value => { UpdateProgress = value; UpdateStatus = $"Update wird heruntergeladen ... {value} %"; });
             var path = await _updates.DownloadUpdateAsync(_availableUpdate, progress);
             CurrentUpdateState = UpdateState.ReadyToInstall;
@@ -330,20 +389,22 @@ public class SettingsViewModel : ObservableObject
             {
                 CurrentUpdateState = UpdateState.Failed;
                 UpdateStatus = error;
-                if (startupAutomatic) ServiceLocator.Logger.Error($"[StartupUpdate] failed='{error}'");
-                return;
+                if (startupConfirmed) ServiceLocator.Logger.Error($"[StartupUpdate] failed='{error}'");
+                return false;
             }
-            if (startupAutomatic) ServiceLocator.Logger.Info("[StartupUpdate] installPrepared=true");
-            CurrentUpdateState = UpdateState.Installing; UpdateStatus = "Update wird installiert ...";
+            if (startupConfirmed) ServiceLocator.Logger.Info("[StartupUpdate] installPrepared=true");
+            CurrentUpdateState = UpdateState.Installing;
+            UpdateStatus = "Update wird installiert. Plenaro wird jetzt neu gestartet …";
             Application.Current.Shutdown();
+            return true;
         }
         catch (Exception ex)
         {
             CurrentUpdateState = UpdateState.Failed;
             UpdateStatus = $"Update fehlgeschlagen: {ex.Message}";
-            if (startupAutomatic) ServiceLocator.Logger.Error($"[StartupUpdate] failed='{ex.Message}'");
+            if (startupConfirmed) ServiceLocator.Logger.Error($"[StartupUpdate] failed='{ex.Message}'");
+            return false;
         }
-        RaiseUpdateCommands();
     }
 
     private void RaiseUpdateCommands()
@@ -499,9 +560,69 @@ public class SettingsViewModel : ObservableObject
         if(model.AutoLogin&&(uri.Scheme!=Uri.UriSchemeHttps||string.IsNullOrWhiteSpace(model.Username))){WebShortcutStatus="Auto Login erfordert HTTPS und einen Benutzernamen.";return;}
         if(editor.Password!=ShortcutPasswordMask)_settings.SetWebShortcutPassword(model,editor.Password); if(model.AutoLogin&&string.IsNullOrWhiteSpace(model.PasswordEncrypted)){WebShortcutStatus="Auto Login erfordert ein Passwort.";return;}
         var i=_settings.Current.WebShortcuts.FindIndex(x=>x.Id==model.Id);if(i<0)_settings.Current.WebShortcuts.Add(model);else _settings.Current.WebShortcuts[i]=model;
+        NormalizeWebShortcutOrder();
         if(!_settings.TrySave()){WebShortcutStatus="Webseite konnte nicht gespeichert werden.";return;} editor.SetEncrypted(model.PasswordEncrypted);editor.Password=model.PasswordEncrypted.Length>0?ShortcutPasswordMask:"";WebShortcutStatus=$"Webseite '{DisplayName(model)}' wurde gespeichert.";
+        RaiseWebShortcutMoveCanExecute();
     }
-    private void RemoveWebShortcut(){var editor=SelectedWebShortcut;if(editor==null)return;if(MessageBox.Show($"Webseite '{editor.Name}' wirklich entfernen?","Webseite entfernen",MessageBoxButton.YesNo,MessageBoxImage.Warning)!=MessageBoxResult.Yes)return;_settings.Current.WebShortcuts.RemoveAll(x=>x.Id==editor.Id);if(!_settings.TrySave()){WebShortcutStatus="Webseite konnte nicht entfernt werden.";return;}WebShortcuts.Remove(editor);SelectedWebShortcut=WebShortcuts.FirstOrDefault();WebShortcutStatus="Webseite wurde entfernt.";}
+    private void RemoveWebShortcut()
+    {
+        var editor = SelectedWebShortcut;
+        if (editor == null || MessageBox.Show($"Webseite '{editor.Name}' wirklich entfernen?", "Webseite entfernen", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes) return;
+        var previousSettings = _settings.Current.WebShortcuts.ToList();
+        var previousIndex = WebShortcuts.IndexOf(editor);
+        _settings.Current.WebShortcuts.RemoveAll(x => x.Id == editor.Id);
+        WebShortcuts.Remove(editor);
+        NormalizeWebShortcutOrder();
+        if (!_settings.TrySave())
+        {
+            _settings.Current.WebShortcuts = previousSettings;
+            WebShortcuts.Insert(previousIndex, editor);
+            NormalizeWebShortcutOrder();
+            SelectedWebShortcut = editor;
+            WebShortcutStatus = "Webseite konnte nicht entfernt werden.";
+            return;
+        }
+        SelectedWebShortcut = WebShortcuts.FirstOrDefault();
+        WebShortcutStatus = "Webseite wurde entfernt.";
+    }
+    private bool CanMoveWebShortcut(int offset)
+    {
+        if (SelectedWebShortcut == null || !_settings.Current.WebShortcuts.Any(x => x.Id == SelectedWebShortcut.Id)) return false;
+        var index = WebShortcuts.IndexOf(SelectedWebShortcut);
+        return index >= 0 && index + offset >= 0 && index + offset < WebShortcuts.Count;
+    }
+    private void MoveWebShortcut(int offset)
+    {
+        if (!CanMoveWebShortcut(offset) || SelectedWebShortcut == null) return;
+        var oldIndex = WebShortcuts.IndexOf(SelectedWebShortcut);
+        var newIndex = oldIndex + offset;
+        WebShortcuts.Move(oldIndex, newIndex);
+        NormalizeWebShortcutOrder();
+        if (!_settings.TrySave()) { WebShortcuts.Move(newIndex, oldIndex); NormalizeWebShortcutOrder(); WebShortcutStatus = "Reihenfolge konnte nicht gespeichert werden."; return; }
+        ServiceLocator.Logger.Info($"[WebShortcutOrder] shortcutId={SelectedWebShortcut.Id} oldIndex={oldIndex} newIndex={newIndex}");
+        WebShortcutStatus = $"Webseite '{SelectedWebShortcut.Name}' wurde verschoben.";
+        RaiseWebShortcutMoveCanExecute();
+    }
+    private void NormalizeWebShortcutOrder()
+    {
+        var settingsById = _settings.Current.WebShortcuts.ToDictionary(x => x.Id, StringComparer.Ordinal);
+        var orderedSettings = new List<WebShortcutSettings>();
+        for (var index = 0; index < WebShortcuts.Count; index++)
+        {
+            WebShortcuts[index].SortOrder = index;
+            if (settingsById.TryGetValue(WebShortcuts[index].Id, out var shortcut))
+            {
+                shortcut.SortOrder = index;
+                orderedSettings.Add(shortcut);
+            }
+        }
+        _settings.Current.WebShortcuts = orderedSettings;
+    }
+    private void RaiseWebShortcutMoveCanExecute()
+    {
+        MoveWebShortcutUpCommand?.RaiseCanExecuteChanged();
+        MoveWebShortcutDownCommand?.RaiseCanExecuteChanged();
+    }
     private static string DisplayName(WebShortcutSettings x)=>!string.IsNullOrWhiteSpace(x.Name)?x.Name:Uri.TryCreate(x.Url,UriKind.Absolute,out var u)?u.Host:"Webseite";
     private static string FormatWikiIndexStatus(WikiSourceSettings source)
     {

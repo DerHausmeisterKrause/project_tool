@@ -23,7 +23,7 @@ public class TicketSystemService : IDisposable
     private readonly HttpClient _client = new() { Timeout = TimeSpan.FromSeconds(45) };
     private readonly SemaphoreSlim _syncGate = new(1, 1);
     private readonly SemaphoreSlim _dynamicFieldOptionsGate = new(1, 1);
-    private readonly ConcurrentDictionary<string, byte> _pendingManualSelfAssignmentNotificationSuppressions = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, byte> _manualSelfAssignmentNotificationSuppressions = new(StringComparer.OrdinalIgnoreCase);
     private readonly System.Threading.Timer _timer;
     private bool _scheduledSyncStarted;
     private bool _scheduledSyncHasRun;
@@ -73,6 +73,7 @@ public class TicketSystemService : IDisposable
         {
             _ = RefreshCandidateTicketsAsync("settings");
         }
+        NotifyTasksChanged();
     }
 
     public void StartScheduledSync()
@@ -154,7 +155,7 @@ public class TicketSystemService : IDisposable
             EnsureTicketUpdateResponseIsInterpretable(response);
             updateMs = stepStopwatch.ElapsedMilliseconds;
             serverConfirmed = true;
-            _pendingManualSelfAssignmentNotificationSuppressions.TryAdd(ticketId, 0);
+            _manualSelfAssignmentNotificationSuppressions.TryAdd(ticketId, 0);
             RemoveCandidateLocally(ticketId);
             _logger.Info($"[ZnunySelfAssign] ticketId={ticketId} targetAgentId={targetAgentId} action=updated");
 
@@ -961,7 +962,7 @@ public class TicketSystemService : IDisposable
 
                 if (!ticket.IsClosed && newlyAssignedIds.Contains(ticket.TicketID))
                 {
-                    if (_pendingManualSelfAssignmentNotificationSuppressions.ContainsKey(ticket.TicketID))
+                    if (_manualSelfAssignmentNotificationSuppressions.ContainsKey(ticket.TicketID))
                     {
                         _logger.Info($"[ZnunySelfAssign] ticketId={ticket.TicketID} action=notification-suppressed snapshotPending=true");
                     }
@@ -1069,7 +1070,7 @@ public class TicketSystemService : IDisposable
             _syncGate.Release();
             if (hasTaskChanges)
                 NotifyTasksChanged();
-        }
+            }
     }
 
     private string BuildAssignmentContextKey(int agentId)
@@ -1087,7 +1088,7 @@ public class TicketSystemService : IDisposable
     {
         foreach (var ticketId in currentAssignedIds)
         {
-            if (!_pendingManualSelfAssignmentNotificationSuppressions.TryRemove(ticketId, out _)) continue;
+            if (!_manualSelfAssignmentNotificationSuppressions.TryRemove(ticketId, out _)) continue;
             _logger.Info($"[ZnunySelfAssign] ticketId={ticketId} action=assignment-sync-completed notificationSuppressed=true");
         }
     }
@@ -1440,7 +1441,7 @@ public class TicketSystemService : IDisposable
     {
         var payload = BuildSearchAuthenticationPayload(sessionId);
         payload[role == "Owner" ? "OwnerIDs" : "ResponsibleIDs"] = new[] { userId };
-        payload["StateType"] = new[] { "new", "open", "pending reminder", "pending auto" };
+        payload["StateType"] = new[] { "new", "open" };
         var route = NormalizeRouteValue(_settings.Current.TicketSystemTicketSearchRoute, "/Ticket");
         var stage = $"TicketSearchCandidate{role}Active";
         using var request = BuildSearchRequest("POST", route, payload);
@@ -1583,6 +1584,8 @@ public class TicketSystemService : IDisposable
                       || !string.Equals(task.Tags, tags, StringComparison.Ordinal)
                       || task.TicketCreatedUtc != ticketCreatedUtc
                       || task.TicketChangedUtc != ticketChangedUtc;
+        changed = changed || !string.Equals(task.TicketState, ticket.State, StringComparison.Ordinal)
+                          || !string.Equals(task.TicketStateType, ticket.StateType, StringComparison.OrdinalIgnoreCase);
 
         task.Title = title;
         task.Description = description;
@@ -1590,6 +1593,8 @@ public class TicketSystemService : IDisposable
         task.Tags = tags;
         task.TicketCreatedUtc = ticketCreatedUtc;
         task.TicketChangedUtc = ticketChangedUtc;
+        task.TicketState = ticket.State;
+        task.TicketStateType = ticket.StateType;
         return changed;
     }
 
@@ -2333,6 +2338,7 @@ public class TicketSystemService : IDisposable
         public string Queue { get; init; } = string.Empty;
         public string State { get; init; } = string.Empty;
         public string StateType { get; init; } = string.Empty;
+        public int? StateId { get; init; }
         public string Priority { get; init; } = string.Empty;
         public string Owner { get; init; } = string.Empty;
         public string Responsible { get; init; } = string.Empty;
@@ -2341,7 +2347,6 @@ public class TicketSystemService : IDisposable
         public string Created { get; init; } = string.Empty;
         public string Changed { get; init; } = string.Empty;
         public string DueTime { get; init; } = string.Empty;
-        public string PendingTime { get; init; } = string.Empty;
         public string Customer { get; init; } = string.Empty;
         public string CustomerUser { get; init; } = string.Empty;
         public string Lock { get; init; } = string.Empty;
@@ -2454,6 +2459,7 @@ public class TicketSystemService : IDisposable
                 Queue = FirstString(item, "Queue"),
                 State = FirstString(item, "State"),
                 StateType = FirstString(item, "StateType"),
+                StateId = FindInteger(item, "StateID"),
                 Priority = FirstString(item, "Priority"),
                 Owner = FirstString(item, "Owner"),
                 Responsible = FirstString(item, "Responsible"),
@@ -2462,7 +2468,6 @@ public class TicketSystemService : IDisposable
                 Created = FirstString(item, "Created", "CreateTime"),
                 Changed = FirstString(item, "Changed", "ChangeTime"),
                 DueTime = FirstString(item, "DueTime", "EscalationTime"),
-                PendingTime = FirstString(item, "PendingTime", "UntilTime"),
                 Customer = FirstString(item, "CustomerID", "Customer"),
                 CustomerUser = FirstString(item, "CustomerUserID", "CustomerUser"),
                 Lock = FirstString(item, "Lock"),
@@ -2508,7 +2513,6 @@ public class TicketSystemService : IDisposable
             sb.AppendLine($"Created: {Created}");
             sb.AppendLine($"Changed: {Changed}");
             sb.AppendLine($"DueTime: {DueTime}");
-            sb.AppendLine($"PendingTime: {PendingTime}");
             sb.AppendLine($"Customer: {Customer}");
             sb.AppendLine($"CustomerUser: {CustomerUser}");
             sb.AppendLine($"Lock: {Lock}");

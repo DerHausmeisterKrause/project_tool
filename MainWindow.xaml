@@ -54,6 +54,7 @@
                     </ListBox.ItemTemplate>
                 </ListBox>
                 <Button Command="{Binding NavigateToSettingsCommand}"
+                        CommandParameter="Updates"
                         Visibility="{Binding SettingsViewModel.IsUpdateAvailable, Converter={StaticResource BooleanToVisibilityConverter}}"
                         Foreground="#EF4444" FontWeight="SemiBold" FontSize="12"
                         Background="Transparent" BorderThickness="0" Padding="8,4"
@@ -65,11 +66,14 @@
         </Border>
 
         <Border Grid.Column="1" Padding="16" Background="{StaticResource BgBrush}">
+            <Grid>
             <ContentControl Content="{Binding SelectedView}"
                             HorizontalAlignment="Stretch"
                             VerticalAlignment="Stretch"
                             HorizontalContentAlignment="Stretch"
                             VerticalContentAlignment="Stretch" />
+            <Grid x:Name="PersistentShortcutBrowserHost" Background="{StaticResource BgBrush}" Visibility="Collapsed"/>
+            </Grid>
         </Border>
 
         <Border Grid.Column="2" Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource BorderBrushColor}" BorderThickness="1,0,0,0" Padding="14"

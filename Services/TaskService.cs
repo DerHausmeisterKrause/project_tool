@@ -70,8 +70,8 @@ public class TaskService
         using var conn = new SqliteConnection(_db.ConnectionString);
         conn.Open();
         using var cmd = conn.CreateCommand();
-        cmd.CommandText = @"INSERT INTO tasks (id,title,description,ticket_url,start_local,end_local,status,priority,tags,outlook_entry_id,ticket_minutes_booked,ticket_seconds_booked,is_pinned,is_znuny_assigned,created_utc,updated_utc,ticket_created_utc,ticket_changed_utc,local_activity_utc)
-VALUES ($id,$title,$desc,$url,$start,$end,$status,$priority,$tags,$entry,$ticket,$ticketSeconds,$pinned,$znunyAssigned,$created,$updated,$ticketCreated,$ticketChanged,$localActivity)";
+        cmd.CommandText = @"INSERT INTO tasks (id,title,description,ticket_url,start_local,end_local,status,priority,tags,outlook_entry_id,ticket_minutes_booked,ticket_seconds_booked,is_pinned,is_znuny_assigned,created_utc,updated_utc,ticket_created_utc,ticket_changed_utc,local_activity_utc,ticket_state,ticket_state_type)
+VALUES ($id,$title,$desc,$url,$start,$end,$status,$priority,$tags,$entry,$ticket,$ticketSeconds,$pinned,$znunyAssigned,$created,$updated,$ticketCreated,$ticketChanged,$localActivity,$ticketState,$ticketStateType)";
         BindTask(cmd, task);
         cmd.ExecuteNonQuery();
         return task;
@@ -85,7 +85,7 @@ VALUES ($id,$title,$desc,$url,$start,$end,$status,$priority,$tags,$entry,$ticket
         using var conn = new SqliteConnection(_db.ConnectionString);
         conn.Open();
         using var cmd = conn.CreateCommand();
-        cmd.CommandText = @"UPDATE tasks SET title=$title,description=$desc,ticket_url=$url,start_local=$start,end_local=$end,status=$status,priority=$priority,tags=$tags,outlook_entry_id=$entry,ticket_minutes_booked=$ticket,ticket_seconds_booked=$ticketSeconds,is_pinned=$pinned,is_znuny_assigned=$znunyAssigned,updated_utc=$updated,ticket_created_utc=$ticketCreated,ticket_changed_utc=$ticketChanged,local_activity_utc=$localActivity WHERE id=$id";
+        cmd.CommandText = @"UPDATE tasks SET title=$title,description=$desc,ticket_url=$url,start_local=$start,end_local=$end,status=$status,priority=$priority,tags=$tags,outlook_entry_id=$entry,ticket_minutes_booked=$ticket,ticket_seconds_booked=$ticketSeconds,is_pinned=$pinned,is_znuny_assigned=$znunyAssigned,updated_utc=$updated,ticket_created_utc=$ticketCreated,ticket_changed_utc=$ticketChanged,local_activity_utc=$localActivity,ticket_state=$ticketState,ticket_state_type=$ticketStateType WHERE id=$id";
         BindTask(cmd, task);
         cmd.ExecuteNonQuery();
     }
@@ -755,7 +755,9 @@ WHERE datetime(end_local) > datetime($now)";
             TicketCreatedUtc = ParseNullableDateTime(reader["ticket_created_utc"]),
             TicketChangedUtc = ParseNullableDateTime(reader["ticket_changed_utc"]),
             LocalActivityUtc = ParseNullableDateTime(reader["local_activity_utc"])
-                               ?? ParseRequiredDateTime(reader["created_utc"].ToString())
+                               ?? ParseRequiredDateTime(reader["created_utc"].ToString()),
+            TicketState = reader["ticket_state"]?.ToString() ?? string.Empty ,
+            TicketStateType = reader["ticket_state_type"]?.ToString() ?? string.Empty
         };
     }
 
@@ -800,5 +802,7 @@ WHERE datetime(end_local) > datetime($now)";
         cmd.Parameters.AddWithValue("$ticketCreated", task.TicketCreatedUtc?.ToString("O") ?? (object)DBNull.Value);
         cmd.Parameters.AddWithValue("$ticketChanged", task.TicketChangedUtc?.ToString("O") ?? (object)DBNull.Value);
         cmd.Parameters.AddWithValue("$localActivity", task.LocalActivityUtc.ToString("O"));
+        cmd.Parameters.AddWithValue("$ticketState", task.TicketState);
+        cmd.Parameters.AddWithValue("$ticketStateType", task.TicketStateType);
     }
 }

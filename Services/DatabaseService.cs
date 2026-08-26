@@ -57,10 +57,12 @@ CREATE TABLE IF NOT EXISTS schema_version (
             MigrateToV14(conn);
             MigrateToV15(conn);
             MigrateToV16(conn);
+            MigrateToV17(conn);
+            MigrateToV18(conn);
 
-            if (currentVersion < 16)
+            if (currentVersion < 18)
             {
-                SetVersion(conn, 16);
+                SetVersion(conn, 18);
             }
         }
         catch (Exception ex)
@@ -278,6 +280,17 @@ CREATE TABLE IF NOT EXISTS wiki_vocabulary_state (
  updated_utc TEXT NULL, status TEXT NOT NULL DEFAULT '', error TEXT NOT NULL DEFAULT '',
  PRIMARY KEY(source_id, scope_fingerprint));
 CREATE VIRTUAL TABLE IF NOT EXISTS wiki_vocabulary_fts USING fts5(source_id UNINDEXED, scope_fingerprint UNINDEXED, external_id UNINDEXED, title, normalized_title, tokenize='unicode61 remove_diacritics 2');");
+    }
+
+    private static void MigrateToV17(SqliteConnection conn)
+    {
+        EnsureColumn(conn, "tasks", "ticket_state", "TEXT NOT NULL DEFAULT ''");
+        EnsureColumn(conn, "tasks", "ticket_state_type", "TEXT NOT NULL DEFAULT ''");
+    }
+
+    private static void MigrateToV18(SqliteConnection conn)
+    {
+        // Reserved schema version retained for compatibility with existing databases.
     }
 
     private static void EnsureColumn(SqliteConnection conn, string table, string column, string definition)

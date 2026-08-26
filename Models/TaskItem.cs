@@ -16,6 +16,8 @@ public class TaskItem
     public long TicketSecondsBooked { get; set; }
     public bool IsPinned { get; set; }
     public bool IsZnunyAssigned { get; set; } = true;
+    public string TicketState { get; set; } = string.Empty;
+    public string TicketStateType { get; set; } = string.Empty;
     public bool IsZnunyTask => (Tags ?? string.Empty).Contains("ZnunyTicketID:", StringComparison.OrdinalIgnoreCase);
     public bool IsOperationallyVisible => !IsZnunyTask || IsZnunyAssigned;
     // Derived presentation state; never persisted.

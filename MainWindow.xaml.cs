@@ -10,6 +10,7 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        ServiceLocator.WebShortcutBrowsers.AttachPersistentHost(PersistentShortcutBrowserHost);
         DataContext = ServiceLocator.MainViewModel;
         TryLoadWindowIcon();
     }

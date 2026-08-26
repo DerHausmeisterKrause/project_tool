@@ -3,6 +3,7 @@ using System.Collections.ObjectModel;
 using System.Text.RegularExpressions;
 using System.Windows;
 using System.Windows.Threading;
+using System.Globalization;
 using TaskTool.Infrastructure;
 using TaskTool.Models;
 using TaskStatus = TaskTool.Models.TaskStatus;
@@ -35,6 +36,7 @@ public class TodayViewModel : ObservableObject
     public ObservableCollection<ZnunyCandidateTicket> NewTaskCandidates { get; } = new();
     public ObservableCollection<BreakEditRow> BreakRows { get; } = new();
     public ObservableCollection<TaskSegment> Segments { get; } = new();
+    public ObservableCollection<SegmentAvailabilitySlot> SegmentAvailabilitySlots { get; } = new();
     public ObservableCollection<TicketTimeBooking> TicketTimeBookings { get; } = new();
     public ObservableCollection<TicketFieldOption> CostCenterOptions { get; } = new();
     public ObservableCollection<TicketFieldOption> OrderOptions { get; } = new();
@@ -129,6 +131,7 @@ public class TodayViewModel : ObservableObject
     }
 
     public bool ShowActiveTaskList => SelectedTaskScope is TodayTaskScope.Today or TodayTaskScope.Current;
+    public bool ShowCurrentTaskListContent => SelectedTaskScope == TodayTaskScope.Current;
     public bool ShowTodayAgenda => SelectedTaskScope == TodayTaskScope.Today;
     public bool ShowCurrentTaskList => SelectedTaskScope == TodayTaskScope.Current;
     public bool ShowCompletedTaskList => SelectedTaskScope == TodayTaskScope.Completed;
@@ -350,8 +353,25 @@ public class TodayViewModel : ObservableObject
     public DateTime? NewSegmentDate
     {
         get => _newSegmentDate;
-        set { if (Set(ref _newSegmentDate, value)) RaiseSegmentEditorState(); }
+        set
+        {
+            if (Set(ref _newSegmentDate, value))
+            {
+                RaiseSegmentEditorState();
+                Raise(nameof(SegmentAvailabilityHeading));
+                _ = RefreshSegmentAvailabilityAsync();
+            }
+        }
     }
+
+    public string SegmentAvailabilityHeading => $"Verfügbarkeit · {(NewSegmentDate ?? DateTime.Today).ToString("dddd, dd.MM.yyyy", CultureInfo.GetCultureInfo("de-DE"))}";
+
+    private bool _hasSegmentAvailabilityData;
+    public bool HasSegmentAvailabilityData { get => _hasSegmentAvailabilityData; private set => Set(ref _hasSegmentAvailabilityData, value); }
+
+    private string _segmentAvailabilityStatus = string.Empty;
+    public string SegmentAvailabilityStatus { get => _segmentAvailabilityStatus; private set => Set(ref _segmentAvailabilityStatus, value); }
+    private int _segmentAvailabilityRequestVersion;
 
     private string _newSegmentStartTime = "09:00";
     private bool _newSegmentEndTimeManuallyEdited;
@@ -558,6 +578,7 @@ public class TodayViewModel : ObservableObject
         SelectedTaskScope = TodayTaskScope.Today;
         UpdateCandidateTickets();
         Load();
+        _ = RefreshSegmentAvailabilityAsync();
     }
 
     private void OnCandidateTicketsChanged()
@@ -689,21 +710,94 @@ public class TodayViewModel : ObservableObject
         var dispatcher = Application.Current?.Dispatcher;
         if (dispatcher != null && !dispatcher.CheckAccess())
         {
-            dispatcher.BeginInvoke(new Action(() => RefreshTodayAgenda()));
+            dispatcher.BeginInvoke(new Action(() => { RefreshTodayAgenda(); RefreshSegmentAvailabilityFromCache(); }));
             return;
         }
 
         RefreshTodayAgenda();
+        RefreshSegmentAvailabilityFromCache();
+    }
+
+    private async Task RefreshSegmentAvailabilityAsync()
+    {
+        var requestVersion = ++_segmentAvailabilityRequestVersion;
+        var selectedDay = NewSegmentDate?.Date;
+        BuildAvailabilitySlots(selectedDay ?? DateTime.Today, Array.Empty<OutlookCalendarEvent>(), false);
+        if (!selectedDay.HasValue || !_settings.Current.OutlookCalendarEnabled)
+        {
+            SegmentAvailabilityStatus = "Kalenderdaten nicht verfügbar";
+            return;
+        }
+
+        var day = selectedDay.Value;
+        if (_outlookCalendar.IsRangeAvailable(day, day.AddDays(1)))
+        {
+            RefreshSegmentAvailabilityFromCache();
+            return;
+        }
+
+        SegmentAvailabilityStatus = "Kalender wird geladen …";
+        await _outlookCalendar.EnsureRangeAvailableAsync(day, day.AddDays(1), "segment-availability");
+        if (requestVersion == _segmentAvailabilityRequestVersion && NewSegmentDate?.Date == day)
+            RefreshSegmentAvailabilityFromCache();
+    }
+
+    private void RefreshSegmentAvailabilityFromCache()
+    {
+        var day = NewSegmentDate?.Date;
+        if (!day.HasValue || !_settings.Current.OutlookCalendarEnabled || !_outlookCalendar.IsRangeAvailable(day.Value, day.Value.AddDays(1)))
+        {
+            BuildAvailabilitySlots(day ?? DateTime.Today, Array.Empty<OutlookCalendarEvent>(), false);
+            SegmentAvailabilityStatus = _settings.Current.OutlookCalendarEnabled && string.IsNullOrWhiteSpace(_outlookCalendar.LastError)
+                ? "Kalender wird geladen …"
+                : "Kalenderdaten nicht verfügbar";
+            return;
+        }
+
+        var events = _outlookCalendar.GetEvents(day.Value, day.Value.AddDays(1));
+        BuildAvailabilitySlots(day.Value, events, true);
+        SegmentAvailabilityStatus = string.Empty;
+    }
+
+    private void BuildAvailabilitySlots(DateTime day, IReadOnlyList<OutlookCalendarEvent> events, bool hasData)
+    {
+        var blockingEvents = events.Where(IsBlockingAvailabilityEvent).ToArray();
+        SegmentAvailabilitySlots.Clear();
+        var start = day.Date.AddHours(6);
+        for (var i = 0; i < 48; i++)
+        {
+            var slotStart = start.AddMinutes(i * 15);
+            var slotEnd = slotStart.AddMinutes(15);
+            SegmentAvailabilitySlots.Add(new SegmentAvailabilitySlot
+            {
+                Start = slotStart,
+                End = slotEnd,
+                IsUnknown = !hasData,
+                IsBusy = blockingEvents.Any(appointment => appointment.StartLocal < slotEnd && appointment.EndLocal > slotStart)
+            });
+        }
+        HasSegmentAvailabilityData = hasData;
+    }
+
+    internal static bool IsBlockingAvailabilityEvent(OutlookCalendarEvent appointment)
+    {
+        if (appointment.IsCancelled || appointment.IsAllDay)
+            return false;
+        var busy = (appointment.BusyStatus ?? string.Empty).Trim();
+        return !busy.Equals("Free", StringComparison.OrdinalIgnoreCase)
+               && !busy.Equals("olFree", StringComparison.OrdinalIgnoreCase)
+               && busy != "0";
     }
 
     private void OnSettingsChanged()
     {
+        _ = RefreshSegmentAvailabilityAsync();
         var hidePastTodayItems = _settings.Current.HidePastTodayItems;
-        if (hidePastTodayItems == _lastHidePastTodayItems)
-            return;
-
-        _lastHidePastTodayItems = hidePastTodayItems;
-        _lastTodayVisibilityRefreshMinute = default;
+        if (hidePastTodayItems != _lastHidePastTodayItems)
+        {
+            _lastHidePastTodayItems = hidePastTodayItems;
+            _lastTodayVisibilityRefreshMinute = default;
+        }
         var dispatcher = Application.Current?.Dispatcher;
         if (dispatcher != null && !dispatcher.CheckAccess())
         {
@@ -770,7 +864,8 @@ public class TodayViewModel : ObservableObject
             todayTaskIds = _tasks.GetTaskIdsWithSegmentsForRange(localToday, localToday.AddDays(1));
         }
 
-        var active = all.Where(t => t.Status != TaskStatus.Done && t.IsOperationallyVisible).ToList();
+        var allActive = all.Where(t => t.Status != TaskStatus.Done && t.IsOperationallyVisible).ToList();
+        var active = allActive.ToList();
         foreach (var task in active)
         {
             task.CurrentListBadgeText = task.Status == TaskStatus.Running
@@ -800,7 +895,9 @@ public class TodayViewModel : ObservableObject
             TodayTasks.Add(task);
 
         CurrentTasks.Clear();
-        foreach (var task in active)
+        // Keep the complete active collection for timer/Dynamic-Island consumers;
+        // only the Today/current presentation collections apply the snooze filter.
+        foreach (var task in allActive)
             CurrentTasks.Add(task);
 
         _currentTasksWithoutToday.Clear();
