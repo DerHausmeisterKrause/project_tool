@@ -15,6 +15,8 @@ public static class ZnunySyncPolicy
     public const string ArticleOrder = "DESC";
     public const string SearchSortBy = "Changed";
     public const string SearchOrderBy = "Down";
+    public const string AssignedOpenStateType = "Open";
+    public const string AssignedNewStateType = "New";
 
     public static int NormalizeIntervalMinutes(int configured)
         => configured <= 0 ? 15 : Math.Clamp(configured, 5, 1440);
@@ -74,10 +76,13 @@ public static class ZnunySyncPolicy
     /// Applies the scalar query contract used by the deployed GET /Ticket GenericInterface operation.
     /// This is intentionally separate from the array-based POST/candidate contract.
     /// </summary>
-    public static void ApplyAssignedGetSearchCriteria(IDictionary<string, object?> payload, string role, int userId, bool onlyOpen, int configuredLimit)
+    public static void ApplyAssignedGetSearchCriteria(IDictionary<string, object?> payload, string role, int userId, string? stateType, int configuredLimit)
     {
         payload[string.Equals(role, "Owner", StringComparison.Ordinal) ? "OwnerIDs" : "ResponsibleIDs"] = userId;
-        if (onlyOpen) payload["StateType"] = "Open";
+        if (!string.IsNullOrWhiteSpace(stateType)) payload["StateType"] = stateType;
         ApplyTicketSearchLimit(payload, configuredLimit, includeSorting: false);
     }
+
+    public static List<string> MergeTicketIds(params IEnumerable<string>[] searches)
+        => searches.SelectMany(ids => ids).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 }

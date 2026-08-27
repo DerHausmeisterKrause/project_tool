@@ -893,7 +893,8 @@ public class TicketSystemService : IDisposable
             var userId = GetConfiguredAgentId()!.Value;
             var sessionId = await CreateSessionAsync();
             var sessionHash = HashSessionId(sessionId);
-            var (ownerIds, responsibleIds, uniqueIds) = await SearchAssignedTicketIdsAsync(userId, sessionId, sessionHash, includeOwner: true, includeResponsible: true);
+            var discovery = await SearchAssignedTicketIdsAsync(userId, sessionId, sessionHash, includeOwner: true, includeResponsible: true);
+            var (ownerIds, responsibleIds, uniqueIds) = (discovery.OwnerIds, discovery.ResponsibleIds, discovery.UniqueIds);
             var duplicateCount = ownerIds.Count + responsibleIds.Count - uniqueIds.Count;
 
             var ticketGetStatus = "Nicht ausgeführt, keine Tickets gefunden.";
@@ -930,26 +931,15 @@ public class TicketSystemService : IDisposable
             var userId = GetConfiguredAgentId()!.Value;
             var sessionId = await CreateSessionAsync();
             var sessionHash = HashSessionId(sessionId);
-            try
-            {
-                var getIds = await SearchTicketsAsync("Owner", userId, "/Ticket", "GET", sessionId, sessionHash);
-                _settings.Current.TicketSystemTicketSearchRoute = "/Ticket";
-                _settings.Current.TicketSystemTicketSearchMethod = "GET";
-                _settings.Current.TicketSystemTicketSearchAuthMode = "Session";
-                _settings.Save();
-                return (true, $"API-Routentest erfolgreich: GET /Ticket funktioniert. Owner-Tickets: {getIds.Count}. Route wurde gespeichert.");
-            }
-            catch (ZnunyApiException ex) when (IsRoutingError(ex))
-            {
-                LogZnunyError(ex);
-            }
-
-            var postIds = await SearchTicketsAsync("Owner", userId, "/Ticket/Search", "POST", sessionId, sessionHash);
-            _settings.Current.TicketSystemTicketSearchRoute = "/Ticket/Search";
-            _settings.Current.TicketSystemTicketSearchMethod = "POST";
+            var ownerOpen = await SearchTicketsAsync("Owner", userId, "/Ticket", "GET", sessionId, sessionHash, true, ZnunySyncPolicy.AssignedOpenStateType);
+            var ownerNew = await SearchTicketsAsync("Owner", userId, "/Ticket", "GET", sessionId, sessionHash, true, ZnunySyncPolicy.AssignedNewStateType);
+            var responsibleOpen = await SearchTicketsAsync("Responsible", userId, "/Ticket", "GET", sessionId, sessionHash, true, ZnunySyncPolicy.AssignedOpenStateType);
+            var responsibleNew = await SearchTicketsAsync("Responsible", userId, "/Ticket", "GET", sessionId, sessionHash, true, ZnunySyncPolicy.AssignedNewStateType);
+            _settings.Current.TicketSystemTicketSearchRoute = "/Ticket";
+            _settings.Current.TicketSystemTicketSearchMethod = "GET";
             _settings.Current.TicketSystemTicketSearchAuthMode = "Session";
             _settings.Save();
-            return (true, $"API-Routentest erfolgreich: POST /Ticket/Search funktioniert. Owner-Tickets: {postIds.Count}. Route wurde gespeichert.");
+            return (true, $"API-Routentest erfolgreich: GET /Ticket funktioniert. Owner Open: {ownerOpen.Count}, Owner New: {ownerNew.Count}, Responsible Open: {responsibleOpen.Count}, Responsible New: {responsibleNew.Count}. Route wurde gespeichert.");
         }
         catch (ZnunyApiException ex)
         {
@@ -998,19 +988,21 @@ public class TicketSystemService : IDisposable
             var userId = GetConfiguredAgentId()!.Value;
             var sessionId = await CreateSessionAsync();
             var sessionHash = HashSessionId(sessionId);
-            _logger.Info($"[ZnunySyncStart] reason={reason} started=true agentId={userId} searchLimit={EffectiveSearchLimit} sortBy={ZnunySyncPolicy.SearchSortBy} orderBy={ZnunySyncPolicy.SearchOrderBy} baseUrl='{SanitizeUrl(_settings.Current.TicketSystemApiUrl)}' auth={_settings.Current.TicketSystemTicketSearchAuthMode} onlyOpen={_settings.Current.TicketSystemOnlyOpenTickets} showClosed={_settings.Current.TicketSystemShowClosedTickets} includeOwner={_settings.Current.TicketSystemIncludeOwner} includeResponsible={_settings.Current.TicketSystemIncludeResponsible}");
+            var assignedGet = string.Equals(_settings.Current.TicketSystemTicketSearchMethod, "GET", StringComparison.OrdinalIgnoreCase);
+            _logger.Info($"[ZnunySyncStart] reason={reason} started=true agentId={userId} searchLimit={EffectiveSearchLimit} sortBy={(assignedGet ? "<none>" : ZnunySyncPolicy.SearchSortBy)} orderBy={(assignedGet ? "<none>" : ZnunySyncPolicy.SearchOrderBy)} baseUrl='{SanitizeUrl(_settings.Current.TicketSystemApiUrl)}' auth={_settings.Current.TicketSystemTicketSearchAuthMode} onlyOpen={_settings.Current.TicketSystemOnlyOpenTickets} showClosed={_settings.Current.TicketSystemShowClosedTickets} includeOwner={_settings.Current.TicketSystemIncludeOwner} includeResponsible={_settings.Current.TicketSystemIncludeResponsible}");
             _logger.Info($"[ZnunyUser] source=ConfiguredSettings userId={userId}");
 
-            var (ownerIds, responsibleIds, uniqueTicketIds) = await SearchAssignedTicketIdsAsync(
+            var discovery = await SearchAssignedTicketIdsAsync(
                 userId,
                 sessionId,
                 sessionHash,
                 _settings.Current.TicketSystemIncludeOwner,
                 _settings.Current.TicketSystemIncludeResponsible);
+            var (ownerIds, responsibleIds, uniqueTicketIds) = (discovery.OwnerIds, discovery.ResponsibleIds, discovery.UniqueIds);
             searchResultCount = ownerIds.Count + responsibleIds.Count;
             uniqueTicketCount = uniqueTicketIds.Count;
-            searchLimitReached = ownerIds.Count >= EffectiveSearchLimit || responsibleIds.Count >= EffectiveSearchLimit;
-            _logger.Info($"[ZnunyAssignedDiscovery] agentId={userId} owner={ownerIds.Count} responsible={responsibleIds.Count} unique={uniqueTicketIds.Count}");
+            searchLimitReached = discovery.AnySearchLimitReached(EffectiveSearchLimit);
+            _logger.Info($"[ZnunyAssignedDiscovery] agentId={userId} ownerOpen={discovery.Owner.OpenCount} ownerNew={discovery.Owner.NewCount} ownerUnique={ownerIds.Count} responsibleOpen={discovery.Responsible.OpenCount} responsibleNew={discovery.Responsible.NewCount} responsibleUnique={responsibleIds.Count} uniqueAssigned={uniqueTicketIds.Count}");
             var assignmentContextKey = BuildAssignmentContextKey(userId);
             var assignmentContextHash = assignmentContextKey[..12];
             var previousAssignmentSnapshot = _assignmentSnapshots.Load(assignmentContextKey);
@@ -1044,7 +1036,7 @@ public class TicketSystemService : IDisposable
                 : Array.Empty<string>();
             var ticketIds = ZnunySyncPolicy.SelectTicketIds(uniqueTicketIds, previouslyAssignedNowMissing);
             var duplicateCount = ownerIds.Count + responsibleIds.Count - uniqueTicketIds.Count;
-            _logger.Info($"[ZnunySearchMerge] ownerTickets={ownerIds.Count} responsibleTickets={responsibleIds.Count} uniqueTickets={uniqueTicketIds.Count} limit={EffectiveSearchLimit} sortBy={ZnunySyncPolicy.SearchSortBy} orderBy={ZnunySyncPolicy.SearchOrderBy} existingTicketsRechecked={ticketIds.Count - uniqueTicketIds.Count} duplicateOwnerResponsibleTickets={duplicateCount}");
+            _logger.Info($"[ZnunySearchMerge] ownerTickets={ownerIds.Count} responsibleTickets={responsibleIds.Count} uniqueTickets={uniqueTicketIds.Count} limit={EffectiveSearchLimit} sortBy={(assignedGet ? "<none>" : ZnunySyncPolicy.SearchSortBy)} orderBy={(assignedGet ? "<none>" : ZnunySyncPolicy.SearchOrderBy)} existingTicketsRechecked={ticketIds.Count - uniqueTicketIds.Count} duplicateOwnerResponsibleTickets={duplicateCount}");
 
             foreach (var ticketId in ticketIds)
             {
@@ -1420,25 +1412,20 @@ public class TicketSystemService : IDisposable
     private int? GetConfiguredAgentId()
         => _settings.Current.TicketSystemAgentId > 0 ? _settings.Current.TicketSystemAgentId : null;
 
-    private async Task<(List<string> ownerIds, List<string> responsibleIds, List<string> uniqueIds)> SearchAssignedTicketIdsAsync(
+    private async Task<AssignedDiscoveryResult> SearchAssignedTicketIdsAsync(
         int userId,
         string sessionId,
         string sessionHash,
         bool includeOwner,
         bool includeResponsible)
     {
-        var ownerIds = includeOwner
-            ? await SearchRoleTicketIdsWithOpenCompatibilityAsync("Owner", userId, sessionId, sessionHash)
-            : new List<string>();
-        var responsibleIds = includeResponsible
-            ? await SearchRoleTicketIdsWithOpenCompatibilityAsync("Responsible", userId, sessionId, sessionHash)
-            : new List<string>();
-        var uniqueIds = ownerIds
-            .Concat(responsibleIds)
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToList();
-
-        return (ownerIds, responsibleIds, uniqueIds);
+        var owner = includeOwner
+            ? await SearchAssignedRoleTicketIdsAsync("Owner", userId, sessionId, sessionHash)
+            : AssignedRoleSearchResult.Empty;
+        var responsible = includeResponsible
+            ? await SearchAssignedRoleTicketIdsAsync("Responsible", userId, sessionId, sessionHash)
+            : AssignedRoleSearchResult.Empty;
+        return new AssignedDiscoveryResult(owner, responsible, ZnunySyncPolicy.MergeTicketIds(owner.Ids, responsible.Ids));
     }
 
     private async Task<CandidateDiscoveryResult> RefreshCandidateTicketsCoreAsync(
@@ -1537,6 +1524,23 @@ public class TicketSystemService : IDisposable
 
     private sealed record CandidateDiscoveryResult(int NewIds, int ExistingIds, int Matched);
 
+    private sealed record AssignedRoleSearchResult(List<string> Ids, int OpenCount, int NewCount)
+    {
+        public static AssignedRoleSearchResult Empty { get; } = new(new List<string>(), 0, 0);
+        public bool AnySearchLimitReached(int limit) => OpenCount >= limit || NewCount >= limit;
+    }
+
+    private sealed record AssignedDiscoveryResult(
+        AssignedRoleSearchResult Owner,
+        AssignedRoleSearchResult Responsible,
+        List<string> UniqueIds)
+    {
+        public List<string> OwnerIds => Owner.Ids;
+        public List<string> ResponsibleIds => Responsible.Ids;
+        public bool AnySearchLimitReached(int limit)
+            => Owner.AnySearchLimitReached(limit) || Responsible.AnySearchLimitReached(limit);
+    }
+
     private static string CandidateDisplayName(int candidateUserId)
         => candidateUserId == 1 ? "OTRS, Admin" : $"UserID {candidateUserId}";
 
@@ -1592,14 +1596,36 @@ public class TicketSystemService : IDisposable
         return compact.Length <= 280 ? compact : compact[..277] + "…";
     }
 
-    private async Task<List<string>> SearchRoleTicketIdsWithOpenCompatibilityAsync(string role, int userId, string sessionId, string sessionHash)
+    private async Task<AssignedRoleSearchResult> SearchAssignedRoleTicketIdsAsync(string role, int userId, string sessionId, string sessionHash)
     {
         var onlyOpen = _settings.Current.TicketSystemOnlyOpenTickets && !_settings.Current.TicketSystemShowClosedTickets;
-        return await SearchTicketsAsync(role, userId, _settings.Current.TicketSystemTicketSearchRoute,
-            _settings.Current.TicketSystemTicketSearchMethod, sessionId, sessionHash, onlyOpen);
+        var method = _settings.Current.TicketSystemTicketSearchMethod;
+        if (!onlyOpen || !string.Equals(method, "GET", StringComparison.OrdinalIgnoreCase))
+        {
+            var ids = await SearchTicketsAsync(role, userId, _settings.Current.TicketSystemTicketSearchRoute,
+                method, sessionId, sessionHash, onlyOpen);
+            return new AssignedRoleSearchResult(ids, onlyOpen ? ids.Count : 0, 0);
+        }
+
+        var openIds = await SearchAssignedRoleStateAsync(role, userId, ZnunySyncPolicy.AssignedOpenStateType, sessionId, sessionHash);
+        var newIds = await SearchAssignedRoleStateAsync(role, userId, ZnunySyncPolicy.AssignedNewStateType, sessionId, sessionHash);
+        var merged = ZnunySyncPolicy.MergeTicketIds(openIds, newIds);
+        if (newIds.Count > 0)
+            _logger.Info($"[ZnunyAssignedDiscoveryNewState] role={role} ticketIds={string.Join(',', newIds)}");
+        return new AssignedRoleSearchResult(merged, openIds.Count, newIds.Count);
     }
 
-    private async Task<List<string>> SearchTicketsAsync(string role, int userId, string route, string method, string sessionId, string sessionHash, bool? onlyOpenOverride = null)
+    private async Task<List<string>> SearchAssignedRoleStateAsync(string role, int userId, string stateType, string sessionId, string sessionHash)
+    {
+        var route = NormalizeRouteValue(_settings.Current.TicketSystemTicketSearchRoute, "/Ticket");
+        var method = string.Equals(_settings.Current.TicketSystemTicketSearchMethod, "GET", StringComparison.OrdinalIgnoreCase) ? "GET" : "POST";
+        var ids = await SearchTicketsAsync(role, userId, route, method, sessionId, sessionHash,
+            onlyOpenOverride: true, assignedGetStateType: stateType);
+        _logger.Info($"[ZnunyAssignedSearch] role={role} stateType={stateType} agentId={userId} method={method} route={route} limit={EffectiveSearchLimit} results={ids.Count}");
+        return ids;
+    }
+
+    private async Task<List<string>> SearchTicketsAsync(string role, int userId, string route, string method, string sessionId, string sessionHash, bool? onlyOpenOverride = null, string? assignedGetStateType = null)
     {
         route = NormalizeRouteValue(route, "/Ticket");
         method = string.Equals(method, "GET", StringComparison.OrdinalIgnoreCase) ? "GET" : "POST";
@@ -1610,12 +1636,12 @@ public class TicketSystemService : IDisposable
         if (method == "GET" && string.Equals(_settings.Current.TicketSystemTicketSearchAuthMode, "Direct", StringComparison.OrdinalIgnoreCase))
             throw new ZnunyApiException(stage, HttpStatusCode.BadRequest, "Configuration", "Direkte Authentifizierung für TicketSearch darf nicht mit GET verwendet werden, weil Credentials in URLs/Logs landen würden.", string.Empty);
 
-        var payload = BuildAssignedTicketSearchPayload(isOwner, userId, onlyOpen, sessionId, method);
+        var payload = BuildAssignedTicketSearchPayload(isOwner, userId, onlyOpen, sessionId, method, assignedGetStateType);
         using var request = BuildSearchRequest(method, route, payload);
 
         var getMode = method == "GET";
-        var stateType = onlyOpen ? (getMode ? "Open" : "new,open") : "<none>";
-        _logger.Info($"{logTag} method={method} route={route} userId={userId} onlyOpen={onlyOpen} limit={EffectiveSearchLimit} stateType={stateType} sortBy={(getMode ? "<none>" : ZnunySyncPolicy.SearchSortBy)} orderBy={(getMode ? "<none>" : ZnunySyncPolicy.SearchOrderBy)} sessionHash={sessionHash} payload={FormatSearchPayloadForLog(isOwner, userId, onlyOpen, method, _settings.Current.TicketSystemTicketSearchAuthMode, _settings.Current.TicketSystemUsername)}");
+        var stateType = assignedGetStateType ?? (onlyOpen ? (getMode ? "Open" : "new,open") : "<none>");
+        _logger.Info($"{logTag} method={method} route={route} userId={userId} onlyOpen={onlyOpen} limit={EffectiveSearchLimit} stateType={stateType} sortBy={(getMode ? "<none>" : ZnunySyncPolicy.SearchSortBy)} orderBy={(getMode ? "<none>" : ZnunySyncPolicy.SearchOrderBy)} sessionHash={sessionHash} payload={FormatSearchPayloadForLog(isOwner, userId, onlyOpen, method, stateType, _settings.Current.TicketSystemTicketSearchAuthMode, _settings.Current.TicketSystemUsername)}");
         var result = await SendZnunyAsync(request, stage, isOwner ? "[ZnunySearchOwnerResponse]" : "[ZnunySearchResponsibleResponse]");
         if (IsEmptyJsonObject(result.Body))
             _logger.Error($"[ZnunySearchProtocol] operation={(isOwner ? "Owner" : "Responsible")} status={(int)result.StatusCode} bodyEmptyObject=true queryMode={method} stateType={stateType} limit={EffectiveSearchLimit} sortEnabled={!getMode}");
@@ -1843,12 +1869,13 @@ public class TicketSystemService : IDisposable
         };
     }
 
-    private Dictionary<string, object?> BuildAssignedTicketSearchPayload(bool owner, int userId, bool onlyOpen, string sessionId, string method)
+    private Dictionary<string, object?> BuildAssignedTicketSearchPayload(bool owner, int userId, bool onlyOpen, string sessionId, string method, string? assignedGetStateType)
     {
         var payload = new Dictionary<string, object?>();
         var role = owner ? "Owner" : "Responsible";
         if (string.Equals(method, "GET", StringComparison.OrdinalIgnoreCase))
-            ZnunySyncPolicy.ApplyAssignedGetSearchCriteria(payload, role, userId, onlyOpen, _settings.Current.TicketSystemSearchLimit);
+            ZnunySyncPolicy.ApplyAssignedGetSearchCriteria(payload, role, userId,
+                assignedGetStateType ?? (onlyOpen ? ZnunySyncPolicy.AssignedOpenStateType : null), _settings.Current.TicketSystemSearchLimit);
         else
         {
             ZnunySyncPolicy.ApplyTicketRoleCriteria(payload, role, userId, onlyOpen);
@@ -2442,11 +2469,11 @@ public class TicketSystemService : IDisposable
     private static string ToQueryString(Dictionary<string, string> query)
         => "?" + string.Join("&", query.Select(kvp => $"{Uri.EscapeDataString(kvp.Key)}={Uri.EscapeDataString(kvp.Value)}"));
 
-    private string FormatSearchPayloadForLog(bool owner, int userId, bool onlyOpen, string method, string authMode, string userLogin)
+    private string FormatSearchPayloadForLog(bool owner, int userId, bool onlyOpen, string method, string stateType, string authMode, string userLogin)
     {
         var idName = owner ? "OwnerIDs" : "ResponsibleIDs";
         var getMode = string.Equals(method, "GET", StringComparison.OrdinalIgnoreCase);
-        var state = onlyOpen ? (getMode ? ",StateType:'Open'" : ",StateType:['new','open']") : string.Empty;
+        var state = onlyOpen ? (getMode ? $",StateType:'{stateType}'" : ",StateType:['new','open']") : string.Empty;
         var auth = string.Equals(authMode, "Direct", StringComparison.OrdinalIgnoreCase)
             ? $"UserLogin:'{userLogin}',Password:'***'"
             : "SessionID:'***'";
