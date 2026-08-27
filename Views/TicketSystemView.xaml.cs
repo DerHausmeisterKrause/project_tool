@@ -10,6 +10,8 @@ namespace TaskTool.Views;
 public partial class TicketSystemView : UserControl
 {
     private INotifyPropertyChanged? _viewModelNotifications;
+    private string _lastNavigationUrl = string.Empty;
+    private Task? _initialization;
 
     public TicketSystemView()
     {
@@ -33,12 +35,12 @@ public partial class TicketSystemView : UserControl
         _viewModelNotifications = DataContext as INotifyPropertyChanged;
         if (_viewModelNotifications != null)
             _viewModelNotifications.PropertyChanged += OnViewModelPropertyChanged;
-        _ = NavigateToConfiguredUrlAsync();
+        // DataContextChanged owns first navigation; OnInitialized only wires the VM.
     }
 
     private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
-        if (e.PropertyName is nameof(TicketSystemViewModel.TicketSystemWebUrl) or nameof(TicketSystemViewModel.NavigationUrl))
+        if (e.PropertyName == nameof(TicketSystemViewModel.NavigationUrl))
             _ = NavigateToConfiguredUrlAsync();
     }
 
@@ -55,11 +57,16 @@ public partial class TicketSystemView : UserControl
 
         try
         {
+            var normalized = uri.AbsoluteUri;
+            if (string.Equals(_lastNavigationUrl, normalized, StringComparison.OrdinalIgnoreCase)) return;
             BrowserStatus.Text = string.Empty;
-            await TicketBrowser.EnsureCoreWebView2Async();
+            _initialization ??= TicketBrowser.EnsureCoreWebView2Async();
+            await _initialization;
             TicketBrowser.CoreWebView2.NavigationCompleted -= TicketBrowser_NavigationCompleted;
             TicketBrowser.CoreWebView2.NavigationCompleted += TicketBrowser_NavigationCompleted;
-            TicketBrowser.CoreWebView2.Navigate(uri.ToString());
+            _lastNavigationUrl = normalized;
+            ServiceLocator.Logger.Info($"[OtrsWebViewNavigation] trafficClass=Browser origin='{uri.Scheme}://{uri.Host}:{uri.Port}' genericInterface=false");
+            TicketBrowser.CoreWebView2.Navigate(normalized);
         }
         catch (Exception ex)
         {

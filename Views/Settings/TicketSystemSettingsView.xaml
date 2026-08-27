@@ -48,7 +48,7 @@
                         <TextBlock Text="Znuny / OTRS – Synchronisierung" Style="{StaticResource SettingsCardTitleStyle}"/>
                         <Grid>
                             <Grid.ColumnDefinitions><ColumnDefinition Width="240"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-                            <Grid.RowDefinitions><RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/></Grid.RowDefinitions>
+                            <Grid.RowDefinitions><RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/></Grid.RowDefinitions>
                             <TextBlock Grid.Row="0" Text="TicketSearch Route" Style="{StaticResource SettingsLabelStyle}"/>
                             <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding TicketSystemTicketSearchRoute, UpdateSourceTrigger=PropertyChanged}" Style="{StaticResource SettingsTextBoxStyle}"/>
                             <TextBlock Grid.Row="1" Text="TicketSearch HTTP-Methode" Style="{StaticResource SettingsLabelStyle}"/>
