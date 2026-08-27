@@ -435,14 +435,16 @@ public class SettingsViewModel : ObservableObject
     {
         TicketSystemStatus = "Tickets werden abgerufen ...";
         var result = await _ticketSystem.ImportAssignedOpenTicketsAsync();
-        if (string.IsNullOrWhiteSpace(_ticketSystem.LastError))
+        if (result.Success)
         {
             _tasksChanged?.Invoke();
-            TicketSystemStatus = $"Znuny Sync fertig: {result.created} neu, {result.updated} aktualisiert, {result.skipped} übersprungen.";
+            TicketSystemStatus = result.UniqueTicketCount == 0
+                ? "Znuny Sync fertig: 0 zugewiesene Tickets gefunden."
+                : $"Znuny Sync fertig: {result.UniqueTicketCount} Tickets gefunden · {result.Created} neu · {result.Updated} aktualisiert · {result.Unchanged} unverändert · {result.Skipped} übersprungen{(result.SearchLimitReached ? " · Suchlimit erreicht" : string.Empty)}.";
             return;
         }
 
-        TicketSystemStatus = _ticketSystem.LastError;
+        TicketSystemStatus = result.ErrorMessage;
     }
 
     private void TestOutlookConnection()

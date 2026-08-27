@@ -102,4 +102,55 @@ public sealed class ZnunySyncPolicyTests
     [Fact]
     public void CandidateTimerIsAnAutomaticRequestReason()
         => Assert.True(ZnunyRequestReason.CandidateTimerSync.IsAutomatic());
+
+    [Theory]
+    [InlineData("Owner", "OwnerIDs")]
+    [InlineData("Responsible", "ResponsibleIDs")]
+    public void AssignedRoleIdsAreArraysAndSearchIsExplicitlySorted(string role, string key)
+    {
+        var payload = new Dictionary<string, object?>();
+        ZnunySyncPolicy.ApplyTicketRoleCriteria(payload, role, 123, onlyOpen: true);
+        ZnunySyncPolicy.ApplyTicketSearchLimit(payload, 500);
+
+        Assert.Equal(new[] { 123 }, Assert.IsType<int[]>(payload[key]));
+        Assert.Equal(new[] { "new", "open" }, Assert.IsType<string[]>(payload["StateType"]));
+        Assert.Equal(500, payload["Limit"]);
+        Assert.Equal("Changed", payload["SortBy"]);
+        Assert.Equal("Down", payload["OrderBy"]);
+    }
+
+    [Fact]
+    public void BusySyncIsNeverSuccessful()
+    {
+        var result = ZnunySyncResult.BusyResult();
+        Assert.False(result.Started);
+        Assert.False(result.Success);
+        Assert.True(result.Busy);
+    }
+
+    [Fact]
+    public void GenuineZeroResultCanBeSuccessful()
+    {
+        var result = new ZnunySyncResult(true, true, false, 0, 0, 0, 0, 0, 0, false, string.Empty);
+        Assert.True(result.Started);
+        Assert.True(result.Success);
+        Assert.False(result.Busy);
+    }
+
+    [Fact]
+    public void FailedSyncIsNeverSuccessful()
+    {
+        var result = ZnunySyncResult.Failed("HTTP 500");
+        Assert.True(result.Started);
+        Assert.False(result.Success);
+        Assert.Equal("HTTP 500", result.ErrorMessage);
+    }
+
+    [Fact]
+    public void SuccessfulResultKeepsUnchangedCountSeparate()
+    {
+        var result = new ZnunySyncResult(true, true, false, 87, 84, 1, 2, 81, 0, false, string.Empty);
+        Assert.Equal(81, result.Unchanged);
+        Assert.Equal(84, result.Created + result.Updated + result.Unchanged + result.Skipped);
+    }
 }
