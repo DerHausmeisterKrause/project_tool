@@ -9,10 +9,18 @@ public static class ZnunySyncPolicy
     public const int MinimumArticleLimit = 1;
     public const int MaximumArticleLimit = 100;
     public const int DefaultArticleLimit = 20;
+    public const int MinimumCandidateIntervalMinutes = 3;
+    public const int MaximumCandidateIntervalMinutes = 60;
+    public const int DefaultCandidateIntervalMinutes = 5;
     public const string ArticleOrder = "DESC";
 
     public static int NormalizeIntervalMinutes(int configured)
         => configured <= 0 ? 15 : Math.Clamp(configured, 5, 1440);
+
+    public static int NormalizeCandidateIntervalMinutes(int configured)
+        => configured <= 0
+            ? DefaultCandidateIntervalMinutes
+            : Math.Clamp(configured, MinimumCandidateIntervalMinutes, MaximumCandidateIntervalMinutes);
 
     public static int NormalizeSearchLimit(int configured)
         => Math.Clamp(configured, MinimumSearchLimit, MaximumSearchLimit);

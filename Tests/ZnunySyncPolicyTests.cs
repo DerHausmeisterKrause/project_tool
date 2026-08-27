@@ -86,4 +86,20 @@ public sealed class ZnunySyncPolicyTests
         Assert.Equal("DESC", options["ArticleOrder"]);
         Assert.Equal("17", options["ArticleLimit"]);
     }
+
+    [Theory]
+    [InlineData(0, 5)]
+    [InlineData(1, 3)]
+    [InlineData(2, 3)]
+    [InlineData(3, 3)]
+    [InlineData(5, 5)]
+    [InlineData(60, 60)]
+    [InlineData(61, 60)]
+    [InlineData(500, 60)]
+    public void CandidateIntervalIsNormalized(int configured, int expected)
+        => Assert.Equal(expected, ZnunySyncPolicy.NormalizeCandidateIntervalMinutes(configured));
+
+    [Fact]
+    public void CandidateTimerIsAnAutomaticRequestReason()
+        => Assert.True(ZnunyRequestReason.CandidateTimerSync.IsAutomatic());
 }

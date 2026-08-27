@@ -141,8 +141,8 @@ public class TodayViewModel : ObservableObject
     public bool ShowCandidateTickets => SelectedTaskScope == TodayTaskScope.CandidateTickets;
     public string CandidateTabTitle => $"Neue Aufgaben ({NewTaskCandidates.Count})";
     public bool ShowCandidateHint => ShowCandidateTickets && NewTaskCandidates.Count == 0 && !_ticketSystem.IsCandidateRefreshRunning;
-    public bool ShowCandidateStatus => ShowCandidateTickets && _ticketSystem.IsCandidateRefreshRunning;
-    public string CandidateStatus => "Neue Aufgaben werden geladen…";
+    public bool ShowCandidateStatus => ShowCandidateTickets && !string.IsNullOrWhiteSpace(_ticketSystem.CandidateStatusMessage);
+    public string CandidateStatus => _ticketSystem.CandidateStatusMessage;
     public string CandidateHint => !string.IsNullOrWhiteSpace(_ticketSystem.CandidateTicketsError)
         ? _ticketSystem.CandidateTicketsError
         : string.IsNullOrWhiteSpace(_settings.Current.TicketSystemCandidateKeywords)
@@ -550,7 +550,7 @@ public class TodayViewModel : ObservableObject
         ShowCurrentTasksCommand = new RelayCommand(() => SelectedTaskScope = TodayTaskScope.Current);
         ShowNewTasksCommand = new RelayCommand(() => SelectedTaskScope = TodayTaskScope.CandidateTickets);
         ShowCompletedTasksCommand = new RelayCommand(() => SelectedTaskScope = TodayTaskScope.Completed);
-        RefreshCandidateTicketsCommand = new RelayCommand(async () => await _ticketSystem.RefreshCandidateTicketsAsync());
+        RefreshCandidateTicketsCommand = new RelayCommand(async () => await _ticketSystem.RefreshCandidateTicketsAsync(), () => !_ticketSystem.IsCandidateRefreshRunning);
         AssignCandidateToMeCommand = new RelayCommand<ZnunyCandidateTicket>(
             async candidate => await AssignCandidateToMeAsync(candidate),
             candidate => candidate != null && !IsCandidateAssignmentRunning);
@@ -603,10 +603,12 @@ public class TodayViewModel : ObservableObject
             NewTaskCandidates.Add(ticket);
         ServiceLocator.Logger.Info($"[ZnunyCandidatesUI] serviceCount={_ticketSystem.CurrentCandidateTickets.Count} viewModelCount={NewTaskCandidates.Count}");
         Raise(nameof(CandidateTabTitle));
+        Raise(nameof(ShowCandidateTickets));
         Raise(nameof(ShowCandidateHint));
         Raise(nameof(CandidateHint));
         Raise(nameof(ShowCandidateStatus));
         Raise(nameof(CandidateStatus));
+        RefreshCandidateTicketsCommand.RaiseCanExecuteChanged();
     }
 
     private async Task AssignCandidateToMeAsync(ZnunyCandidateTicket? candidate)

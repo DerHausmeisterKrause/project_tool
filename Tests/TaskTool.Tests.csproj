@@ -13,5 +13,6 @@
     <Compile Include="../Models/TaskStatus.cs" Link="Models/TaskStatus.cs" />
     <Compile Include="../Models/SegmentAvailabilitySlot.cs" Link="Models/SegmentAvailabilitySlot.cs" />
     <Compile Include="../Models/ZnunySyncPolicy.cs" Link="Models/ZnunySyncPolicy.cs" />
+    <Compile Include="../Models/ZnunyRequestReason.cs" Link="Models/ZnunyRequestReason.cs" />
   </ItemGroup>
 </Project>
