@@ -5,6 +5,13 @@ namespace TaskTool.Tests;
 
 public sealed class ZnunySyncPolicyTests
 {
+    [Fact]
+    public void AssignedGetStateTypeCasingMatchesRouteContract()
+    {
+        Assert.Equal("Open", ZnunySyncPolicy.AssignedOpenStateType);
+        Assert.Equal("New", ZnunySyncPolicy.AssignedNewStateType);
+    }
+
     [Theory]
     [InlineData(1, 5)]
     [InlineData(5, 5)]
@@ -106,7 +113,7 @@ public sealed class ZnunySyncPolicyTests
     [Theory]
     [InlineData("Owner", "OwnerIDs")]
     [InlineData("Responsible", "ResponsibleIDs")]
-    public void AssignedRoleIdsAreArraysAndSearchIsExplicitlySorted(string role, string key)
+    public void PostRoleIdsRemainArraysAndSearchIsExplicitlySorted(string role, string key)
     {
         var payload = new Dictionary<string, object?>();
         ZnunySyncPolicy.ApplyTicketRoleCriteria(payload, role, 123, onlyOpen: true);
@@ -117,6 +124,57 @@ public sealed class ZnunySyncPolicyTests
         Assert.Equal(500, payload["Limit"]);
         Assert.Equal("Changed", payload["SortBy"]);
         Assert.Equal("Down", payload["OrderBy"]);
+    }
+
+    [Theory]
+    [InlineData("Owner", "OwnerIDs", 100)]
+    [InlineData("Owner", "OwnerIDs", 500)]
+    [InlineData("Responsible", "ResponsibleIDs", 100)]
+    public void AssignedGetSearchUsesDeployedScalarQueryContract(string role, string key, int limit)
+    {
+        var payload = new Dictionary<string, object?> { ["SessionID"] = "secret" };
+
+        ZnunySyncPolicy.ApplyAssignedGetSearchCriteria(payload, role, 145, "Open", limit);
+
+        Assert.Equal(145, Assert.IsType<int>(payload[key]));
+        Assert.Equal("Open", Assert.IsType<string>(payload["StateType"]));
+        Assert.Equal(limit, payload["Limit"]);
+        Assert.DoesNotContain("SortBy", payload.Keys);
+        Assert.DoesNotContain("OrderBy", payload.Keys);
+        Assert.DoesNotContain(role == "Owner" ? "ResponsibleIDs" : "OwnerIDs", payload.Keys);
+    }
+
+    [Theory]
+    [InlineData("Owner", "OwnerIDs", "Open", 100)]
+    [InlineData("Owner", "OwnerIDs", "New", 500)]
+    [InlineData("Responsible", "ResponsibleIDs", "Open", 500)]
+    [InlineData("Responsible", "ResponsibleIDs", "New", 100)]
+    public void EveryAssignedGetStateSearchUsesScalarCriteria(string role, string key, string stateType, int limit)
+    {
+        var payload = new Dictionary<string, object?>();
+
+        ZnunySyncPolicy.ApplyAssignedGetSearchCriteria(payload, role, 145, stateType, limit);
+
+        Assert.Equal(145, payload[key]);
+        Assert.Equal(stateType, payload["StateType"]);
+        Assert.Equal(limit, payload["Limit"]);
+        Assert.DoesNotContain("SortBy", payload.Keys);
+        Assert.DoesNotContain("OrderBy", payload.Keys);
+    }
+
+    [Fact]
+    public void AssignedDiscoveryMergeKeepsOpenAndNewTicketsWithoutDuplicates()
+    {
+        var merged = ZnunySyncPolicy.MergeTicketIds(
+            new[] { "open-1", "shared" },
+            new[] { "new-1", "SHARED" },
+            new[] { "responsible-new" });
+
+        Assert.Equal(4, merged.Count);
+        Assert.Contains("open-1", merged);
+        Assert.Contains("new-1", merged);
+        Assert.Contains("responsible-new", merged);
+        Assert.Single(merged, id => string.Equals(id, "shared", StringComparison.OrdinalIgnoreCase));
     }
 
     [Fact]
