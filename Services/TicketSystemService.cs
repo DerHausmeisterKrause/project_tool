@@ -696,7 +696,7 @@ public class TicketSystemService : IDisposable
         try
         {
             var sessionId = await CreateSessionAsync();
-            var ticket = await GetTicketDetailsAsync(booking.TicketId, sessionId, HashSessionId(sessionId));
+            var ticket = await GetTicketReconciliationDetailsAsync(booking.TicketId, sessionId, HashSessionId(sessionId));
             var articleId = ticket?.FindArticleIdContaining(BookingMarker(booking.BookingId));
             if (!string.IsNullOrWhiteSpace(articleId))
             {
@@ -721,7 +721,7 @@ public class TicketSystemService : IDisposable
         {
             var sessionId = await CreateSessionAsync();
             var sessionHash = HashSessionId(sessionId);
-            var ticket = await GetTicketDetailsAsync(booking.TicketId, sessionId, sessionHash);
+            var ticket = await GetTicketReconciliationDetailsAsync(booking.TicketId, sessionId, sessionHash);
             var existingArticleId = ticket?.FindArticleIdContaining(BookingMarker(booking.BookingId));
             if (!string.IsNullOrWhiteSpace(existingArticleId))
             {
@@ -1122,7 +1122,7 @@ public class TicketSystemService : IDisposable
             if (hasTaskChanges)
                 NotifyTasksChanged();
             traffic.Stopwatch.Stop();
-            _logger.Info($"[ZnunySyncSummary] reason={traffic.Reason} metadataRemote={traffic.MetadataRequests} detailCacheHits={traffic.DetailCacheHits} detailRemote={traffic.DetailRemote} totalHttpRequests={traffic.TotalRequests} durationMs={traffic.Stopwatch.ElapsedMilliseconds}");
+            _logger.Info($"[ZnunySyncSummary] reason={traffic.Reason} searchLimit={EffectiveSearchLimit} articleLimit={EffectiveArticleLimit} metadataRemote={traffic.MetadataRequests} detailCacheHits={traffic.DetailCacheHits} detailRemote={traffic.DetailRemote} totalHttpRequests={traffic.TotalRequests} durationMs={traffic.Stopwatch.ElapsedMilliseconds}");
             _logger.Info($"[ZnunySyncTraffic] reason={traffic.Reason} searchRequests={traffic.SearchRequests} ticketMetadataRequests={traffic.MetadataRequests} ticketDetailRequests={traffic.DetailRequests} candidateRequests={traffic.CandidateRequests} totalRequests={traffic.TotalRequests} durationMs={traffic.Stopwatch.ElapsedMilliseconds}");
             _syncTraffic.Value = null;
         }
@@ -1490,7 +1490,7 @@ public class TicketSystemService : IDisposable
         _logger.Info($"{logTag} method={method} route={route} userId={userId} onlyOpen={onlyOpen} sessionHash={sessionHash} payload={FormatSearchPayloadForLog(isOwner, userId, onlyOpen, _settings.Current.TicketSystemTicketSearchAuthMode, _settings.Current.TicketSystemUsername)}");
         var result = await SendZnunyAsync(request, stage, isOwner ? "[ZnunySearchOwnerResponse]" : "[ZnunySearchResponsibleResponse]");
         var ticketIds = ExtractTicketIdsStrict(result.Body, stage).ToList();
-        LogSearchLimit(stage, ticketIds.Count);
+        LogSearchLimit(isOwner ? "Owner" : "Responsible", ticketIds.Count);
         _logger.Info($"{logTag} method={method} route={route} userId={userId} onlyOpen={onlyOpen} status={(int)result.StatusCode} ticketCount={ticketIds.Count}");
         return ticketIds;
     }
@@ -1518,20 +1518,24 @@ public class TicketSystemService : IDisposable
                 ["UserLogin"] = _settings.Current.TicketSystemUsername,
                 ["Password"] = _settings.GetTicketSystemPassword()
             };
-            ZnunySyncPolicy.ApplyTicketSearchLimit(directPayload);
+            ZnunySyncPolicy.ApplyTicketSearchLimit(directPayload, _settings.Current.TicketSystemSearchLimit);
             return directPayload;
         }
 
         var payload = new Dictionary<string, object?> { ["SessionID"] = sessionId };
-        ZnunySyncPolicy.ApplyTicketSearchLimit(payload);
+        ZnunySyncPolicy.ApplyTicketSearchLimit(payload, _settings.Current.TicketSystemSearchLimit);
         return payload;
     }
 
     private void LogSearchLimit(string operation, int resultCount)
     {
-        if (resultCount < ZnunySyncPolicy.TicketSearchLimit) return;
-        _logger.Warning($"[ZnunySearchLimit] operation={operation} limit={ZnunySyncPolicy.TicketSearchLimit} resultCount={resultCount} possiblyTruncated=true");
+        _logger.Info($"[ZnunyTicketSearch] operation={operation} configuredLimit={_settings.Current.TicketSystemSearchLimit} effectiveLimit={EffectiveSearchLimit} results={resultCount}");
+        if (resultCount < EffectiveSearchLimit) return;
+        _logger.Warning($"[ZnunySearchLimit] operation={operation} limit={EffectiveSearchLimit} resultCount={resultCount} possiblyTruncated=true");
     }
+
+    private int EffectiveSearchLimit => ZnunySyncPolicy.NormalizeSearchLimit(_settings.Current.TicketSystemSearchLimit);
+    private int EffectiveArticleLimit => ZnunySyncPolicy.NormalizeArticleLimit(_settings.Current.TicketSystemArticleLimit);
 
     private Task<ZnunyTicket?> GetTicketMetadataAsync(string ticketId, string sessionId, string sessionHash)
         => GetTicketAsync(ticketId, sessionId, sessionHash, allArticles: false, dynamicFields: false, "TicketGetMetadata");
@@ -1541,6 +1545,10 @@ public class TicketSystemService : IDisposable
 
     private Task<ZnunyTicket?> GetCandidateTicketDetailsAsync(string ticketId, string sessionId, string sessionHash)
         => GetTicketAsync(ticketId, sessionId, sessionHash, allArticles: true, dynamicFields: false, "CandidateTicketGetDetails");
+
+    private Task<ZnunyTicket?> GetTicketReconciliationDetailsAsync(string ticketId, string sessionId, string sessionHash)
+        => GetTicketAsync(ticketId, sessionId, sessionHash, allArticles: true, dynamicFields: true,
+            "TicketGetReconciliation", Math.Max(EffectiveArticleLimit, 50));
 
     private void StoreTicketDetails(ZnunyTicket ticket)
     {
@@ -1554,7 +1562,7 @@ public class TicketSystemService : IDisposable
         _detailCache.Store(context, ticket.State, ParseZnunyUtc(ticket.Changed));
     }
 
-    private async Task<ZnunyTicket?> GetTicketAsync(string ticketId, string sessionId, string sessionHash, bool allArticles, bool dynamicFields, string operation)
+    private async Task<ZnunyTicket?> GetTicketAsync(string ticketId, string sessionId, string sessionHash, bool allArticles, bool dynamicFields, string operation, int? articleLimit = null)
     {
         var route = NormalizeRouteValue(_settings.Current.TicketSystemTicketGetRouteTemplate, "/Ticket/{TicketID}")
             .Replace("{TicketID}", Uri.EscapeDataString(ticketId), StringComparison.OrdinalIgnoreCase);
@@ -1567,7 +1575,7 @@ public class TicketSystemService : IDisposable
         {
             query["SessionID"] = sessionId;
         }
-        foreach (var option in ZnunySyncPolicy.TicketGetOptions(allArticles, dynamicFields))
+        foreach (var option in ZnunySyncPolicy.TicketGetOptions(allArticles, dynamicFields, articleLimit ?? EffectiveArticleLimit))
             query[option.Key] = option.Value;
         var url = Combine(_settings.Current.TicketSystemApiUrl, route) + ToQueryString(query);
         using var request = new HttpRequestMessage(HttpMethod.Get, url);
@@ -1691,6 +1699,8 @@ public class TicketSystemService : IDisposable
 
     private HttpRequestMessage BuildSearchRequest(string method, string route, Dictionary<string, object?> payload)
     {
+        // Central safety net: no TicketSearch can leave this service without a bounded limit.
+        ZnunySyncPolicy.ApplyTicketSearchLimit(payload, _settings.Current.TicketSystemSearchLimit);
         if (method == "GET")
         {
             var query = payload.ToDictionary(kvp => kvp.Key, kvp => FormatQueryValue(kvp.Value));
@@ -1710,7 +1720,7 @@ public class TicketSystemService : IDisposable
         {
             [owner ? "OwnerIDs" : "ResponsibleIDs"] = userId
         };
-        ZnunySyncPolicy.ApplyTicketSearchLimit(payload);
+        ZnunySyncPolicy.ApplyTicketSearchLimit(payload, _settings.Current.TicketSystemSearchLimit);
 
         if (string.Equals(_settings.Current.TicketSystemTicketSearchAuthMode, "Direct", StringComparison.OrdinalIgnoreCase))
         {
