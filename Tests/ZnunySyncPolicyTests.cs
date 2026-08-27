@@ -27,4 +27,30 @@ public sealed class ZnunySyncPolicyTests
     [Fact]
     public void AutomaticRequestBudgetIsHardBounded()
         => Assert.Equal(60, ZnunySyncPolicy.MaximumAutomaticRequestsPerSync);
+
+    [Fact]
+    public void TicketSearchLimitIsExplicitAndBounded()
+    {
+        var payload = new Dictionary<string, object?> { ["SessionID"] = "secret" };
+        ZnunySyncPolicy.ApplyTicketSearchLimit(payload);
+        Assert.Equal(100, payload["Limit"]);
+    }
+
+    [Fact]
+    public void MetadataTicketGetDoesNotRequestArticles()
+    {
+        var options = ZnunySyncPolicy.TicketGetOptions(allArticles: false, dynamicFields: false);
+        Assert.Equal("0", options["AllArticles"]);
+        Assert.Equal("0", options["DynamicFields"]);
+        Assert.DoesNotContain("ArticleLimit", options.Keys);
+    }
+
+    [Fact]
+    public void EveryArticleTicketGetIsLimitedToLatestTwenty()
+    {
+        var options = ZnunySyncPolicy.TicketGetOptions(allArticles: true, dynamicFields: true);
+        Assert.Equal("1", options["AllArticles"]);
+        Assert.Equal("20", options["ArticleLimit"]);
+        Assert.Equal("DESC", options["ArticleOrder"]);
+    }
 }
