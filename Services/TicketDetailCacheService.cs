@@ -77,6 +77,36 @@ order_value=excluded.order_value,reply_recipient=excluded.reply_recipient,reply_
         transaction.Commit();
     }
 
+    public IReadOnlyList<TicketFieldOption> LoadFieldOptions(string fieldName, string fingerprint, TimeSpan ttl)
+    {
+        var result = new List<TicketFieldOption>(); using var connection = Open(); using var command = connection.CreateCommand();
+        command.CommandText = @"SELECT option_key,display_value,fetched_utc FROM znuny_dynamic_field_options_cache
+WHERE field_name=$field AND configuration_fingerprint=$fingerprint ORDER BY display_value";
+        command.Parameters.AddWithValue("$field", fieldName); command.Parameters.AddWithValue("$fingerprint", fingerprint);
+        using var reader = command.ExecuteReader();
+        while (reader.Read())
+        {
+            if (Parse(reader.GetString(2)) is not { } fetched || DateTime.UtcNow - fetched > ttl) return Array.Empty<TicketFieldOption>();
+            result.Add(new TicketFieldOption(reader.GetString(0), reader.GetString(1)));
+        }
+        return result;
+    }
+
+    public void ReplaceFieldOptions(string fieldName, string fingerprint, IReadOnlyCollection<TicketFieldOption> options)
+    {
+        using var connection = Open(); using var transaction = connection.BeginTransaction();
+        using (var delete = connection.CreateCommand()) { delete.Transaction = transaction; delete.CommandText = "DELETE FROM znuny_dynamic_field_options_cache WHERE field_name=$field"; delete.Parameters.AddWithValue("$field", fieldName); delete.ExecuteNonQuery(); }
+        foreach (var option in options)
+        {
+            using var insert = connection.CreateCommand(); insert.Transaction = transaction;
+            insert.CommandText = @"INSERT INTO znuny_dynamic_field_options_cache(field_name,option_key,display_value,fetched_utc,configuration_fingerprint)
+VALUES($field,$key,$display,$fetched,$fingerprint)";
+            insert.Parameters.AddWithValue("$field", fieldName); insert.Parameters.AddWithValue("$key", option.Key); insert.Parameters.AddWithValue("$display", option.DisplayText);
+            insert.Parameters.AddWithValue("$fetched", DateTime.UtcNow.ToString("O")); insert.Parameters.AddWithValue("$fingerprint", fingerprint); insert.ExecuteNonQuery();
+        }
+        transaction.Commit();
+    }
+
     private static IReadOnlyList<TicketArticleItem> LoadArticles(SqliteConnection connection, string ticketId)
     {
         var result = new List<TicketArticleItem>(); using var command = connection.CreateCommand();

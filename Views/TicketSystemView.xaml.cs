@@ -65,6 +65,7 @@ public partial class TicketSystemView : UserControl
             TicketBrowser.CoreWebView2.NavigationCompleted -= TicketBrowser_NavigationCompleted;
             TicketBrowser.CoreWebView2.NavigationCompleted += TicketBrowser_NavigationCompleted;
             _lastNavigationUrl = normalized;
+            ServiceLocator.Logger.Info($"[OtrsWebViewNavigation] trafficClass=Browser origin='{uri.Scheme}://{uri.Host}:{uri.Port}' genericInterface=false");
             TicketBrowser.CoreWebView2.Navigate(normalized);
         }
         catch (Exception ex)

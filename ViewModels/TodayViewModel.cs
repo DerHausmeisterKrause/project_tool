@@ -1625,8 +1625,13 @@ public class TodayViewModel : ObservableObject
         IsTicketBooking = true;
         try
         {
-            _ticketSystem.InvalidateDynamicFieldOptionsCache();
-            await LoadTicketBookingContextAsync(SelectedTask);
+            var task = SelectedTask;
+            var context = await _ticketSystem.RefreshDynamicFieldOptionsAsync(task);
+            if (SelectedTask?.Id != task.Id) return;
+            CostCenterOptions.Clear(); foreach (var option in context.CostCenterOptions) CostCenterOptions.Add(option);
+            OrderOptions.Clear(); foreach (var option in context.OrderOptions) OrderOptions.Add(option);
+            SelectedCostCenter = EnsureCurrentOption(CostCenterOptions, context.CostCenterValue);
+            SelectedOrder = EnsureCurrentOption(OrderOptions, context.OrderValue);
             StatusMessage = "Kostenstellen und Aufträge wurden neu geladen.";
         }
         finally
