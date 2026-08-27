@@ -39,10 +39,6 @@ public class MainViewModel : ObservableObject
                 {
                     _weekViewModel.Refresh();
                 }
-                else if (_selectedView is TicketSystemViewModel)
-                {
-                    _ticketSystemViewModel.Refresh();
-                }
                 else if (_selectedView is ReportsViewModel)
                 {
                     _reportsViewModel.Refresh();

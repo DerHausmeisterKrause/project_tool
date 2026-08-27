@@ -81,6 +81,9 @@ public class TodayViewModel : ObservableObject
                 RaiseCommandStates();
                 UpdateTimerDisplay();
                 LoadTicketBookingHistory();
+                // Selection is deliberately local-only.  Znuny is a shared production
+                // system; merely displaying an already persisted task must never create
+                // a session or a TicketGet request.
                 _ = LoadTicketBookingContextAsync(value, preserveArticleSelection: !taskChanged);
             }
         }
@@ -118,17 +121,17 @@ public class TodayViewModel : ObservableObject
             if (Set(ref _selectedTaskScope, value))
             {
                 RefreshDisplayedTasks();
-                Raise(nameof(ShowActiveTaskList));
-                Raise(nameof(ShowTodayAgenda));
-                Raise(nameof(ShowCurrentTaskList));
-                Raise(nameof(ShowCompletedTaskList));
-                Raise(nameof(ShowCandidateTickets));
-                Raise(nameof(ShowCandidateHint));
-                Raise(nameof(CandidateHint));
-                Raise(nameof(ActiveTaskListHeading));
+                foreach (var property in ScopeDependentProperties) Raise(property);
             }
         }
     }
+
+    private static readonly string[] ScopeDependentProperties =
+    {
+        nameof(ShowActiveTaskList), nameof(ShowTodayAgenda), nameof(ShowCurrentTaskList),
+        nameof(ShowCurrentTaskListContent), nameof(ShowCompletedTaskList), nameof(ShowCandidateTickets),
+        nameof(ShowCandidateHint), nameof(CandidateHint), nameof(ActiveTaskListHeading)
+    };
 
     public bool ShowActiveTaskList => SelectedTaskScope is TodayTaskScope.Today or TodayTaskScope.Current;
     public bool ShowCurrentTaskListContent => SelectedTaskScope == TodayTaskScope.Current;
@@ -1444,7 +1447,8 @@ public class TodayViewModel : ObservableObject
         TaskItem? task,
         bool preserveArticleSelection = true,
         string preferredArticleId = "",
-        bool selectNewestWhenPreferredMissing = false)
+        bool selectNewestWhenPreferredMissing = false,
+        bool forceRemote = false)
     {
         var previousArticleId = preserveArticleSelection ? SelectedTicketArticle?.ArticleId ?? string.Empty : string.Empty;
         CostCenterOptions.Clear();
@@ -1459,7 +1463,9 @@ public class TodayViewModel : ObservableObject
         TicketConversationMessage = "Ticket-Nachrichten werden geladen …";
         try
         {
-            var context = await _ticketSystem.GetTicketBookingContextAsync(task);
+            var context = forceRemote
+                ? await _ticketSystem.RefreshTicketBookingContextAsync(task)
+                : await _ticketSystem.GetTicketBookingContextAsync(task);
             if (SelectedTask?.Id != task.Id) return;
             foreach (var option in context.CostCenterOptions) CostCenterOptions.Add(option);
             foreach (var option in context.OrderOptions) OrderOptions.Add(option);
@@ -1480,7 +1486,8 @@ public class TodayViewModel : ObservableObject
                 : string.IsNullOrWhiteSpace(TicketReplyRecipient)
                     ? "Für dieses Ticket konnte keine eindeutige Empfängeradresse ermittelt werden. Bitte antworten Sie über Znuny."
                     : string.Empty;
-            await SearchWikiAsync(force: false, task, context.TicketTitle, context.Articles.FirstOrDefault()?.Body ?? string.Empty);
+            // Wiki results are loaded from SQLite by SelectedTask.  A selection is not
+            // an implicit permission to contact either Znuny or a wiki server.
         }
         catch (Exception ex)
         {
@@ -1539,7 +1546,7 @@ public class TodayViewModel : ObservableObject
     private async Task RefreshTicketArticlesAsync()
     {
         if (SelectedTask == null || !SelectedTask.IsZnunyTask || IsTicketConversationLoading) return;
-        await LoadTicketBookingContextAsync(SelectedTask, preserveArticleSelection: true);
+        await LoadTicketBookingContextAsync(SelectedTask, preserveArticleSelection: true, forceRemote: true);
     }
 
     private void BeginTicketReply()

@@ -12,6 +12,8 @@ public partial class WikiBrowserView : UserControl
 {
     private WikiBrowserViewModel? _viewModel;
     private CancellationTokenSource? _loginAttemptCancellation;
+    private Task<CoreWebView2Environment>? _environment;
+    private string _lastNavigationKey = string.Empty;
     public WikiBrowserView()
     {
         InitializeComponent(); DataContextChanged += OnDataContextChanged;
@@ -32,11 +34,15 @@ public partial class WikiBrowserView : UserControl
         try
         {
             var dataPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Plenaro", "WebView2", "Wiki");
-            var environment = await CoreWebView2Environment.CreateAsync(null, dataPath);
+            _environment ??= CoreWebView2Environment.CreateAsync(null, dataPath);
+            var environment = await _environment;
             await WikiBrowser.EnsureCoreWebView2Async(environment);
             WikiBrowser.CoreWebView2.NavigationStarting -= OnNavigationStarting; WikiBrowser.CoreWebView2.NavigationStarting += OnNavigationStarting;
             WikiBrowser.CoreWebView2.NavigationCompleted -= OnNavigationCompleted; WikiBrowser.CoreWebView2.NavigationCompleted += OnNavigationCompleted;
-            WikiBrowser.CoreWebView2.Navigate(uri.ToString()); BrowserStatus.Text = string.Empty;
+            var key = $"{_viewModel.SelectedSource?.Id:N}|{uri.AbsoluteUri}";
+            if (string.Equals(key, _lastNavigationKey, StringComparison.OrdinalIgnoreCase)) return;
+            _lastNavigationKey = key;
+            WikiBrowser.CoreWebView2.Navigate(uri.AbsoluteUri); BrowserStatus.Text = string.Empty;
         }
         catch (Exception ex) { BrowserStatus.Text = $"Wiki-Browser konnte nicht gestartet werden: {ex.Message}"; }
     }
