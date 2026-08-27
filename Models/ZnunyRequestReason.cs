@@ -3,7 +3,8 @@ namespace TaskTool.Models;
 public enum ZnunyRequestReason
 {
     InitialSync,
-    TimerSync,
+    FullTimerSync,
+    CandidateTimerSync,
     ManualFullSync,
     ManualCandidateRefresh,
     ManualTicketRefresh,
@@ -20,5 +21,5 @@ public enum ZnunyRequestReason
 public static class ZnunyRequestReasonExtensions
 {
     public static bool IsAutomatic(this ZnunyRequestReason reason)
-        => reason is ZnunyRequestReason.InitialSync or ZnunyRequestReason.TimerSync;
+        => reason is ZnunyRequestReason.InitialSync or ZnunyRequestReason.FullTimerSync or ZnunyRequestReason.CandidateTimerSync;
 }

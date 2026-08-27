@@ -61,10 +61,11 @@ CREATE TABLE IF NOT EXISTS schema_version (
             MigrateToV18(conn);
             MigrateToV19(conn);
             MigrateToV20(conn);
+            MigrateToV21(conn);
 
-            if (currentVersion < 20)
+            if (currentVersion < 21)
             {
-                SetVersion(conn, 20);
+                SetVersion(conn, 21);
             }
         }
         catch (Exception ex)
@@ -320,6 +321,13 @@ CREATE TABLE IF NOT EXISTS znuny_dynamic_field_options_cache (
  field_name TEXT NOT NULL, option_key TEXT NOT NULL, display_value TEXT NOT NULL,
  fetched_utc TEXT NOT NULL, configuration_fingerprint TEXT NOT NULL,
  PRIMARY KEY(field_name, option_key, configuration_fingerprint));");
+    }
+
+    private static void MigrateToV21(SqliteConnection conn)
+    {
+        Exec(conn, @"CREATE TABLE IF NOT EXISTS znuny_candidate_scan_state (
+ ticket_id TEXT PRIMARY KEY, last_seen_utc TEXT NOT NULL, last_evaluated_utc TEXT NOT NULL,
+ matched INTEGER NOT NULL DEFAULT 0, remote_changed_utc TEXT NULL); ");
     }
 
     private static void EnsureColumn(SqliteConnection conn, string table, string column, string definition)

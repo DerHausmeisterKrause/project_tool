@@ -20,7 +20,9 @@ public class SettingsService
         LogLevel = 8,
         TicketCreateRoute = 16,
         WebShortcutOrder = 32,
-        SilentUpdateDisabled = 64
+        SilentUpdateDisabled = 64,
+        TicketRequestLimits = 128,
+        CandidateSyncInterval = 256
     }
 
     private readonly LoggerService _logger;
@@ -81,6 +83,10 @@ public class SettingsService
             _logger.Info("[SettingsMigration] WebShortcut SortOrder normalized=true");
         if (changes.HasFlag(NormalizationChanges.SilentUpdateDisabled))
             _logger.Info("[SettingsMigration] AutoInstallUpdatesOnStartup normalized=false reason=ExplicitConfirmationRequired");
+        if (changes.HasFlag(NormalizationChanges.TicketRequestLimits))
+            _logger.Info($"[ZnunySettingsMigration] searchLimit={Current.TicketSystemSearchLimit} articleLimit={Current.TicketSystemArticleLimit}");
+        if (changes.HasFlag(NormalizationChanges.CandidateSyncInterval))
+            _logger.Info($"[ZnunySettingsMigration] candidateSyncIntervalMinutes={Current.TicketSystemCandidateSyncIntervalMinutes}");
     }
 
     private static NormalizationChanges Normalize(AppSettings settings)
@@ -243,6 +249,16 @@ public class SettingsService
         settings.HomeOfficeMailRecipient1 = settings.HomeOfficeMailRecipient1?.Trim() ?? string.Empty;
         settings.HomeOfficeMailRecipient2 = settings.HomeOfficeMailRecipient2?.Trim() ?? string.Empty;
         settings.TicketSystemSyncIntervalMinutes = ZnunySyncPolicy.NormalizeIntervalMinutes(settings.TicketSystemSyncIntervalMinutes);
+        var candidateInterval = ZnunySyncPolicy.NormalizeCandidateIntervalMinutes(settings.TicketSystemCandidateSyncIntervalMinutes);
+        if (candidateInterval != settings.TicketSystemCandidateSyncIntervalMinutes)
+            changes |= NormalizationChanges.CandidateSyncInterval;
+        settings.TicketSystemCandidateSyncIntervalMinutes = candidateInterval;
+        var searchLimit = ZnunySyncPolicy.NormalizeSearchLimit(settings.TicketSystemSearchLimit);
+        var articleLimit = ZnunySyncPolicy.NormalizeArticleLimit(settings.TicketSystemArticleLimit);
+        if (searchLimit != settings.TicketSystemSearchLimit || articleLimit != settings.TicketSystemArticleLimit)
+            changes |= NormalizationChanges.TicketRequestLimits;
+        settings.TicketSystemSearchLimit = searchLimit;
+        settings.TicketSystemArticleLimit = articleLimit;
         if (!settings.TicketSystemIncludeOwner && !settings.TicketSystemIncludeResponsible)
             settings.TicketSystemIncludeOwner = true;
         if (settings.TicketSystemOnlyOpenTickets)
