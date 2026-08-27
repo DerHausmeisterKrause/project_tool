@@ -3,12 +3,32 @@ namespace TaskTool.Models;
 public static class ZnunySyncPolicy
 {
     public const int MaximumAutomaticRequestsPerSync = 60;
-    public const int TicketSearchLimit = 100;
+    public const int MinimumSearchLimit = 10;
+    public const int MaximumSearchLimit = 500;
+    public const int DefaultSearchLimit = 100;
+    public const int MinimumArticleLimit = 1;
+    public const int MaximumArticleLimit = 100;
     public const int DefaultArticleLimit = 20;
+    public const int MinimumCandidateIntervalMinutes = 3;
+    public const int MaximumCandidateIntervalMinutes = 60;
+    public const int DefaultCandidateIntervalMinutes = 5;
     public const string ArticleOrder = "DESC";
+    public const string SearchSortBy = "Changed";
+    public const string SearchOrderBy = "Down";
 
     public static int NormalizeIntervalMinutes(int configured)
         => configured <= 0 ? 15 : Math.Clamp(configured, 5, 1440);
+
+    public static int NormalizeCandidateIntervalMinutes(int configured)
+        => configured <= 0
+            ? DefaultCandidateIntervalMinutes
+            : Math.Clamp(configured, MinimumCandidateIntervalMinutes, MaximumCandidateIntervalMinutes);
+
+    public static int NormalizeSearchLimit(int configured)
+        => Math.Clamp(configured, MinimumSearchLimit, MaximumSearchLimit);
+
+    public static int NormalizeArticleLimit(int configured)
+        => Math.Clamp(configured, MinimumArticleLimit, MaximumArticleLimit);
 
     public static IReadOnlyList<string> SelectTicketIds(
         IEnumerable<string> currentlyAssigned,
@@ -19,7 +39,7 @@ public static class ZnunySyncPolicy
             .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
     }
 
-    public static IReadOnlyDictionary<string, string> TicketGetOptions(bool allArticles, bool dynamicFields)
+    public static IReadOnlyDictionary<string, string> TicketGetOptions(bool allArticles, bool dynamicFields, int configuredArticleLimit)
     {
         var options = new Dictionary<string, string>
         {
@@ -29,11 +49,21 @@ public static class ZnunySyncPolicy
         if (allArticles)
         {
             options["ArticleOrder"] = ArticleOrder;
-            options["ArticleLimit"] = DefaultArticleLimit.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            options["ArticleLimit"] = NormalizeArticleLimit(configuredArticleLimit).ToString(System.Globalization.CultureInfo.InvariantCulture);
         }
         return options;
     }
 
-    public static void ApplyTicketSearchLimit(IDictionary<string, object?> payload)
-        => payload["Limit"] = TicketSearchLimit;
+    public static void ApplyTicketSearchLimit(IDictionary<string, object?> payload, int configuredLimit)
+    {
+        payload["Limit"] = NormalizeSearchLimit(configuredLimit);
+        payload["SortBy"] = SearchSortBy;
+        payload["OrderBy"] = SearchOrderBy;
+    }
+
+    public static void ApplyTicketRoleCriteria(IDictionary<string, object?> payload, string role, int userId, bool onlyOpen)
+    {
+        payload[string.Equals(role, "Owner", StringComparison.Ordinal) ? "OwnerIDs" : "ResponsibleIDs"] = new[] { userId };
+        if (onlyOpen) payload["StateType"] = new[] { "new", "open" };
+    }
 }

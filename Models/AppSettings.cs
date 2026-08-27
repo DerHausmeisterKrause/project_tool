@@ -72,6 +72,9 @@ public class AppSettings
     public string TicketSystemCostCenterOptions { get; set; } = string.Empty;
     public string TicketSystemOrderOptions { get; set; } = string.Empty;
     public int TicketSystemSyncIntervalMinutes { get; set; } = 15;
+    public int TicketSystemCandidateSyncIntervalMinutes { get; set; } = ZnunySyncPolicy.DefaultCandidateIntervalMinutes;
+    public int TicketSystemSearchLimit { get; set; } = ZnunySyncPolicy.DefaultSearchLimit;
+    public int TicketSystemArticleLimit { get; set; } = ZnunySyncPolicy.DefaultArticleLimit;
     public bool TicketSystemOnlyOpenTickets { get; set; } = true;
     public bool TicketSystemShowClosedTickets { get; set; } = false;
     public bool TicketSystemIncludeOwner { get; set; } = true;
