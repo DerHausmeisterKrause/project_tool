@@ -48,7 +48,7 @@
                         <TextBlock Text="Znuny / OTRS – Synchronisierung" Style="{StaticResource SettingsCardTitleStyle}"/>
                         <Grid>
                             <Grid.ColumnDefinitions><ColumnDefinition Width="240"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-                            <Grid.RowDefinitions><RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/></Grid.RowDefinitions>
+                            <Grid.RowDefinitions><RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/></Grid.RowDefinitions>
                             <TextBlock Grid.Row="0" Text="TicketSearch Route" Style="{StaticResource SettingsLabelStyle}"/>
                             <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding TicketSystemTicketSearchRoute, UpdateSourceTrigger=PropertyChanged}" Style="{StaticResource SettingsTextBoxStyle}"/>
                             <TextBlock Grid.Row="1" Text="TicketSearch HTTP-Methode" Style="{StaticResource SettingsLabelStyle}"/>
@@ -63,8 +63,28 @@
                             <ComboBox Grid.Row="5" Grid.Column="1" Style="{StaticResource SettingsComboStyle}" ItemsSource="{Binding TicketSystemTicketGetAuthModes}" SelectedItem="{Binding TicketSystemTicketGetAuthMode}"/>
                             <TextBlock Grid.Row="6" Text="TicketUpdate Route" Style="{StaticResource SettingsLabelStyle}"/>
                             <TextBox Grid.Row="6" Grid.Column="1" Text="{Binding TicketSystemTicketUpdateRoute, UpdateSourceTrigger=PropertyChanged}" Style="{StaticResource SettingsLongTextBoxStyle}" ToolTip="Standard: /Ticket/{TicketID}/Update"/>
-                            <TextBlock Grid.Row="7" Text="Sync-Intervall (Minuten)" Style="{StaticResource SettingsLabelStyle}"/>
-                            <TextBox Grid.Row="7" Grid.Column="1" Text="{Binding TicketSystemSyncIntervalMinutes, UpdateSourceTrigger=PropertyChanged}" Width="120" HorizontalAlignment="Left" Margin="0,0,0,8"/>
+                            <TextBlock Grid.Row="7" Text="Aktuelle Aufgaben synchronisieren alle" Style="{StaticResource SettingsLabelStyle}"/>
+                            <StackPanel Grid.Row="7" Grid.Column="1">
+                                <TextBox Text="{Binding TicketSystemSyncIntervalMinutes, UpdateSourceTrigger=LostFocus}" Width="120" HorizontalAlignment="Left" Margin="0,0,0,4" PreviewTextInput="NumericTextBox_PreviewTextInput" LostFocus="NumericTextBox_LostFocus"/>
+                                <TextBlock Text="Vollständiger Abgleich der Ihnen zugewiesenen Tickets." Style="{StaticResource SettingsHelpStyle}"/>
+                            </StackPanel>
+                            <TextBlock Grid.Row="8" Text="Neue Aufgaben suchen alle" Style="{StaticResource SettingsLabelStyle}"/>
+                            <StackPanel Grid.Row="8" Grid.Column="1">
+                                <TextBox Text="{Binding TicketSystemCandidateSyncIntervalMinutes, Mode=TwoWay, UpdateSourceTrigger=LostFocus, ValidatesOnExceptions=True}" Width="120" HorizontalAlignment="Left" Margin="0,0,0,4" PreviewTextInput="NumericTextBox_PreviewTextInput" LostFocus="NumericTextBox_LostFocus"/>
+                                <TextBlock Text="Prüft ausschließlich auf neue Ticket-Vorschläge. Standard: 5 Minuten. Zulässig: 3–60 Minuten." TextWrapping="Wrap" Style="{StaticResource SettingsHelpStyle}"/>
+                            </StackPanel>
+                            <TextBlock Grid.Row="9" Text="Max. Suchergebnisse" Style="{StaticResource SettingsLabelStyle}"/>
+                            <StackPanel Grid.Row="9" Grid.Column="1">
+                                <TextBox Text="{Binding TicketSystemSearchLimit, Mode=TwoWay, UpdateSourceTrigger=LostFocus, ValidatesOnExceptions=True}"
+                                         Width="120" HorizontalAlignment="Left" Margin="0,0,0,4" PreviewTextInput="NumericTextBox_PreviewTextInput" LostFocus="NumericTextBox_LostFocus"/>
+                                <TextBlock Text="Begrenzt die Anzahl der von einer einzelnen OTRS-TicketSearch zurückgegebenen Tickets. Standard: 100. Zulässig: 10–500." TextWrapping="Wrap" Style="{StaticResource SettingsHelpStyle}"/>
+                            </StackPanel>
+                            <TextBlock Grid.Row="10" Text="Max. Nachrichten pro Ticket" Style="{StaticResource SettingsLabelStyle}"/>
+                            <StackPanel Grid.Row="10" Grid.Column="1">
+                                <TextBox Text="{Binding TicketSystemArticleLimit, Mode=TwoWay, UpdateSourceTrigger=LostFocus, ValidatesOnExceptions=True}"
+                                         Width="120" HorizontalAlignment="Left" Margin="0,0,0,4" PreviewTextInput="NumericTextBox_PreviewTextInput" LostFocus="NumericTextBox_LostFocus"/>
+                                <TextBlock Text="Begrenzt die Anzahl der bei einer Ticketabfrage geladenen Nachrichten. Standard: 20. Zulässig: 1–100. Es werden die neuesten Nachrichten geladen." TextWrapping="Wrap" Style="{StaticResource SettingsHelpStyle}"/>
+                            </StackPanel>
                         </Grid>
                         <CheckBox Content="Nur offene Tickets synchronisieren" IsChecked="{Binding TicketSystemOnlyOpenTickets}" Margin="0,4,0,4"/>
                         <CheckBox Content="Geschlossene Tickets anzeigen / übernehmen" IsChecked="{Binding TicketSystemShowClosedTickets}" Margin="0,0,0,4"/>
