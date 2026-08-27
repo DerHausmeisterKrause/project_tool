@@ -106,7 +106,7 @@ public sealed class ZnunySyncPolicyTests
     [Theory]
     [InlineData("Owner", "OwnerIDs")]
     [InlineData("Responsible", "ResponsibleIDs")]
-    public void AssignedRoleIdsAreArraysAndSearchIsExplicitlySorted(string role, string key)
+    public void PostRoleIdsRemainArraysAndSearchIsExplicitlySorted(string role, string key)
     {
         var payload = new Dictionary<string, object?>();
         ZnunySyncPolicy.ApplyTicketRoleCriteria(payload, role, 123, onlyOpen: true);
@@ -117,6 +117,24 @@ public sealed class ZnunySyncPolicyTests
         Assert.Equal(500, payload["Limit"]);
         Assert.Equal("Changed", payload["SortBy"]);
         Assert.Equal("Down", payload["OrderBy"]);
+    }
+
+    [Theory]
+    [InlineData("Owner", "OwnerIDs", 100)]
+    [InlineData("Owner", "OwnerIDs", 500)]
+    [InlineData("Responsible", "ResponsibleIDs", 100)]
+    public void AssignedGetSearchUsesDeployedScalarQueryContract(string role, string key, int limit)
+    {
+        var payload = new Dictionary<string, object?> { ["SessionID"] = "secret" };
+
+        ZnunySyncPolicy.ApplyAssignedGetSearchCriteria(payload, role, 145, onlyOpen: true, limit);
+
+        Assert.Equal(145, Assert.IsType<int>(payload[key]));
+        Assert.Equal("Open", Assert.IsType<string>(payload["StateType"]));
+        Assert.Equal(limit, payload["Limit"]);
+        Assert.DoesNotContain("SortBy", payload.Keys);
+        Assert.DoesNotContain("OrderBy", payload.Keys);
+        Assert.DoesNotContain(role == "Owner" ? "ResponsibleIDs" : "OwnerIDs", payload.Keys);
     }
 
     [Fact]

@@ -1610,11 +1610,15 @@ public class TicketSystemService : IDisposable
         if (method == "GET" && string.Equals(_settings.Current.TicketSystemTicketSearchAuthMode, "Direct", StringComparison.OrdinalIgnoreCase))
             throw new ZnunyApiException(stage, HttpStatusCode.BadRequest, "Configuration", "Direkte Authentifizierung für TicketSearch darf nicht mit GET verwendet werden, weil Credentials in URLs/Logs landen würden.", string.Empty);
 
-        var payload = BuildSearchPayload(isOwner, userId, onlyOpen, sessionId);
+        var payload = BuildAssignedTicketSearchPayload(isOwner, userId, onlyOpen, sessionId, method);
         using var request = BuildSearchRequest(method, route, payload);
 
-        _logger.Info($"{logTag} method={method} route={route} userId={userId} onlyOpen={onlyOpen} sessionHash={sessionHash} payload={FormatSearchPayloadForLog(isOwner, userId, onlyOpen, _settings.Current.TicketSystemTicketSearchAuthMode, _settings.Current.TicketSystemUsername)}");
+        var getMode = method == "GET";
+        var stateType = onlyOpen ? (getMode ? "Open" : "new,open") : "<none>";
+        _logger.Info($"{logTag} method={method} route={route} userId={userId} onlyOpen={onlyOpen} limit={EffectiveSearchLimit} stateType={stateType} sortBy={(getMode ? "<none>" : ZnunySyncPolicy.SearchSortBy)} orderBy={(getMode ? "<none>" : ZnunySyncPolicy.SearchOrderBy)} sessionHash={sessionHash} payload={FormatSearchPayloadForLog(isOwner, userId, onlyOpen, method, _settings.Current.TicketSystemTicketSearchAuthMode, _settings.Current.TicketSystemUsername)}");
         var result = await SendZnunyAsync(request, stage, isOwner ? "[ZnunySearchOwnerResponse]" : "[ZnunySearchResponsibleResponse]");
+        if (IsEmptyJsonObject(result.Body))
+            _logger.Error($"[ZnunySearchProtocol] operation={(isOwner ? "Owner" : "Responsible")} status={(int)result.StatusCode} bodyEmptyObject=true queryMode={method} stateType={stateType} limit={EffectiveSearchLimit} sortEnabled={!getMode}");
         var ticketIds = ExtractTicketIdsStrict(result.Body, stage).ToList();
         LogSearchLimit(isOwner ? "Owner" : "Responsible", ticketIds.Count);
         _logger.Info($"{logTag} method={method} route={route} userId={userId} onlyOpen={onlyOpen} status={(int)result.StatusCode} ticketCount={ticketIds.Count}");
@@ -1825,7 +1829,7 @@ public class TicketSystemService : IDisposable
     private HttpRequestMessage BuildSearchRequest(string method, string route, Dictionary<string, object?> payload)
     {
         // Central safety net: no TicketSearch can leave this service without a bounded limit.
-        ZnunySyncPolicy.ApplyTicketSearchLimit(payload, _settings.Current.TicketSystemSearchLimit);
+        ZnunySyncPolicy.ApplyTicketSearchLimit(payload, _settings.Current.TicketSystemSearchLimit, includeSorting: false);
         if (method == "GET")
         {
             var query = payload.ToDictionary(kvp => kvp.Key, kvp => FormatQueryValue(kvp.Value));
@@ -1839,11 +1843,17 @@ public class TicketSystemService : IDisposable
         };
     }
 
-    private Dictionary<string, object?> BuildSearchPayload(bool owner, int userId, bool onlyOpen, string sessionId)
+    private Dictionary<string, object?> BuildAssignedTicketSearchPayload(bool owner, int userId, bool onlyOpen, string sessionId, string method)
     {
         var payload = new Dictionary<string, object?>();
-        ZnunySyncPolicy.ApplyTicketRoleCriteria(payload, owner ? "Owner" : "Responsible", userId, onlyOpen);
-        ZnunySyncPolicy.ApplyTicketSearchLimit(payload, _settings.Current.TicketSystemSearchLimit);
+        var role = owner ? "Owner" : "Responsible";
+        if (string.Equals(method, "GET", StringComparison.OrdinalIgnoreCase))
+            ZnunySyncPolicy.ApplyAssignedGetSearchCriteria(payload, role, userId, onlyOpen, _settings.Current.TicketSystemSearchLimit);
+        else
+        {
+            ZnunySyncPolicy.ApplyTicketRoleCriteria(payload, role, userId, onlyOpen);
+            ZnunySyncPolicy.ApplyTicketSearchLimit(payload, _settings.Current.TicketSystemSearchLimit);
+        }
 
         if (string.Equals(_settings.Current.TicketSystemTicketSearchAuthMode, "Direct", StringComparison.OrdinalIgnoreCase))
         {
@@ -2432,14 +2442,25 @@ public class TicketSystemService : IDisposable
     private static string ToQueryString(Dictionary<string, string> query)
         => "?" + string.Join("&", query.Select(kvp => $"{Uri.EscapeDataString(kvp.Key)}={Uri.EscapeDataString(kvp.Value)}"));
 
-    private string FormatSearchPayloadForLog(bool owner, int userId, bool onlyOpen, string authMode, string userLogin)
+    private string FormatSearchPayloadForLog(bool owner, int userId, bool onlyOpen, string method, string authMode, string userLogin)
     {
         var idName = owner ? "OwnerIDs" : "ResponsibleIDs";
-        var state = onlyOpen ? ",StateType:['new','open']" : string.Empty;
+        var getMode = string.Equals(method, "GET", StringComparison.OrdinalIgnoreCase);
+        var state = onlyOpen ? (getMode ? ",StateType:'Open'" : ",StateType:['new','open']") : string.Empty;
         var auth = string.Equals(authMode, "Direct", StringComparison.OrdinalIgnoreCase)
             ? $"UserLogin:'{userLogin}',Password:'***'"
             : "SessionID:'***'";
-        return $"{{{auth},{idName}:[{userId}]{state},Limit:{EffectiveSearchLimit},SortBy:'{ZnunySyncPolicy.SearchSortBy}',OrderBy:'{ZnunySyncPolicy.SearchOrderBy}'}}";
+        var roleValue = getMode ? userId.ToString(CultureInfo.InvariantCulture) : $"[{userId}]";
+        var sorting = getMode ? string.Empty : $",SortBy:'{ZnunySyncPolicy.SearchSortBy}',OrderBy:'{ZnunySyncPolicy.SearchOrderBy}'";
+        return $"{{{auth},{idName}:{roleValue}{state},Limit:{EffectiveSearchLimit}{sorting}}}";
+    }
+
+    private static bool IsEmptyJsonObject(string responseBody)
+    {
+        if (!TryParseJson(responseBody, out var document)) return false;
+        using (document)
+            return document.RootElement.ValueKind == JsonValueKind.Object
+                   && !document.RootElement.EnumerateObject().Any();
     }
 
     private static bool IsRoutingError(ZnunyApiException ex)

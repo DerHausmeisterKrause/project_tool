@@ -54,16 +54,30 @@ public static class ZnunySyncPolicy
         return options;
     }
 
-    public static void ApplyTicketSearchLimit(IDictionary<string, object?> payload, int configuredLimit)
+    public static void ApplyTicketSearchLimit(IDictionary<string, object?> payload, int configuredLimit, bool includeSorting = true)
     {
         payload["Limit"] = NormalizeSearchLimit(configuredLimit);
-        payload["SortBy"] = SearchSortBy;
-        payload["OrderBy"] = SearchOrderBy;
+        if (includeSorting)
+        {
+            payload["SortBy"] = SearchSortBy;
+            payload["OrderBy"] = SearchOrderBy;
+        }
     }
 
     public static void ApplyTicketRoleCriteria(IDictionary<string, object?> payload, string role, int userId, bool onlyOpen)
     {
         payload[string.Equals(role, "Owner", StringComparison.Ordinal) ? "OwnerIDs" : "ResponsibleIDs"] = new[] { userId };
         if (onlyOpen) payload["StateType"] = new[] { "new", "open" };
+    }
+
+    /// <summary>
+    /// Applies the scalar query contract used by the deployed GET /Ticket GenericInterface operation.
+    /// This is intentionally separate from the array-based POST/candidate contract.
+    /// </summary>
+    public static void ApplyAssignedGetSearchCriteria(IDictionary<string, object?> payload, string role, int userId, bool onlyOpen, int configuredLimit)
+    {
+        payload[string.Equals(role, "Owner", StringComparison.Ordinal) ? "OwnerIDs" : "ResponsibleIDs"] = userId;
+        if (onlyOpen) payload["StateType"] = "Open";
+        ApplyTicketSearchLimit(payload, configuredLimit, includeSorting: false);
     }
 }
