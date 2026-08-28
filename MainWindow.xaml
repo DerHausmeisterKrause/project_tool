@@ -43,8 +43,11 @@
         </Grid.ColumnDefinitions>
 
         <Border Grid.Column="0" Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource BorderBrushColor}" BorderThickness="0,0,1,0">
-            <StackPanel Margin="10">
-                <TextBlock Text="TaskTool" FontSize="22" FontWeight="SemiBold" Margin="8,6,8,16" />
+            <Grid Margin="10">
+                <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                <TextBlock Grid.Row="0" Text="Plenaro" FontSize="22" FontWeight="SemiBold" Margin="8,6,8,16" />
+                <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                <StackPanel>
                 <ListBox ItemsSource="{Binding NavigationItems}" SelectedItem="{Binding SelectedView}" Background="Transparent" BorderThickness="0"
                          ItemContainerStyle="{StaticResource SidebarNavigationItemStyle}" KeyboardNavigation.TabNavigation="Continue">
                     <ListBox.ItemTemplate>
@@ -62,7 +65,10 @@
                         Cursor="Hand" ToolTip="Update in den Einstellungen anzeigen">
                     <TextBlock Text="{Binding SettingsViewModel.UpdateBannerText}" TextWrapping="Wrap"/>
                 </Button>
-            </StackPanel>
+                </StackPanel>
+                </ScrollViewer>
+                <TextBlock Grid.Row="2" Text="{Binding InstalledVersion, StringFormat=Version {0}}" FontSize="11" Opacity="0.6" Margin="8"/>
+            </Grid>
         </Border>
 
         <Border Grid.Column="1" Padding="16" Background="{StaticResource BgBrush}">
