@@ -17,6 +17,7 @@ public class MainViewModel : ObservableObject
     private readonly List<WebShortcutViewModel> _webShortcutViews = new();
     private readonly LoggerService _logger;
     public SettingsViewModel SettingsViewModel { get; }
+    public string InstalledVersion => ServiceLocator.AppVersion.InstalledVersionText;
     public RelayCommand<string> NavigateToSettingsCommand { get; }
 
     private object _selectedView;

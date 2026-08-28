@@ -195,6 +195,17 @@ public class SettingsViewModel : ObservableObject
 
     private string _ticketSystemStatus = string.Empty;
     public string TicketSystemStatus { get => _ticketSystemStatus; set => Set(ref _ticketSystemStatus, value); }
+    private ZnunySyncStatusSnapshot? _lastFullSyncStatus;
+    public bool HasLastFullSyncStatus => _lastFullSyncStatus != null;
+    public string LastFullSyncWhenAndType => _lastFullSyncStatus == null ? string.Empty
+        : $"{_lastFullSyncStatus.TimestampUtc.ToLocalTime():dd.MM.yyyy HH:mm:ss} · {FormatSyncReason(_lastFullSyncStatus.Reason)}";
+    public string LastFullSyncOutcome => _lastFullSyncStatus == null ? "Noch kein vollständiger Sync erfasst."
+        : _lastFullSyncStatus.Busy ? "Nicht ausgeführt · andere Znuny-Aktion aktiv"
+        : _lastFullSyncStatus.Success ? "Erfolgreich" : "Fehlgeschlagen";
+    public string LastFullSyncCounts => _lastFullSyncStatus == null || !_lastFullSyncStatus.Started ? string.Empty
+        : $"{_lastFullSyncStatus.UniqueTicketCount} gefunden · {_lastFullSyncStatus.Created} neu · {_lastFullSyncStatus.Updated} aktualisiert · {_lastFullSyncStatus.Unchanged} unverändert · {_lastFullSyncStatus.Skipped} übersprungen"
+          + (_lastFullSyncStatus.SearchLimitReached ? " · Suchlimit erreicht" : string.Empty);
+    public string LastFullSyncError => _lastFullSyncStatus?.ErrorMessage ?? string.Empty;
 
     public int ReminderLeadMinutes { get => _settings.Current.ReminderLeadMinutes; set { _settings.Current.ReminderLeadMinutes = value; Save(); } }
     public string DateTimeFormat { get => _settings.Current.DateTimeFormat; set { _settings.Current.DateTimeFormat = value; Save(); } }
@@ -232,6 +243,8 @@ public class SettingsViewModel : ObservableObject
         _outlookCalendar = outlookCalendar;
         _tasks = tasks;
         _ticketSystem = ticketSystem;
+        _lastFullSyncStatus = ticketSystem.LastFullSyncStatus;
+        _ticketSystem.FullSyncStatusChanged += OnFullSyncStatusChanged;
         _updates = updates;
         _tasksChanged = tasksChanged;
         WebShortcuts = new(_settings.Current.WebShortcuts.OrderBy(x=>x.SortOrder).Select(x=>WebShortcutEditorViewModel.From(x,ShortcutPasswordMask))); SelectedWebShortcut=WebShortcuts.FirstOrDefault();
@@ -260,6 +273,29 @@ public class SettingsViewModel : ObservableObject
         MoveWebShortcutDownCommand = new RelayCommand(() => MoveWebShortcut(1), () => CanMoveWebShortcut(1));
         RaiseWebShortcutMoveCanExecute();
     }
+
+    private void OnFullSyncStatusChanged(ZnunySyncStatusSnapshot snapshot)
+    {
+        void Update()
+        {
+            _lastFullSyncStatus = snapshot;
+            Raise(nameof(HasLastFullSyncStatus));
+            Raise(nameof(LastFullSyncWhenAndType));
+            Raise(nameof(LastFullSyncOutcome));
+            Raise(nameof(LastFullSyncCounts));
+            Raise(nameof(LastFullSyncError));
+        }
+        var dispatcher = Application.Current?.Dispatcher;
+        if (dispatcher == null || dispatcher.CheckAccess()) Update(); else dispatcher.Invoke(Update);
+    }
+
+    private static string FormatSyncReason(ZnunyRequestReason reason) => reason switch
+    {
+        ZnunyRequestReason.InitialSync => "Automatisch · Programmstart",
+        ZnunyRequestReason.FullTimerSync => "Automatisch · Timer",
+        ZnunyRequestReason.ManualFullSync => "Manuell",
+        _ => reason.ToString()
+    };
 
     public void StartHourlyUpdateMonitor()
     {
