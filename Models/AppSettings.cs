@@ -85,6 +85,7 @@ public class AppSettings
     public List<WikiSourceSettings> WikiSources { get; set; } = new();
     public string DefaultWikiSourceId { get; set; } = string.Empty;
     public List<WebShortcutSettings> WebShortcuts { get; set; } = new();
+    public ZnunySyncStatusSnapshot? LastFullSyncStatus { get; set; }
 
     public int MondayTargetMinutes { get; set; } = 480;
     public int TuesdayTargetMinutes { get; set; } = 480;
