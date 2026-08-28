@@ -247,7 +247,14 @@ public sealed class WebShortcutBrowserSession : IDisposable
 
         if (!TryGetHttpUri(CurrentUrl, out var current)) return;
         _logger.Info($"[WebShortcut] shortcutId={ShortcutId} host={current.Host} navigation=success");
-        if (!_settings.AutoLogin || !Trusted(current)) return;
+        if (!_settings.AutoLogin) return;
+        if (!Trusted(current))
+        {
+            var configuredHost = TryGetHttpUri(_settings.Url, out var configured) ? configured.Host : "invalid";
+            _logger.Warning($"[WebShortcutLogin] shortcutId={ShortcutId} action=blocked-untrusted-origin configuredHost={configuredHost} currentHost={current.Host} reason=untrusted-origin");
+            SetStatus("Automatische Anmeldung konnte nicht durchgeführt werden.");
+            return;
+        }
         var password = _settingsService.GetWebShortcutPassword(_settings);
         if (password.Length == 0 || _settings.Username.Length == 0) return;
         _loginCts?.Cancel();
@@ -338,7 +345,7 @@ public sealed class WebShortcutBrowserSession : IDisposable
 
     private async Task LoginAsync(string username, string password, string host, CancellationToken token)
     {
-        var schedule = new[] { 0, 300, 800, 1500 };
+        var schedule = new[] { 0, 250, 750, 1500, 2500 };
         var prior = 0;
         foreach (var at in schedule)
         {
@@ -348,27 +355,29 @@ public sealed class WebShortcutBrowserSession : IDisposable
                 prior = at;
                 var result = await FillAsync(username, password);
                 token.ThrowIfCancellationRequested();
-                _logger.Info($"[WebShortcutLogin] shortcutId={ShortcutId} host={host} loginPageDetected={result.Detected.ToString().ToLowerInvariant()} usernameFieldFound={result.User.ToString().ToLowerInvariant()} passwordFieldFound={result.Password.ToString().ToLowerInvariant()} submitted={result.Submitted.ToString().ToLowerInvariant()}");
-                if (result.Detected) return;
+                var reason = result.Submitted ? "none" : !result.User ? "no-username-field" : !result.Password ? "no-password-field" : "no-submit-target";
+                _logger.Info($"[WebShortcutLogin] shortcutId={ShortcutId} host={host} autoLogin=true trusted=true usernameFieldFound={result.User.ToString().ToLowerInvariant()} passwordFieldFound={result.Password.ToString().ToLowerInvariant()} submitMethod={result.SubmitMethod} submitted={result.Submitted.ToString().ToLowerInvariant()} attempt={Array.IndexOf(schedule, at) + 1} reason={reason}");
+                if (result.Submitted) { SetStatus(string.Empty); return; }
             }
             catch (OperationCanceledException) { return; }
             catch (Exception ex)
             {
-                if (!token.IsCancellationRequested) _logger.Warning($"[WebShortcutLogin] shortcutId={ShortcutId} host={host} errorType={ex.GetType().Name}");
+                if (!token.IsCancellationRequested) _logger.Warning($"[WebShortcutLogin] shortcutId={ShortcutId} host={host} reason=script-error errorType={ex.GetType().Name}");
                 return;
             }
         }
+        SetStatus("Automatische Anmeldung konnte nicht durchgeführt werden.");
     }
 
     private async Task<LoginResult> FillAsync(string username, string password)
     {
         var userJson = JsonSerializer.Serialize(username);
         var passwordJson = JsonSerializer.Serialize(password);
-        var script = $$"""(()=>{const q=s=>s.map(x=>document.querySelector(x)).find(Boolean)||null;const u=q(['input[autocomplete="username"]','input[type="email"]','input[name="username"]','input[name="user"]','input[name="User"]','input[name="login"]','input[id*="user" i]','input[id*="login" i]']);const p=q(['input[type="password"]','input[name="password"]','input[name="Password"]','input[id*="password" i]']);const f=p?.closest('form');const b=f&&['button[type="submit"]','input[type="submit"]','button[name*="login" i]','button[id*="login" i]'].map(x=>f.querySelector(x)).find(Boolean);const r={detected:!!(u&&p),user:!!u,password:!!p,submitted:false};if(!u||!p)return r;const set=(e,v)=>{const s=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value')?.set;s?s.call(e,v):e.value=v;e.dispatchEvent(new Event('input',{bubbles:true}));e.dispatchEvent(new Event('change',{bubbles:true}));};set(u,{{userJson}});set(p,{{passwordJson}});if(b){b.click();r.submitted=true;}else if(f?.requestSubmit){f.requestSubmit();r.submitted=true;}return r;})()""";
+        var script = $$"""(()=>{const q=s=>s.map(x=>document.querySelector(x)).find(Boolean)||null;const u=q(['input[autocomplete="username"]','input[autocomplete="email"]','input[type="email"]','input[name="username"]','input[name="user"]','input[name="User"]','input[name="login"]','input[name="Login"]','input[name="email"]','input[id*="username" i]','input[id*="user" i]','input[id*="login" i]','input[id*="email" i]']);const p=q(['input[type="password"]','input[autocomplete="current-password"]','input[name="password"]','input[name="Password"]','input[name="passwd"]','input[id*="password" i]','input[id*="passwd" i]']);const r={detected:!!(u&&p),user:!!u,password:!!p,submitted:false,submitMethod:'none'};if(!u||!p||window.__plenaroLoginSubmitted)return r;const set=(e,v)=>{const s=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value')?.set;s?s.call(e,v):e.value=v;for(const n of ['input','change','blur'])e.dispatchEvent(new Event(n,{bubbles:true}));};const visible=e=>{const s=getComputedStyle(e);return !e.disabled&&e.getAttribute('aria-disabled')!=='true'&&s.display!=='none'&&s.visibility!=='hidden'&&e.getClientRects().length>0;};set(u,{{userJson}});set(p,{{passwordJson}});const f=p.closest('form')||u.closest('form');if(f?.requestSubmit){window.__plenaroLoginSubmitted=true;f.requestSubmit();r.submitted=true;r.submitMethod='requestSubmit';return r;}const selectors=['button[type="submit"]','input[type="submit"]','button[name*="login" i]','button[id*="login" i]','button[class*="login" i]'];const scope=p.parentElement?.closest('form,main,section,div')||document;let b=selectors.flatMap(s=>[...scope.querySelectorAll(s)]).find(visible);if(!b)b=[...scope.querySelectorAll('button')].find(e=>visible(e)&&/^(anmelden|anmeldung|login|log in|sign in|einloggen)$/i.test((e.textContent||'').trim()));if(b){window.__plenaroLoginSubmitted=true;b.click();r.submitted=true;r.submitMethod='button';return r;}window.__plenaroLoginSubmitted=true;p.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',code:'Enter',bubbles:true,cancelable:true}));p.dispatchEvent(new KeyboardEvent('keyup',{key:'Enter',code:'Enter',bubbles:true,cancelable:true}));r.submitted=true;r.submitMethod='enter';return r;})()""";
         using var document = JsonDocument.Parse(await Browser.CoreWebView2.ExecuteScriptAsync(script));
         var result = document.RootElement;
         return new(result.GetProperty("detected").GetBoolean(), result.GetProperty("user").GetBoolean(),
-            result.GetProperty("password").GetBoolean(), result.GetProperty("submitted").GetBoolean());
+            result.GetProperty("password").GetBoolean(), result.GetProperty("submitted").GetBoolean(), result.GetProperty("submitMethod").GetString() ?? "none");
     }
 
     private static string RequestKey(CoreWebView2WebResourceRequest request) => $"{request.Method}\n{request.Uri}";
@@ -416,6 +425,6 @@ public sealed class WebShortcutBrowserSession : IDisposable
         _lifetimeCts.Dispose();
     }
 
-    private sealed record LoginResult(bool Detected, bool User, bool Password, bool Submitted);
+    private sealed record LoginResult(bool Detected, bool User, bool Password, bool Submitted, string SubmitMethod);
     private sealed record DevToolsRequest(string Host, string Method, string Context);
 }

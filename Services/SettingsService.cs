@@ -322,13 +322,19 @@ public class SettingsService
     }
 
     public bool TrySave()
+        => TrySaveCore(notify: true);
+
+    public bool TrySavePassiveStatus()
+        => TrySaveCore(notify: false);
+
+    private bool TrySaveCore(bool notify)
     {
         try
         {
             ApplyLoggerMinimumLevel();
             var json = JsonSerializer.Serialize(Current, new JsonSerializerOptions { WriteIndented = true });
             File.WriteAllText(_path, json);
-            SettingsChanged?.Invoke();
+            if (notify) SettingsChanged?.Invoke();
             return true;
         }
         catch (Exception ex)

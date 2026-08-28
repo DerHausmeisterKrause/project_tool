@@ -52,6 +52,8 @@ public class TicketSystemService : IDisposable
     public string LastError { get; private set; } = string.Empty;
     public event Action? TasksChanged;
     public event Action? CandidateTicketsChanged;
+    public event Action<ZnunySyncStatusSnapshot>? FullSyncStatusChanged;
+    public ZnunySyncStatusSnapshot? LastFullSyncStatus => _settings.Current.LastFullSyncStatus;
     public IReadOnlyList<ZnunyCandidateTicket> CurrentCandidateTickets => _candidateTickets;
     public string CandidateTicketsError { get; private set; } = string.Empty;
     public bool IsCandidateRefreshRunning { get; private set; }
@@ -955,6 +957,14 @@ public class TicketSystemService : IDisposable
 
     public async Task<ZnunySyncResult> SyncAssignedTicketsAsync(ZnunyRequestReason reason, bool gateAlreadyHeld = false)
     {
+        var result = await SyncAssignedTicketsCoreAsync(reason, gateAlreadyHeld);
+        if (reason is ZnunyRequestReason.InitialSync or ZnunyRequestReason.FullTimerSync or ZnunyRequestReason.ManualFullSync)
+            PublishFullSyncStatus(reason, result);
+        return result;
+    }
+
+    private async Task<ZnunySyncResult> SyncAssignedTicketsCoreAsync(ZnunyRequestReason reason, bool gateAlreadyHeld)
+    {
         var ownsGate = !gateAlreadyHeld;
         var gateAcquired = gateAlreadyHeld || (reason == ZnunyRequestReason.ManualFullSync
             ? await _syncGate.WaitAsync(TimeSpan.FromSeconds(8))
@@ -1253,6 +1263,20 @@ public class TicketSystemService : IDisposable
             _logger.Info($"[ZnunySyncTraffic] reason={traffic.Reason} searchRequests={traffic.SearchRequests} ticketMetadataRequests={traffic.MetadataRequests} ticketDetailRequests={traffic.DetailRequests} candidateRequests={traffic.CandidateRequests} totalRequests={traffic.TotalRequests} durationMs={traffic.Stopwatch.ElapsedMilliseconds}");
             _syncTraffic.Value = null;
         }
+    }
+
+    private void PublishFullSyncStatus(ZnunyRequestReason reason, ZnunySyncResult result)
+    {
+        var safeError = string.IsNullOrWhiteSpace(result.ErrorMessage)
+            ? string.Empty
+            : result.ErrorMessage.Split("Response:", StringSplitOptions.None)[0].Trim();
+        if (safeError.Length > 300) safeError = safeError[..300] + "…";
+        var snapshot = new ZnunySyncStatusSnapshot(DateTime.UtcNow, reason, result.Started, result.Success,
+            result.Busy, result.UniqueTicketCount, result.Created, result.Updated, result.Unchanged,
+            result.Skipped, result.SearchLimitReached, safeError);
+        _settings.Current.LastFullSyncStatus = snapshot;
+        _settings.TrySavePassiveStatus();
+        FullSyncStatusChanged?.Invoke(snapshot);
     }
 
     private string BuildAssignmentContextKey(int agentId)
