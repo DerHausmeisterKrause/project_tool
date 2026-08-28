@@ -126,6 +126,8 @@ public sealed class WebShortcutBrowserSession : IDisposable
     private readonly ConcurrentDictionary<string, DevToolsRequest> _devToolsRequests = new(StringComparer.Ordinal);
     private CancellationTokenSource _lifetimeCts = new();
     private CancellationTokenSource? _loginCts;
+    private Task? _loginTask;
+    private readonly HashSet<CoreWebView2Frame> _frames = new();
     private Task? _initializationTask;
     private WebShortcutSettings _settings;
     private bool _disposed;
@@ -213,6 +215,7 @@ public sealed class WebShortcutBrowserSession : IDisposable
         var core = Browser.CoreWebView2;
         core.NavigationStarting += NavigationStarting;
         core.NavigationCompleted += NavigationCompleted;
+        core.FrameCreated += FrameCreated;
         core.AddWebResourceRequestedFilter("*", CoreWebView2WebResourceContext.All);
         core.WebResourceRequested += WebResourceRequested;
         core.WebResourceResponseReceived += WebResourceResponseReceived;
@@ -255,12 +258,34 @@ public sealed class WebShortcutBrowserSession : IDisposable
             SetStatus("Automatische Anmeldung konnte nicht durchgeführt werden.");
             return;
         }
+        StartLogin(current);
+    }
+
+    private void FrameCreated(object? sender, CoreWebView2FrameCreatedEventArgs e) => RegisterFrame(e.Frame);
+
+    private void NestedFrameCreated(object? sender, CoreWebView2FrameCreatedEventArgs e) => RegisterFrame(e.Frame);
+
+    private void RegisterFrame(CoreWebView2Frame frame)
+    {
+        if (_disposed || !_frames.Add(frame)) return;
+        frame.FrameCreated += NestedFrameCreated;
+        frame.NavigationCompleted += FrameNavigationCompleted;
+    }
+
+    private void FrameNavigationCompleted(object? sender, CoreWebView2NavigationCompletedEventArgs e)
+    {
+        if (!e.IsSuccess || !TryGetHttpUri(CurrentUrl, out var current) || !Trusted(current)) return;
+        StartLogin(current);
+    }
+
+    private void StartLogin(Uri current)
+    {
+        if (!_settings.AutoLogin || !Trusted(current) || (_loginTask != null && !_loginTask.IsCompleted)) return;
         var password = _settingsService.GetWebShortcutPassword(_settings);
         if (password.Length == 0 || _settings.Username.Length == 0) return;
-        _loginCts?.Cancel();
         _loginCts?.Dispose();
         _loginCts = CancellationTokenSource.CreateLinkedTokenSource(_lifetimeCts.Token);
-        _ = LoginAsync(_settings.Username, password, current.Host, _loginCts.Token);
+        _loginTask = LoginAsync(_settings.Username, password, current.Host, _loginCts.Token);
     }
 
     private void WebResourceRequested(object? sender, CoreWebView2WebResourceRequestedEventArgs e)
@@ -345,7 +370,7 @@ public sealed class WebShortcutBrowserSession : IDisposable
 
     private async Task LoginAsync(string username, string password, string host, CancellationToken token)
     {
-        var schedule = new[] { 0, 250, 750, 1500, 2500 };
+        var schedule = new[] { 0, 250, 750, 1500, 2500, 4000 };
         var prior = 0;
         foreach (var at in schedule)
         {
@@ -353,31 +378,187 @@ public sealed class WebShortcutBrowserSession : IDisposable
             {
                 if (at > prior) await Task.Delay(at - prior, token);
                 prior = at;
-                var result = await FillAsync(username, password);
+                var attempt = Array.IndexOf(schedule, at) + 1;
+                var topLevel = await FillTopLevelAsync(username, password);
                 token.ThrowIfCancellationRequested();
-                var reason = result.Submitted ? "none" : !result.User ? "no-username-field" : !result.Password ? "no-password-field" : "no-submit-target";
-                _logger.Info($"[WebShortcutLogin] shortcutId={ShortcutId} host={host} autoLogin=true trusted=true usernameFieldFound={result.User.ToString().ToLowerInvariant()} passwordFieldFound={result.Password.ToString().ToLowerInvariant()} submitMethod={result.SubmitMethod} submitted={result.Submitted.ToString().ToLowerInvariant()} attempt={Array.IndexOf(schedule, at) + 1} reason={reason}");
-                if (result.Submitted) { SetStatus(string.Empty); return; }
+                LogLoginResult(topLevel, host, attempt);
+                if (topLevel.Submitted) { SetStatus(string.Empty); return; }
+
+                // A form found in the top-level document remains the authoritative target.
+                // Retry it there if a framework rejected a value or has not rendered its
+                // submit target yet; only fall through to frames when no complete form exists.
+                if (topLevel.Detected) continue;
+
+                foreach (var frame in _frames.ToArray())
+                {
+                    token.ThrowIfCancellationRequested();
+                    string source;
+                    try { source = frame.Source; }
+                    catch (InvalidOperationException)
+                    {
+                        _logger.Info($"[WebShortcutLoginFrame] shortcutId={ShortcutId} trusted=false action=skip reason=frame-not-ready attempt={attempt}");
+                        continue;
+                    }
+
+                    if (!TryGetHttpUri(source, out var frameUri))
+                    {
+                        _logger.Info($"[WebShortcutLoginFrame] shortcutId={ShortcutId} frameHost=unknown trusted=false action=skip reason=frame-not-ready attempt={attempt}");
+                        continue;
+                    }
+                    if (!Trusted(frameUri))
+                    {
+                        _logger.Warning($"[WebShortcutLoginFrame] shortcutId={ShortcutId} frameHost={frameUri.Host} trusted=false action=blocked reason=untrusted-origin attempt={attempt}");
+                        continue;
+                    }
+
+                    LoginResult frameResult;
+                    try { frameResult = await FillFrameAsync(frame, username, password); }
+                    catch (InvalidOperationException)
+                    {
+                        _logger.Info($"[WebShortcutLoginFrame] shortcutId={ShortcutId} frameHost={frameUri.Host} trusted=true action=skip reason=frame-not-ready attempt={attempt}");
+                        continue;
+                    }
+                    token.ThrowIfCancellationRequested();
+                    LogLoginResult(frameResult, frameUri.Host, attempt);
+                    if (frameResult.Submitted) { SetStatus(string.Empty); return; }
+                }
             }
             catch (OperationCanceledException) { return; }
             catch (Exception ex)
             {
-                if (!token.IsCancellationRequested) _logger.Warning($"[WebShortcutLogin] shortcutId={ShortcutId} host={host} reason=script-error errorType={ex.GetType().Name}");
+                if (!token.IsCancellationRequested)
+                    _logger.Warning($"[WebShortcutLogin] shortcutId={ShortcutId} host={host} reason=script-error errorType={ex.GetType().Name}");
                 return;
             }
         }
         SetStatus("Automatische Anmeldung konnte nicht durchgeführt werden.");
     }
 
-    private async Task<LoginResult> FillAsync(string username, string password)
+    private void LogLoginResult(LoginResult result, string host, int attempt)
+    {
+        var reason = result.Submitted ? "none"
+            : !result.UserFieldFound && !result.PasswordFieldFound ? "no-fields"
+            : !result.UserFieldFound ? "username-not-found"
+            : !result.PasswordFieldFound ? "password-not-found"
+            : !result.UserFilled || !result.PasswordFilled ? "value-rejected-by-page"
+            : "login-button-not-found";
+        var tag = result.Target == "frame" ? "[WebShortcutLoginFrame]" : "[WebShortcutLogin]";
+        var hostName = result.Target == "frame" ? "frameHost" : "host";
+        _logger.Info($"{tag} shortcutId={ShortcutId} {hostName}={host} target={result.Target} trusted={result.Trusted.ToString().ToLowerInvariant()} loginPageDetected={result.Detected.ToString().ToLowerInvariant()} usernameFieldFound={result.UserFieldFound.ToString().ToLowerInvariant()} passwordFieldFound={result.PasswordFieldFound.ToString().ToLowerInvariant()} usernameFilled={result.UserFilled.ToString().ToLowerInvariant()} passwordFilled={result.PasswordFilled.ToString().ToLowerInvariant()} submitTarget={result.SubmitMethod} submitted={result.Submitted.ToString().ToLowerInvariant()} attempt={attempt} reason={reason}");
+    }
+
+    private Task<LoginResult> FillTopLevelAsync(string username, string password)
+        => ExecuteLoginScriptAsync(Browser.CoreWebView2.ExecuteScriptAsync, username, password, "top-level");
+
+    private Task<LoginResult> FillFrameAsync(CoreWebView2Frame frame, string username, string password)
+        => ExecuteLoginScriptAsync(frame.ExecuteScriptAsync, username, password, "frame");
+
+    private async Task<LoginResult> ExecuteLoginScriptAsync(
+        Func<string, Task<string>> executeScriptAsync, string username, string password, string target)
+    {
+        if (!TryGetHttpUri(_settings.Url, out var configured))
+            return LoginResult.Empty(target);
+        var script = BuildLoginScript(username, password, configured.GetLeftPart(UriPartial.Authority));
+        using var document = JsonDocument.Parse(await executeScriptAsync(script));
+        var result = document.RootElement;
+        return new LoginResult(
+            result.GetProperty("detected").GetBoolean(),
+            result.GetProperty("userFieldFound").GetBoolean(),
+            result.GetProperty("passwordFieldFound").GetBoolean(),
+            result.GetProperty("userFilled").GetBoolean(),
+            result.GetProperty("passwordFilled").GetBoolean(),
+            result.GetProperty("submitted").GetBoolean(),
+            result.GetProperty("trusted").GetBoolean(),
+            target,
+            result.GetProperty("submitMethod").GetString() ?? "none");
+    }
+
+    internal static string BuildLoginScript(string username, string password, string trustedOrigin)
     {
         var userJson = JsonSerializer.Serialize(username);
         var passwordJson = JsonSerializer.Serialize(password);
-        var script = $$"""(()=>{const q=s=>s.map(x=>document.querySelector(x)).find(Boolean)||null;const u=q(['input[autocomplete="username"]','input[autocomplete="email"]','input[type="email"]','input[name="username"]','input[name="user"]','input[name="User"]','input[name="login"]','input[name="Login"]','input[name="email"]','input[id*="username" i]','input[id*="user" i]','input[id*="login" i]','input[id*="email" i]']);const p=q(['input[type="password"]','input[autocomplete="current-password"]','input[name="password"]','input[name="Password"]','input[name="passwd"]','input[id*="password" i]','input[id*="passwd" i]']);const r={detected:!!(u&&p),user:!!u,password:!!p,submitted:false,submitMethod:'none'};if(!u||!p||window.__plenaroLoginSubmitted)return r;const set=(e,v)=>{const s=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value')?.set;s?s.call(e,v):e.value=v;for(const n of ['input','change','blur'])e.dispatchEvent(new Event(n,{bubbles:true}));};const visible=e=>{const s=getComputedStyle(e);return !e.disabled&&e.getAttribute('aria-disabled')!=='true'&&s.display!=='none'&&s.visibility!=='hidden'&&e.getClientRects().length>0;};set(u,{{userJson}});set(p,{{passwordJson}});const f=p.closest('form')||u.closest('form');if(f?.requestSubmit){window.__plenaroLoginSubmitted=true;f.requestSubmit();r.submitted=true;r.submitMethod='requestSubmit';return r;}const selectors=['button[type="submit"]','input[type="submit"]','button[name*="login" i]','button[id*="login" i]','button[class*="login" i]'];const scope=p.parentElement?.closest('form,main,section,div')||document;let b=selectors.flatMap(s=>[...scope.querySelectorAll(s)]).find(visible);if(!b)b=[...scope.querySelectorAll('button')].find(e=>visible(e)&&/^(anmelden|anmeldung|login|log in|sign in|einloggen)$/i.test((e.textContent||'').trim()));if(b){window.__plenaroLoginSubmitted=true;b.click();r.submitted=true;r.submitMethod='button';return r;}window.__plenaroLoginSubmitted=true;p.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',code:'Enter',bubbles:true,cancelable:true}));p.dispatchEvent(new KeyboardEvent('keyup',{key:'Enter',code:'Enter',bubbles:true,cancelable:true}));r.submitted=true;r.submitMethod='enter';return r;})()""";
-        using var document = JsonDocument.Parse(await Browser.CoreWebView2.ExecuteScriptAsync(script));
-        var result = document.RootElement;
-        return new(result.GetProperty("detected").GetBoolean(), result.GetProperty("user").GetBoolean(),
-            result.GetProperty("password").GetBoolean(), result.GetProperty("submitted").GetBoolean(), result.GetProperty("submitMethod").GetString() ?? "none");
+        var originJson = JsonSerializer.Serialize(trustedOrigin);
+        return $$"""
+            (() => {
+                const result = { detected:false, userFieldFound:false, passwordFieldFound:false,
+                    userFilled:false, passwordFilled:false, submitted:false, trusted:false, submitMethod:'none' };
+                if (location.origin.toLowerCase() !== {{originJson}}.toLowerCase()) return result;
+                result.trusted = true;
+                const first = selectors => selectors.map(selector => document.querySelector(selector)).find(Boolean) || null;
+                const usernameElement = first([
+                    'input[placeholder="Benutzername"]',
+                    'input.z-focustextbox-real[type="text"][placeholder="Benutzername"]',
+                    'input[autocomplete="username"]', 'input[autocomplete="email"]', 'input[type="email"]',
+                    'input[name="username"]', 'input[name="user"]', 'input[name="User"]',
+                    'input[name="login"]', 'input[name="Login"]', 'input[name="email"]',
+                    'input[id*="username" i]', 'input[id*="user" i]', 'input[id*="login" i]', 'input[id*="email" i]'
+                ]);
+                const passwordElement = first([
+                    'input[placeholder="Kennwort"]', 'input.z-focustextbox-real[type="password"]',
+                    'input[type="password"]', 'input[autocomplete="current-password"]',
+                    'input[name="password"]', 'input[name="Password"]', 'input[name="passwd"]',
+                    'input[id*="password" i]', 'input[id*="passwd" i]'
+                ]);
+                result.userFieldFound = !!usernameElement;
+                result.passwordFieldFound = !!passwordElement;
+                result.detected = result.userFieldFound && result.passwordFieldFound;
+                if (!result.detected || window.__plenaroLoginSubmitted) return result;
+
+                const setValue = (element, value) => {
+                    element.dispatchEvent(new FocusEvent('focus', { bubbles:true }));
+                    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
+                    if (setter) setter.call(element, value); else element.value = value;
+                    element.dispatchEvent(new Event('input', { bubbles:true }));
+                    element.dispatchEvent(new Event('change', { bubbles:true }));
+                    element.dispatchEvent(new FocusEvent('blur', { bubbles:true }));
+                    return element.value === value;
+                };
+                result.userFilled = setValue(usernameElement, {{userJson}});
+                result.passwordFilled = setValue(passwordElement, {{passwordJson}});
+                if (!result.userFilled || !result.passwordFilled) return result;
+
+                const visibleAndActive = element => {
+                    const style = getComputedStyle(element);
+                    return !element.disabled && element.getAttribute('aria-disabled') !== 'true'
+                        && style.display !== 'none' && style.visibility !== 'hidden'
+                        && element.getClientRects().length > 0;
+                };
+                const forbidden = element => /kennwort\s*ändern/i.test((element.textContent || element.value || '').trim());
+                const loginText = element => /^(anmelden|anmeldung|login|log in|sign in|einloggen)$/i.test((element.textContent || element.value || '').trim());
+                const buttonCandidates = [
+                    ...document.querySelectorAll('button.z-atossdialogbutton.btn-login, button.btn-login'),
+                    ...document.querySelectorAll('button[name*="login" i], button[id*="login" i], button[class*="login" i]'),
+                    ...document.querySelectorAll('button, input[type="button"]')
+                ];
+                const loginButton = buttonCandidates.find(element => visibleAndActive(element) && !forbidden(element)
+                    && (element.matches('button.btn-login, button.z-atossdialogbutton.btn-login') || loginText(element)));
+                if (loginButton) {
+                    window.__plenaroLoginSubmitted = true;
+                    loginButton.click();
+                    result.submitted = true;
+                    result.submitMethod = loginButton.matches('button.btn-login') ? 'button.btn-login' : 'login-button';
+                    return result;
+                }
+
+                const form = passwordElement.closest('form') || usernameElement.closest('form');
+                if (form?.requestSubmit) {
+                    window.__plenaroLoginSubmitted = true;
+                    form.requestSubmit();
+                    result.submitted = true;
+                    result.submitMethod = 'requestSubmit';
+                    return result;
+                }
+                const submitButton = [...(form || document).querySelectorAll('button[type="submit"], input[type="submit"]')]
+                    .find(element => visibleAndActive(element) && !forbidden(element));
+                if (submitButton) {
+                    window.__plenaroLoginSubmitted = true;
+                    submitButton.click();
+                    result.submitted = true;
+                    result.submitMethod = 'submit-button';
+                }
+                return result;
+            })()
+            """;
     }
 
     private static string RequestKey(CoreWebView2WebResourceRequest request) => $"{request.Method}\n{request.Uri}";
@@ -413,9 +594,20 @@ public sealed class WebShortcutBrowserSession : IDisposable
         {
             Browser.CoreWebView2.NavigationStarting -= NavigationStarting;
             Browser.CoreWebView2.NavigationCompleted -= NavigationCompleted;
+            Browser.CoreWebView2.FrameCreated -= FrameCreated;
             Browser.CoreWebView2.WebResourceRequested -= WebResourceRequested;
             Browser.CoreWebView2.WebResourceResponseReceived -= WebResourceResponseReceived;
         }
+        foreach (var frame in _frames)
+        {
+            try
+            {
+                frame.FrameCreated -= NestedFrameCreated;
+                frame.NavigationCompleted -= FrameNavigationCompleted;
+            }
+            catch (InvalidOperationException) { }
+        }
+        _frames.Clear();
         if (_requestWillBeSentReceiver != null) _requestWillBeSentReceiver.DevToolsProtocolEventReceived -= DevToolsRequestWillBeSent;
         if (_loadingFailedReceiver != null) _loadingFailedReceiver.DevToolsProtocolEventReceived -= DevToolsLoadingFailed;
         if (_loadingFinishedReceiver != null) _loadingFinishedReceiver.DevToolsProtocolEventReceived -= DevToolsLoadingFinished;
@@ -425,6 +617,10 @@ public sealed class WebShortcutBrowserSession : IDisposable
         _lifetimeCts.Dispose();
     }
 
-    private sealed record LoginResult(bool Detected, bool User, bool Password, bool Submitted, string SubmitMethod);
+    private sealed record LoginResult(bool Detected, bool UserFieldFound, bool PasswordFieldFound,
+        bool UserFilled, bool PasswordFilled, bool Submitted, bool Trusted, string Target, string SubmitMethod)
+    {
+        public static LoginResult Empty(string target) => new(false, false, false, false, false, false, false, target, "none");
+    }
     private sealed record DevToolsRequest(string Host, string Method, string Context);
 }
