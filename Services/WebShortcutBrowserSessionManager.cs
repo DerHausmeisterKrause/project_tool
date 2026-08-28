@@ -168,12 +168,37 @@ public sealed class WebShortcutBrowserSession : IDisposable
     {
         if (_disposed) return;
         var urlChanged = !string.Equals(_settings.Url, settings.Url, StringComparison.Ordinal);
+        var loginChanged = urlChanged
+            || _settings.AutoLogin != settings.AutoLogin
+            || !string.Equals(_settings.Username, settings.Username, StringComparison.Ordinal)
+            || !string.Equals(_settings.PasswordEncrypted, settings.PasswordEncrypted, StringComparison.Ordinal);
         _settings = settings;
+        if (loginChanged)
+            _loginCts?.Cancel();
         if (urlChanged && Initialized && TryGetHttpUri(settings.Url, out var uri))
         {
             _logger.Info($"[WebShortcutBrowser] shortcutId={ShortcutId} action=navigate-configured-url host={uri.Host}");
             Browser.CoreWebView2.Navigate(uri.ToString());
         }
+        else if (loginChanged && Initialized && TryGetHttpUri(CurrentUrl, out var current) && Trusted(current))
+        {
+            // Saving credentials does not navigate the already active WebView. Re-run the
+            // bounded DOM-only login flow so the session immediately receives the new values.
+            _ = RestartLoginAfterConfigurationChangeAsync();
+        }
+    }
+
+    private async Task RestartLoginAfterConfigurationChangeAsync()
+    {
+        var previousLogin = _loginTask;
+        if (previousLogin != null)
+        {
+            try { await previousLogin; }
+            catch (OperationCanceledException) { }
+        }
+
+        if (!_disposed && Initialized && TryGetHttpUri(CurrentUrl, out var current) && Trusted(current))
+            StartLogin(current);
     }
 
     private async Task InitializeAsync()
@@ -370,7 +395,7 @@ public sealed class WebShortcutBrowserSession : IDisposable
 
     private async Task LoginAsync(string username, string password, string host, CancellationToken token)
     {
-        var schedule = new[] { 0, 250, 750, 1500, 2500, 4000 };
+        var schedule = new[] { 0, 250, 750, 1500, 2500 };
         var prior = 0;
         foreach (var at in schedule)
         {
@@ -392,15 +417,8 @@ public sealed class WebShortcutBrowserSession : IDisposable
                 foreach (var frame in _frames.ToArray())
                 {
                     token.ThrowIfCancellationRequested();
-                    string source;
-                    try { source = frame.Source; }
-                    catch (InvalidOperationException)
-                    {
-                        _logger.Info($"[WebShortcutLoginFrame] shortcutId={ShortcutId} trusted=false action=skip reason=frame-not-ready attempt={attempt}");
-                        continue;
-                    }
-
-                    if (!TryGetHttpUri(source, out var frameUri))
+                    var frameUri = await GetFrameUriAsync(frame);
+                    if (frameUri == null)
                     {
                         _logger.Info($"[WebShortcutLoginFrame] shortcutId={ShortcutId} frameHost=unknown trusted=false action=skip reason=frame-not-ready attempt={attempt}");
                         continue;
@@ -438,13 +456,13 @@ public sealed class WebShortcutBrowserSession : IDisposable
     {
         var reason = result.Submitted ? "none"
             : !result.UserFieldFound && !result.PasswordFieldFound ? "no-fields"
-            : !result.UserFieldFound ? "username-not-found"
-            : !result.PasswordFieldFound ? "password-not-found"
+            : !result.UserFieldFound ? "no-username-field"
+            : !result.PasswordFieldFound ? "no-password-field"
             : !result.UserFilled || !result.PasswordFilled ? "value-rejected-by-page"
-            : "login-button-not-found";
+            : "no-submit-target";
         var tag = result.Target == "frame" ? "[WebShortcutLoginFrame]" : "[WebShortcutLogin]";
         var hostName = result.Target == "frame" ? "frameHost" : "host";
-        _logger.Info($"{tag} shortcutId={ShortcutId} {hostName}={host} target={result.Target} trusted={result.Trusted.ToString().ToLowerInvariant()} loginPageDetected={result.Detected.ToString().ToLowerInvariant()} usernameFieldFound={result.UserFieldFound.ToString().ToLowerInvariant()} passwordFieldFound={result.PasswordFieldFound.ToString().ToLowerInvariant()} usernameFilled={result.UserFilled.ToString().ToLowerInvariant()} passwordFilled={result.PasswordFilled.ToString().ToLowerInvariant()} submitTarget={result.SubmitMethod} submitted={result.Submitted.ToString().ToLowerInvariant()} attempt={attempt} reason={reason}");
+        _logger.Info($"{tag} shortcutId={ShortcutId} {hostName}={host} autoLogin=true target={result.Target} trusted={result.Trusted.ToString().ToLowerInvariant()} loginPageDetected={result.Detected.ToString().ToLowerInvariant()} usernameFieldFound={result.UserFieldFound.ToString().ToLowerInvariant()} passwordFieldFound={result.PasswordFieldFound.ToString().ToLowerInvariant()} usernameFilled={result.UserFilled.ToString().ToLowerInvariant()} passwordFilled={result.PasswordFilled.ToString().ToLowerInvariant()} submitMethod={result.SubmitMethod} submitted={result.Submitted.ToString().ToLowerInvariant()} attempt={attempt} reason={reason}");
     }
 
     private Task<LoginResult> FillTopLevelAsync(string username, string password)
@@ -452,6 +470,32 @@ public sealed class WebShortcutBrowserSession : IDisposable
 
     private Task<LoginResult> FillFrameAsync(CoreWebView2Frame frame, string username, string password)
         => ExecuteLoginScriptAsync(frame.ExecuteScriptAsync, username, password, "frame");
+
+    private static async Task<Uri?> GetFrameUriAsync(CoreWebView2Frame frame)
+    {
+        try
+        {
+            var json = await frame.ExecuteScriptAsync("location.href");
+            if (string.IsNullOrWhiteSpace(json)
+                || string.Equals(json, "null", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(json, "undefined", StringComparison.OrdinalIgnoreCase))
+                return null;
+
+            var href = JsonSerializer.Deserialize<string>(json);
+            if (string.IsNullOrWhiteSpace(href))
+                return null;
+
+            return Uri.TryCreate(href, UriKind.Absolute, out var uri)
+                   && (uri.Scheme == Uri.UriSchemeHttps || uri.Scheme == Uri.UriSchemeHttp)
+                ? uri
+                : null;
+        }
+        catch (InvalidOperationException)
+        {
+            // The frame can be destroyed between enumeration and script execution.
+            return null;
+        }
+    }
 
     private async Task<LoginResult> ExecuteLoginScriptAsync(
         Func<string, Task<string>> executeScriptAsync, string username, string password, string target)
@@ -525,21 +569,6 @@ public sealed class WebShortcutBrowserSession : IDisposable
                 };
                 const forbidden = element => /kennwort\s*ändern/i.test((element.textContent || element.value || '').trim());
                 const loginText = element => /^(anmelden|anmeldung|login|log in|sign in|einloggen)$/i.test((element.textContent || element.value || '').trim());
-                const buttonCandidates = [
-                    ...document.querySelectorAll('button.z-atossdialogbutton.btn-login, button.btn-login'),
-                    ...document.querySelectorAll('button[name*="login" i], button[id*="login" i], button[class*="login" i]'),
-                    ...document.querySelectorAll('button, input[type="button"]')
-                ];
-                const loginButton = buttonCandidates.find(element => visibleAndActive(element) && !forbidden(element)
-                    && (element.matches('button.btn-login, button.z-atossdialogbutton.btn-login') || loginText(element)));
-                if (loginButton) {
-                    window.__plenaroLoginSubmitted = true;
-                    loginButton.click();
-                    result.submitted = true;
-                    result.submitMethod = loginButton.matches('button.btn-login') ? 'button.btn-login' : 'login-button';
-                    return result;
-                }
-
                 const form = passwordElement.closest('form') || usernameElement.closest('form');
                 if (form?.requestSubmit) {
                     window.__plenaroLoginSubmitted = true;
@@ -548,13 +577,34 @@ public sealed class WebShortcutBrowserSession : IDisposable
                     result.submitMethod = 'requestSubmit';
                     return result;
                 }
-                const submitButton = [...(form || document).querySelectorAll('button[type="submit"], input[type="submit"]')]
-                    .find(element => visibleAndActive(element) && !forbidden(element));
-                if (submitButton) {
+
+                const loginArea = form || passwordElement.closest('[role="dialog"], main, section') || document;
+                const buttonCandidates = [
+                    ...loginArea.querySelectorAll('button[type="submit"], input[type="submit"]'),
+                    ...loginArea.querySelectorAll('button[name*="login" i], button[id*="login" i], button[class*="login" i]'),
+                    ...loginArea.querySelectorAll('button, input[type="button"]')
+                ];
+                const loginButton = buttonCandidates.find(element => visibleAndActive(element) && !forbidden(element)
+                    && (element.matches('button[type="submit"], input[type="submit"], button[name*="login" i], button[id*="login" i], button[class*="login" i]')
+                        || loginText(element)));
+                if (loginButton) {
                     window.__plenaroLoginSubmitted = true;
-                    submitButton.click();
+                    loginButton.click();
                     result.submitted = true;
-                    result.submitMethod = 'submit-button';
+                    result.submitMethod = 'login-button';
+                    return result;
+                }
+
+                // Last controlled fallback: dispatch Enter only on the password field. This
+                // lets the page/form own its normal keyboard-submit behavior without clicking
+                // an unrelated control.
+                if (form) {
+                    window.__plenaroLoginSubmitted = true;
+                    passwordElement.focus();
+                    for (const type of ['keydown', 'keypress', 'keyup'])
+                        passwordElement.dispatchEvent(new KeyboardEvent(type, { key:'Enter', code:'Enter', bubbles:true }));
+                    result.submitted = true;
+                    result.submitMethod = 'enter-key';
                 }
                 return result;
             })()
