@@ -417,15 +417,8 @@ public sealed class WebShortcutBrowserSession : IDisposable
                 foreach (var frame in _frames.ToArray())
                 {
                     token.ThrowIfCancellationRequested();
-                    string source;
-                    try { source = frame.Source; }
-                    catch (InvalidOperationException)
-                    {
-                        _logger.Info($"[WebShortcutLoginFrame] shortcutId={ShortcutId} trusted=false action=skip reason=frame-not-ready attempt={attempt}");
-                        continue;
-                    }
-
-                    if (!TryGetHttpUri(source, out var frameUri))
+                    var frameUri = await GetFrameUriAsync(frame);
+                    if (frameUri == null)
                     {
                         _logger.Info($"[WebShortcutLoginFrame] shortcutId={ShortcutId} frameHost=unknown trusted=false action=skip reason=frame-not-ready attempt={attempt}");
                         continue;
@@ -477,6 +470,32 @@ public sealed class WebShortcutBrowserSession : IDisposable
 
     private Task<LoginResult> FillFrameAsync(CoreWebView2Frame frame, string username, string password)
         => ExecuteLoginScriptAsync(frame.ExecuteScriptAsync, username, password, "frame");
+
+    private static async Task<Uri?> GetFrameUriAsync(CoreWebView2Frame frame)
+    {
+        try
+        {
+            var json = await frame.ExecuteScriptAsync("location.href");
+            if (string.IsNullOrWhiteSpace(json)
+                || string.Equals(json, "null", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(json, "undefined", StringComparison.OrdinalIgnoreCase))
+                return null;
+
+            var href = JsonSerializer.Deserialize<string>(json);
+            if (string.IsNullOrWhiteSpace(href))
+                return null;
+
+            return Uri.TryCreate(href, UriKind.Absolute, out var uri)
+                   && (uri.Scheme == Uri.UriSchemeHttps || uri.Scheme == Uri.UriSchemeHttp)
+                ? uri
+                : null;
+        }
+        catch (InvalidOperationException)
+        {
+            // The frame can be destroyed between enumeration and script execution.
+            return null;
+        }
+    }
 
     private async Task<LoginResult> ExecuteLoginScriptAsync(
         Func<string, Task<string>> executeScriptAsync, string username, string password, string target)
