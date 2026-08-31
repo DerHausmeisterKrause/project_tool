@@ -67,6 +67,8 @@ public class TodayViewModel : ObservableObject
                 if (taskChanged)
                 {
                     _wikiSearchCancellation?.Cancel();
+                    _wikiKeywords = Array.Empty<string>();
+                    Raise(nameof(WikiKeywordsText));
                     TicketBookingNote = string.Empty;
                     ResetTicketConversation();
                 }
@@ -1480,6 +1482,13 @@ public class TodayViewModel : ObservableObject
             TicketReplyRecipient = context.ReplyRecipient;
             _ticketTitle = context.TicketTitle;
             _ticketNumber = context.TicketNumber;
+            if (_wikiKeywords.Count == 0)
+            {
+                _wikiKeywords = new WikiKeywordExtractor().Extract(
+                    context.TicketTitle,
+                    context.Articles.FirstOrDefault()?.Body ?? string.Empty);
+                Raise(nameof(WikiKeywordsText));
+            }
             var requestedArticleId = !string.IsNullOrWhiteSpace(preferredArticleId) ? preferredArticleId : previousArticleId;
             SelectedTicketArticle = TicketArticles.FirstOrDefault(article => string.Equals(article.ArticleId, requestedArticleId, StringComparison.OrdinalIgnoreCase))
                                     ?? (selectNewestWhenPreferredMissing ? TicketArticles.LastOrDefault() : TicketArticles.FirstOrDefault());
@@ -1509,7 +1518,13 @@ public class TodayViewModel : ObservableObject
     private void LoadPersistedWikiResults(TaskItem? task)
     {
         WikiResults.Clear();
-        if (task != null) foreach (var result in ServiceLocator.WikiSearch.LoadResults(task.Id)) WikiResults.Add(result);
+        _wikiKeywords = task == null
+            ? Array.Empty<string>()
+            : ServiceLocator.WikiSearch.LoadSearchTerms(task.Id);
+        if (task != null)
+            foreach (var result in ServiceLocator.WikiSearch.LoadResults(task.Id))
+                WikiResults.Add(result);
+        Raise(nameof(WikiKeywordsText));
         Raise(nameof(HasWikiResults));
     }
 

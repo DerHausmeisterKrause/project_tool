@@ -17,5 +17,6 @@
     <Compile Include="../Models/ZnunySyncResult.cs" Link="Models/ZnunySyncResult.cs" />
     <Compile Include="../Models/ZnunyApiException.cs" Link="Models/ZnunyApiException.cs" />
     <Compile Include="../Models/ZnunyTicketSearchResponseParser.cs" Link="Models/ZnunyTicketSearchResponseParser.cs" />
+    <Compile Include="../Models/WikiSearchTermPersistence.cs" Link="Models/WikiSearchTermPersistence.cs" />
   </ItemGroup>
 </Project>
