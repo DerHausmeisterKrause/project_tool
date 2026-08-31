@@ -500,7 +500,21 @@ public class TicketSystemService : IDisposable
             throw new InvalidOperationException("Der ausgewählte Task besitzt keine eindeutige Znuny-TicketID.");
 
         var cached = _detailCache.Load(ticketId);
-        if (cached != null) return cached;
+        if (cached != null)
+        {
+            var fields = _dynamicFieldOptionsCacheValid
+                ? _dynamicFieldOptionsCache
+                : new Dictionary<string, IReadOnlyList<TicketFieldOption>>(StringComparer.OrdinalIgnoreCase);
+            return cached with
+            {
+                CostCenterOptions = GetFieldOptions(fields,
+                    _settings.Current.TicketSystemCostCenterFieldName,
+                    _settings.Current.TicketSystemCostCenterOptions),
+                OrderOptions = GetFieldOptions(fields,
+                    _settings.Current.TicketSystemOrderFieldName,
+                    _settings.Current.TicketSystemOrderOptions)
+            };
+        }
         await Task.CompletedTask;
         throw new InvalidOperationException("Ticketdetails werden beim nächsten Ticket-Sync geladen.");
     }

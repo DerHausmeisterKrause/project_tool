@@ -18,5 +18,6 @@
     <Compile Include="../Models/ZnunyApiException.cs" Link="Models/ZnunyApiException.cs" />
     <Compile Include="../Models/ZnunyTicketSearchResponseParser.cs" Link="Models/ZnunyTicketSearchResponseParser.cs" />
     <Compile Include="../Models/WikiSearchTermPersistence.cs" Link="Models/WikiSearchTermPersistence.cs" />
+    <Compile Include="../Models/WikiSearchPolicy.cs" Link="Models/WikiSearchPolicy.cs" />
   </ItemGroup>
 </Project>
