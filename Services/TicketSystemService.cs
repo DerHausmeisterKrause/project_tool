@@ -2306,6 +2306,14 @@ public class TicketSystemService : IDisposable
         return string.Empty;
     }
 
+    private static string TicketIdToString(JsonElement value)
+        => value.ValueKind switch
+        {
+            JsonValueKind.String => value.GetString() ?? string.Empty,
+            JsonValueKind.Number => value.ToString(),
+            _ => string.Empty
+        };
+
     private void LogSessionKeys(JsonElement root)
     {
         var keys = CollectSessionKeys(root).Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(k => k).ToList();
