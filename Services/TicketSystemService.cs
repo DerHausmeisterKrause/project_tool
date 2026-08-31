@@ -1667,9 +1667,10 @@ public class TicketSystemService : IDisposable
         var stateType = assignedGetStateType ?? (onlyOpen ? (getMode ? "Open" : "new,open") : "<none>");
         _logger.Info($"{logTag} method={method} route={route} userId={userId} onlyOpen={onlyOpen} limit={EffectiveSearchLimit} stateType={stateType} sortBy={(getMode ? "<none>" : ZnunySyncPolicy.SearchSortBy)} orderBy={(getMode ? "<none>" : ZnunySyncPolicy.SearchOrderBy)} sessionHash={sessionHash} payload={FormatSearchPayloadForLog(isOwner, userId, onlyOpen, method, stateType, _settings.Current.TicketSystemTicketSearchAuthMode, _settings.Current.TicketSystemUsername)}");
         var result = await SendZnunyAsync(request, stage, isOwner ? "[ZnunySearchOwnerResponse]" : "[ZnunySearchResponsibleResponse]");
-        if (IsEmptyJsonObject(result.Body))
-            _logger.Error($"[ZnunySearchProtocol] operation={(isOwner ? "Owner" : "Responsible")} status={(int)result.StatusCode} bodyEmptyObject=true queryMode={method} stateType={stateType} limit={EffectiveSearchLimit} sortEnabled={!getMode}");
-        var ticketIds = ExtractTicketIdsStrict(result.Body, stage).ToList();
+        var parsed = ZnunyTicketSearchResponseParser.ExtractTicketIdsStrict(result.Body, stage);
+        var ticketIds = parsed.TicketIds.ToList();
+        if (parsed.ResponseShape == ZnunyTicketSearchResponseShape.EmptyObject)
+            _logger.Info($"[ZnunySearchEmpty] operation={(isOwner ? "Owner" : "Responsible")} stateType={stateType} status={(int)result.StatusCode} resultCount=0 responseShape=empty-object");
         LogSearchLimit(isOwner ? "Owner" : "Responsible", ticketIds.Count);
         _logger.Info($"{logTag} method={method} route={route} userId={userId} onlyOpen={onlyOpen} status={(int)result.StatusCode} ticketCount={ticketIds.Count}");
         return ticketIds;
@@ -1683,7 +1684,10 @@ public class TicketSystemService : IDisposable
         var stage = $"TicketSearchCandidate{role}Active";
         using var request = BuildSearchRequest("POST", route, payload);
         var result = await SendZnunyAsync(request, stage, "[ZnunyCandidateActiveSearchResponse]", logBody: false);
-        var ids = ExtractTicketIdsStrict(result.Body, stage).ToList();
+        var parsed = ZnunyTicketSearchResponseParser.ExtractTicketIdsStrict(result.Body, stage);
+        var ids = parsed.TicketIds.ToList();
+        if (parsed.ResponseShape == ZnunyTicketSearchResponseShape.EmptyObject)
+            _logger.Info($"[ZnunySearchEmpty] operation=Candidate{role} stateType=new,open status={(int)result.StatusCode} resultCount=0 responseShape=empty-object");
         LogSearchLimit($"Candidate{role}", ids.Count);
         return ids;
     }
@@ -2302,6 +2306,14 @@ public class TicketSystemService : IDisposable
         return string.Empty;
     }
 
+    private static string TicketIdToString(JsonElement value)
+        => value.ValueKind switch
+        {
+            JsonValueKind.String => value.GetString() ?? string.Empty,
+            JsonValueKind.Number => value.ToString(),
+            _ => string.Empty
+        };
+
     private void LogSessionKeys(JsonElement root)
     {
         var keys = CollectSessionKeys(root).Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(k => k).ToList();
@@ -2380,48 +2392,6 @@ public class TicketSystemService : IDisposable
         if (ContainsError(root, out var errorCode, out var errorMessage))
             throw new ZnunyApiException(stage, statusCode, errorCode, errorMessage, responseBody);
     }
-
-    private static IEnumerable<string> ExtractTicketIdsStrict(string responseBody, string stage)
-    {
-        if (!TryParseJson(responseBody, out var doc))
-            throw new ZnunyApiException(stage, HttpStatusCode.OK, "Protocol", "TicketSearch response is not valid JSON.", responseBody);
-
-        using (doc)
-        {
-            ThrowIfApiError(doc.RootElement, stage, HttpStatusCode.OK, responseBody);
-            if (TryGetPropertyCaseInsensitive(doc.RootElement, "TicketIDs", out var ids) || TryGetPropertyCaseInsensitive(doc.RootElement, "TicketID", out ids))
-                return ExtractTicketIdValues(ids).ToList();
-        }
-
-        throw new ZnunyApiException(stage, HttpStatusCode.OK, "Protocol", "TicketSearch response contains neither TicketID nor TicketIDs.", responseBody);
-    }
-
-    private static IEnumerable<string> ExtractTicketIdValues(JsonElement value)
-    {
-        if (value.ValueKind == JsonValueKind.Array)
-        {
-            foreach (var item in value.EnumerateArray())
-            {
-                var id = TicketIdToString(item);
-                if (!string.IsNullOrWhiteSpace(id))
-                    yield return id;
-            }
-
-            yield break;
-        }
-
-        var single = TicketIdToString(value);
-        if (!string.IsNullOrWhiteSpace(single))
-            yield return single;
-    }
-
-    private static string TicketIdToString(JsonElement value)
-        => value.ValueKind switch
-        {
-            JsonValueKind.String => value.GetString() ?? string.Empty,
-            JsonValueKind.Number => value.ToString(),
-            _ => string.Empty
-        };
 
     private static (string errorCode, string errorMessage) ExtractApiError(string responseBody)
     {
@@ -2504,14 +2474,6 @@ public class TicketSystemService : IDisposable
         var roleValue = getMode ? userId.ToString(CultureInfo.InvariantCulture) : $"[{userId}]";
         var sorting = getMode ? string.Empty : $",SortBy:'{ZnunySyncPolicy.SearchSortBy}',OrderBy:'{ZnunySyncPolicy.SearchOrderBy}'";
         return $"{{{auth},{idName}:{roleValue}{state},Limit:{EffectiveSearchLimit}{sorting}}}";
-    }
-
-    private static bool IsEmptyJsonObject(string responseBody)
-    {
-        if (!TryParseJson(responseBody, out var document)) return false;
-        using (document)
-            return document.RootElement.ValueKind == JsonValueKind.Object
-                   && !document.RootElement.EnumerateObject().Any();
     }
 
     private static bool IsRoutingError(ZnunyApiException ex)
@@ -2737,25 +2699,6 @@ public class TicketSystemService : IDisposable
         _dynamicFieldOptionsGate.Dispose();
         _sessionGate.Dispose();
         _client.Dispose();
-    }
-
-    private sealed class ZnunyApiException : Exception
-    {
-        public string Stage { get; }
-        public HttpStatusCode StatusCode { get; }
-        public string ErrorCode { get; }
-        public string ErrorMessage { get; }
-        public string ResponseBody { get; }
-
-        public ZnunyApiException(string stage, HttpStatusCode statusCode, string errorCode, string errorMessage, string responseBody)
-            : base(string.IsNullOrWhiteSpace(errorCode) ? errorMessage : $"{errorCode}: {errorMessage}")
-        {
-            Stage = stage;
-            StatusCode = statusCode;
-            ErrorCode = errorCode;
-            ErrorMessage = errorMessage;
-            ResponseBody = responseBody;
-        }
     }
 
     private sealed class ZnunyTicket

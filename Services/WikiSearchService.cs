@@ -30,6 +30,24 @@ public sealed class WikiSearchService
         return list;
     }
 
+    public IReadOnlyList<string> LoadSearchTerms(Guid taskId)
+    {
+        using var connection = new SqliteConnection(_database.ConnectionString);
+        connection.Open();
+        using var command = connection.CreateCommand();
+        command.CommandText = @"SELECT keywords_json
+FROM task_wiki_search_runs
+WHERE task_id=$task AND status='success'
+ORDER BY searched_at_utc DESC, source_id";
+        command.Parameters.AddWithValue("$task", taskId.ToString());
+        using var reader = command.ExecuteReader();
+        var serializedRuns = new List<string?>();
+        while (reader.Read())
+            serializedRuns.Add(reader.IsDBNull(0) ? null : reader.GetString(0));
+
+        return WikiSearchTermPersistence.MergeSerialized(serializedRuns);
+    }
+
     public async Task<WikiSearchSummary> SearchAsync(TaskItem task, string ticketTitle, string firstMessage, bool force, CancellationToken token = default)
     {
         if (!task.IsZnunyTask || !task.IsZnunyAssigned) return new(0, 0);
