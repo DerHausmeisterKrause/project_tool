@@ -680,6 +680,7 @@ public class TodayViewModel : ObservableObject
         RefreshTicketFieldOptionsCommand.RaiseCanExecuteChanged();
         CreateTicketFromLocalTaskCommand.RaiseCanExecuteChanged();
         RefreshTicketArticlesCommand.RaiseCanExecuteChanged();
+        RefreshWikiCommand.RaiseCanExecuteChanged();
         BeginTicketReplyCommand.RaiseCanExecuteChanged();
         SendTicketReplyCommand.RaiseCanExecuteChanged();
         AddSegmentCommand.RaiseCanExecuteChanged();
@@ -1531,10 +1532,17 @@ public class TodayViewModel : ObservableObject
     private async Task SearchWikiAsync(bool force, TaskItem? expectedTask = null, string? title = null, string? message = null)
     {
         var task = expectedTask ?? SelectedTask;
-        if (task?.IsZnunyTask != true || !task.IsZnunyAssigned) return;
+        if (task == null || !WikiSearchPolicy.CanSearch(task, force)) return;
         _wikiSearchCancellation?.Cancel(); _wikiSearchCancellation = new CancellationTokenSource(); var token = _wikiSearchCancellation.Token;
-        title ??= _ticketTitle; message ??= TicketArticles.FirstOrDefault()?.Body ?? string.Empty;
-        _wikiKeywords = new WikiKeywordExtractor().Extract(title, message); Raise(nameof(WikiKeywordsText));
+        title ??= WikiSearchPolicy.ResolveTitle(task, _ticketTitle);
+        message ??= WikiSearchPolicy.ResolveMessage(task, TicketArticles.FirstOrDefault()?.Body);
+        _wikiKeywords = new WikiKeywordExtractor().Extract(title, message);
+        Raise(nameof(WikiKeywordsText));
+        if (_wikiKeywords.Count == 0)
+        {
+            WikiSearchStatus = "Keine geeigneten Suchbegriffe in den lokal gespeicherten Ticketdaten gefunden.";
+            return;
+        }
         WikiSearchStatus = force ? "Wikis werden erneut durchsucht …" : string.Empty;
         try
         {
@@ -1544,6 +1552,11 @@ public class TodayViewModel : ObservableObject
             if (force) WikiSearchStatus = $"{summary.UpdatedSources} Wikis aktualisiert · {summary.FailedSources} Wikis fehlgeschlagen";
         }
         catch (OperationCanceledException) { }
+        catch (Exception ex)
+        {
+            if (SelectedTask?.Id == task.Id)
+                WikiSearchStatus = $"Wiki-Suche fehlgeschlagen: {ex.Message}";
+        }
     }
 
     private void ResetTicketConversation()

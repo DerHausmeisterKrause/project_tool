@@ -50,7 +50,7 @@ ORDER BY searched_at_utc DESC, source_id";
 
     public async Task<WikiSearchSummary> SearchAsync(TaskItem task, string ticketTitle, string firstMessage, bool force, CancellationToken token = default)
     {
-        if (!task.IsZnunyTask || !task.IsZnunyAssigned) return new(0, 0);
+        if (!WikiSearchPolicy.CanSearch(task, force)) return new(0, 0);
         var sources = new List<WikiSourceSettings>();
         foreach (var source in _settings.Current.WikiSources.Where(x => x.Enabled))
         {
