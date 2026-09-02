@@ -41,6 +41,14 @@ public static class ZnunySyncPolicy
             .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
     }
 
+    public static IReadOnlyList<string> RotateTicketIds(IEnumerable<string> ticketIds, string? nextTicketId)
+    {
+        var ids = ticketIds.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        if (ids.Count == 0 || string.IsNullOrWhiteSpace(nextTicketId)) return ids;
+        var index = ids.FindIndex(id => string.Equals(id, nextTicketId, StringComparison.OrdinalIgnoreCase));
+        return index <= 0 ? ids : ids.Skip(index).Concat(ids.Take(index)).ToList();
+    }
+
     public static IReadOnlyDictionary<string, string> TicketGetOptions(bool allArticles, bool dynamicFields, int configuredArticleLimit)
     {
         var options = new Dictionary<string, string>
