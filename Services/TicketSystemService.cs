@@ -91,6 +91,7 @@ public class TicketSystemService : IDisposable
         _lastFullSyncInterval = ZnunySyncPolicy.NormalizeIntervalMinutes(_settings.Current.TicketSystemSyncIntervalMinutes);
         _lastCandidateSyncInterval = ZnunySyncPolicy.NormalizeCandidateIntervalMinutes(_settings.Current.TicketSystemCandidateSyncIntervalMinutes);
         _candidateTickets = _candidateSnapshots.Load();
+        _candidatePoolTickets = _candidateSnapshots.LoadPool();
         LoadPersistedDynamicFieldOptions();
         HandleSettingsChanged();
     }
@@ -442,6 +443,7 @@ public class TicketSystemService : IDisposable
             .ToList();
         _candidatePoolTickets = _candidatePoolTickets
             .Where(candidate => !string.Equals(candidate.TicketId, ticketId, StringComparison.OrdinalIgnoreCase)).ToList();
+        _candidateSnapshots.ReplacePool(_candidatePoolTickets);
         _candidateScanStates.Remove(ticketId);
         if (remaining.Count == _candidateTickets.Count) { CandidateTicketsChanged?.Invoke(); return; }
         _candidateSnapshots.Replace(remaining);
@@ -1809,6 +1811,7 @@ public class TicketSystemService : IDisposable
         _candidatePoolTickets = poolById.Values.OrderByDescending(ticket => ticket.TicketNumber, StringComparer.OrdinalIgnoreCase).ToList();
         _candidateScanStates.Replace(states);
         _candidateSnapshots.Replace(snapshot);
+        _candidateSnapshots.ReplacePool(_candidatePoolTickets);
         PublishCandidateTickets(snapshot, string.Empty);
         _logger.Info($"[ZnunyCandidates] reason={reason} source={candidateIds.Count} newIds={newIds.Count} evaluated={idsToEvaluate.Count} matched={snapshot.Count} removed={(partial ? 0 : previousState.Keys.Count(id => !candidateIds.Contains(id)))} possiblyTruncated={possiblyTruncated.ToString().ToLowerInvariant()} partial={partial.ToString().ToLowerInvariant()} durationMs={stopwatch.ElapsedMilliseconds}");
         return new CandidateDiscoveryResult(newIds.Count, candidateIds.Count - newIds.Count, snapshot.Count);

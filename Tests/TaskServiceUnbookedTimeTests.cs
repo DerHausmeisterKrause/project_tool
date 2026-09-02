@@ -69,7 +69,9 @@ public sealed class TaskServiceUnbookedTimeTests : IDisposable
 
     public void Dispose()
     {
+        SqliteConnection.ClearAllPools();
         if (File.Exists(_databasePath)) File.Delete(_databasePath);
         if (File.Exists(_settingsPath)) File.Delete(_settingsPath);
+        Assert.False(File.Exists(_databasePath));
     }
 }
