@@ -45,10 +45,10 @@ public sealed class TicketDetailCacheService
     {
         profile ??= new TicketDetailFetchProfile(true, false, false, 0);
         var existing = LoadEntry(context.TicketId);
+        var sameRemoteVersion = existing != null && SameRemoteVersion(existing.RemoteChangedUtc, remoteChangedUtc);
         // A narrower Candidate read may refresh metadata, but must never erase richer
         // articles or dynamic-field values already proven complete.
-        var preserveArticles = existing?.ArticlesComplete == true
-            && (!profile.ArticlesComplete || (existing.DynamicFieldsComplete && !profile.DynamicFieldsComplete));
+        var preserveArticles = existing?.ArticlesComplete == true && !profile.ArticlesComplete;
         var preserveDynamicFields = !profile.DynamicFieldsComplete && existing?.DynamicFieldsComplete == true;
         var merged = context with
         {
@@ -59,10 +59,12 @@ public sealed class TicketDetailCacheService
             OrderValue = preserveDynamicFields ? existing!.Context.OrderValue : context.OrderValue
         };
         var mergedProfile = new TicketDetailFetchProfile(
-            profile.MetadataComplete || existing?.MetadataComplete == true,
-            profile.ArticlesComplete || existing?.ArticlesComplete == true,
-            profile.DynamicFieldsComplete || existing?.DynamicFieldsComplete == true,
-            Math.Max(profile.FetchedArticleLimit, existing?.FetchedArticleLimit ?? 0));
+            profile.MetadataComplete || (sameRemoteVersion && existing?.MetadataComplete == true),
+            profile.ArticlesComplete || (sameRemoteVersion && existing?.ArticlesComplete == true),
+            profile.DynamicFieldsComplete || (sameRemoteVersion && existing?.DynamicFieldsComplete == true),
+            profile.ArticlesComplete
+                ? Math.Max(profile.FetchedArticleLimit, sameRemoteVersion ? existing?.FetchedArticleLimit ?? 0 : 0)
+                : sameRemoteVersion ? existing?.FetchedArticleLimit ?? 0 : 0);
 
         using var connection = Open();
         using var transaction = connection.BeginTransaction();
@@ -104,18 +106,24 @@ dynamic_fields_complete=excluded.dynamic_fields_complete,fetched_article_limit=e
     }
 
     public IReadOnlyList<TicketFieldOption> LoadFieldOptions(string fieldName, string fingerprint, TimeSpan ttl, bool allowExpired = false)
+        => LoadFieldOptionsEntry(fieldName, fingerprint) is { } entry
+           && (allowExpired || entry.IsFresh(ttl, DateTime.UtcNow)) ? entry.Options : Array.Empty<TicketFieldOption>();
+
+    public DynamicFieldOptionsCacheEntry LoadFieldOptionsEntry(string fieldName, string fingerprint)
     {
         var result = new List<TicketFieldOption>(); using var connection = Open(); using var command = connection.CreateCommand();
         command.CommandText = @"SELECT option_key,display_value,fetched_utc FROM znuny_dynamic_field_options_cache
 WHERE field_name=$field AND configuration_fingerprint=$fingerprint ORDER BY display_value";
         command.Parameters.AddWithValue("$field", fieldName); command.Parameters.AddWithValue("$fingerprint", fingerprint);
         using var reader = command.ExecuteReader();
+        DateTime? oldestFetched = null;
         while (reader.Read())
         {
-            if (!allowExpired && (Parse(reader.GetString(2)) is not { } fetched || DateTime.UtcNow - fetched > ttl)) return Array.Empty<TicketFieldOption>();
+            var fetched = Parse(reader.GetString(2));
+            if (fetched.HasValue && (!oldestFetched.HasValue || fetched < oldestFetched)) oldestFetched = fetched;
             result.Add(new TicketFieldOption(reader.GetString(0), reader.GetString(1)));
         }
-        return result;
+        return new DynamicFieldOptionsCacheEntry(result, oldestFetched);
     }
 
     public void ReplaceFieldOptions(string fieldName, string fingerprint, IReadOnlyCollection<TicketFieldOption> options)
@@ -149,6 +157,67 @@ ON CONFLICT(context_key) DO UPDATE SET next_ticket_id=excluded.next_ticket_id,up
         command.Parameters.AddWithValue("$key", contextKey); command.Parameters.AddWithValue("$id", nextTicketId); command.Parameters.AddWithValue("$utc", DateTime.UtcNow.ToString("O")); command.ExecuteNonQuery();
     }
 
+    public TicketReconciliationCycle StartOrLoadCycle(string contextKey, string discoveryFingerprint,
+        IReadOnlyList<string> discoveredTicketIds)
+    {
+        using var connection = Open(); using var transaction = connection.BeginTransaction();
+        string? storedFingerprint = null; string? discoveredJson = null; DateTime? started = null;
+        using (var load = connection.CreateCommand())
+        {
+            load.Transaction = transaction;
+            load.CommandText = "SELECT discovery_fingerprint,discovered_ticket_ids_json,started_utc FROM znuny_reconciliation_cycle WHERE context_key=$key";
+            load.Parameters.AddWithValue("$key", contextKey);
+            using var reader = load.ExecuteReader();
+            if (reader.Read()) { storedFingerprint = reader.GetString(0); discoveredJson = reader.GetString(1); started = Parse(reader.GetString(2)); }
+        }
+        if (!string.Equals(storedFingerprint, discoveryFingerprint, StringComparison.Ordinal))
+        {
+            using (var clearPending = connection.CreateCommand())
+            {
+                clearPending.Transaction = transaction; clearPending.CommandText = "DELETE FROM znuny_reconciliation_pending WHERE context_key=$key";
+                clearPending.Parameters.AddWithValue("$key", contextKey); clearPending.ExecuteNonQuery();
+            }
+            using var clear = connection.CreateCommand(); clear.Transaction = transaction;
+            clear.CommandText = "DELETE FROM znuny_reconciliation_cycle WHERE context_key=$key"; clear.Parameters.AddWithValue("$key", contextKey); clear.ExecuteNonQuery();
+            var now = DateTime.UtcNow;
+            using var cycle = connection.CreateCommand(); cycle.Transaction = transaction;
+            cycle.CommandText = "INSERT INTO znuny_reconciliation_cycle(context_key,discovery_fingerprint,discovered_ticket_ids_json,started_utc) VALUES($key,$fingerprint,$ids,$utc)";
+            cycle.Parameters.AddWithValue("$key", contextKey); cycle.Parameters.AddWithValue("$fingerprint", discoveryFingerprint);
+            cycle.Parameters.AddWithValue("$ids", JsonSerializer.Serialize(discoveredTicketIds)); cycle.Parameters.AddWithValue("$utc", now.ToString("O")); cycle.ExecuteNonQuery();
+            for (var index = 0; index < discoveredTicketIds.Count; index++)
+            {
+                using var pending = connection.CreateCommand(); pending.Transaction = transaction;
+                pending.CommandText = "INSERT INTO znuny_reconciliation_pending(context_key,ticket_id,ordinal) VALUES($key,$id,$ordinal)";
+                pending.Parameters.AddWithValue("$key", contextKey); pending.Parameters.AddWithValue("$id", discoveredTicketIds[index]); pending.Parameters.AddWithValue("$ordinal", index); pending.ExecuteNonQuery();
+            }
+            storedFingerprint = discoveryFingerprint; discoveredJson = JsonSerializer.Serialize(discoveredTicketIds); started = now;
+        }
+        var pendingIds = new List<string>();
+        using (var pending = connection.CreateCommand())
+        {
+            pending.Transaction = transaction; pending.CommandText = "SELECT ticket_id FROM znuny_reconciliation_pending WHERE context_key=$key ORDER BY ordinal";
+            pending.Parameters.AddWithValue("$key", contextKey); using var reader = pending.ExecuteReader(); while (reader.Read()) pendingIds.Add(reader.GetString(0));
+        }
+        transaction.Commit();
+        return new TicketReconciliationCycle(contextKey, storedFingerprint!,
+            JsonSerializer.Deserialize<List<string>>(discoveredJson!) ?? [], pendingIds, started ?? DateTime.UtcNow);
+    }
+
+    public void CompleteCycleTicket(string contextKey, string ticketId)
+    {
+        using var connection = Open(); using var command = connection.CreateCommand();
+        command.CommandText = "DELETE FROM znuny_reconciliation_pending WHERE context_key=$key AND ticket_id=$id";
+        command.Parameters.AddWithValue("$key", contextKey); command.Parameters.AddWithValue("$id", ticketId); command.ExecuteNonQuery();
+    }
+
+    public void CompleteCycle(string contextKey)
+    {
+        using var connection = Open(); using var transaction = connection.BeginTransaction();
+        using (var pending = connection.CreateCommand()) { pending.Transaction = transaction; pending.CommandText = "DELETE FROM znuny_reconciliation_pending WHERE context_key=$key"; pending.Parameters.AddWithValue("$key", contextKey); pending.ExecuteNonQuery(); }
+        using var command = connection.CreateCommand(); command.Transaction = transaction;
+        command.CommandText = "DELETE FROM znuny_reconciliation_cycle WHERE context_key=$key"; command.Parameters.AddWithValue("$key", contextKey); command.ExecuteNonQuery(); transaction.Commit();
+    }
+
     private static IReadOnlyList<TicketArticleItem> LoadArticles(SqliteConnection connection, string ticketId)
     {
         var result = new List<TicketArticleItem>(); using var command = connection.CreateCommand();
@@ -162,4 +231,6 @@ ON CONFLICT(context_key) DO UPDATE SET next_ticket_id=excluded.next_ticket_id,up
     private static bool Bool(SqliteDataReader reader, string name) => Convert.ToInt64(reader[name], CultureInfo.InvariantCulture) != 0;
     private static int Int(SqliteDataReader reader, string name) => Convert.ToInt32(reader[name], CultureInfo.InvariantCulture);
     private static DateTime? Parse(string? value) => DateTime.TryParse(value, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var parsed) ? parsed.ToUniversalTime() : null;
+    private static bool SameRemoteVersion(DateTime? existing, DateTime? incoming)
+        => existing.HasValue && incoming.HasValue && existing.Value == incoming.Value;
 }

@@ -25,3 +25,19 @@ public sealed record TicketDetailCacheEntry(
         && DynamicFieldsComplete
         && FetchedArticleLimit >= requestedArticleLimit;
 }
+
+public sealed record DynamicFieldOptionsCacheEntry(
+    IReadOnlyList<TicketFieldOption> Options,
+    DateTime? FetchedUtc)
+{
+    public bool IsFresh(TimeSpan ttl, DateTime utcNow) => Options.Count > 0
+        && FetchedUtc is { } fetched
+        && utcNow - fetched <= ttl;
+}
+
+public sealed record TicketReconciliationCycle(
+    string ContextKey,
+    string DiscoveryFingerprint,
+    IReadOnlyList<string> DiscoveredTicketIds,
+    IReadOnlyList<string> PendingTicketIds,
+    DateTime StartedUtc);

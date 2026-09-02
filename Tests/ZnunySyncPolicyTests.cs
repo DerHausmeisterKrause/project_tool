@@ -121,6 +121,14 @@ public sealed class ZnunySyncPolicyTests
     public void CandidateTimerIsAnAutomaticRequestReason()
         => Assert.True(ZnunyRequestReason.CandidateTimerSync.IsAutomatic());
 
+    [Fact]
+    public void ExistingCandidatesAreNotReevaluatedEveryFiveMinutes()
+        => Assert.Equal(TimeSpan.FromMinutes(30), ZnunySyncPolicy.CandidateReevaluationTtl);
+
+    [Fact]
+    public void DynamicFieldFreshnessHasStableTwentyFourHourTtl()
+        => Assert.Equal(TimeSpan.FromHours(24), ZnunySyncPolicy.DynamicFieldOptionsTtl);
+
     [Theory]
     [InlineData("Owner", "OwnerIDs")]
     [InlineData("Responsible", "ResponsibleIDs")]

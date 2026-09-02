@@ -12,6 +12,8 @@ public static class ZnunySyncPolicy
     public const int MinimumCandidateIntervalMinutes = 3;
     public const int MaximumCandidateIntervalMinutes = 60;
     public const int DefaultCandidateIntervalMinutes = 5;
+    public static readonly TimeSpan CandidateReevaluationTtl = TimeSpan.FromMinutes(30);
+    public static readonly TimeSpan DynamicFieldOptionsTtl = TimeSpan.FromHours(24);
     public const string ArticleOrder = "DESC";
     public const string SearchSortBy = "Changed";
     public const string SearchOrderBy = "Down";
@@ -48,6 +50,9 @@ public static class ZnunySyncPolicy
         var index = ids.FindIndex(id => string.Equals(id, nextTicketId, StringComparison.OrdinalIgnoreCase));
         return index <= 0 ? ids : ids.Skip(index).Concat(ids.Take(index)).ToList();
     }
+
+    public static bool RequiresFullTicketGet(TicketDetailCacheEntry? cache, int requestedArticleLimit)
+        => cache?.IsCompleteFor(NormalizeArticleLimit(requestedArticleLimit)) != true;
 
     public static IReadOnlyDictionary<string, string> TicketGetOptions(bool allArticles, bool dynamicFields, int configuredArticleLimit)
     {

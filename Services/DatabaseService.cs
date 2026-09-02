@@ -67,10 +67,11 @@ CREATE TABLE IF NOT EXISTS schema_version (
             MigrateToV20(conn);
             MigrateToV21(conn);
             MigrateToV22(conn);
+            MigrateToV23(conn);
 
-            if (currentVersion < 22)
+            if (currentVersion < 23)
             {
-                SetVersion(conn, 22);
+                SetVersion(conn, 23);
             }
         }
         catch (Exception ex)
@@ -345,6 +346,19 @@ CREATE TABLE IF NOT EXISTS znuny_dynamic_field_options_cache (
         EnsureColumn(conn, "znuny_ticket_detail_cache", "fetched_article_limit", "INTEGER NOT NULL DEFAULT 0");
         Exec(conn, @"CREATE TABLE IF NOT EXISTS znuny_sync_cursor (
  context_key TEXT PRIMARY KEY, next_ticket_id TEXT NOT NULL DEFAULT '', updated_utc TEXT NOT NULL);");
+    }
+
+    private static void MigrateToV23(SqliteConnection conn)
+    {
+        Exec(conn, @"CREATE TABLE IF NOT EXISTS znuny_reconciliation_cycle (
+ context_key TEXT PRIMARY KEY, discovery_fingerprint TEXT NOT NULL,
+ discovered_ticket_ids_json TEXT NOT NULL, started_utc TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS znuny_reconciliation_pending (
+ context_key TEXT NOT NULL, ticket_id TEXT NOT NULL, ordinal INTEGER NOT NULL,
+ PRIMARY KEY(context_key,ticket_id),
+ FOREIGN KEY(context_key) REFERENCES znuny_reconciliation_cycle(context_key) ON DELETE CASCADE);
+CREATE INDEX IF NOT EXISTS idx_znuny_reconciliation_pending
+ON znuny_reconciliation_pending(context_key,ordinal);");
     }
 
     private static void EnsureColumn(SqliteConnection conn, string table, string column, string definition)
