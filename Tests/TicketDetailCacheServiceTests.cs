@@ -166,6 +166,18 @@ public sealed class TicketDetailCacheServiceTests : IDisposable
     }
 
     [Fact]
+    public void ChangedDiscoveryRetainsCompletedTicketsThatAreStillPresent()
+    {
+        _cache.StartOrLoadCycle("agent", "one", ["1", "2"]);
+        _cache.CompleteCycleTicket("agent", "1");
+
+        var changed = _cache.StartOrLoadCycle("agent", "two", ["1", "2", "3"]);
+
+        Assert.Equal(["2", "3"], changed.PendingTicketIds);
+        Assert.Equal(["1", "2", "3"], changed.DiscoveredTicketIds);
+    }
+
+    [Fact]
     public void PersistedDynamicFieldFreshnessUsesOriginalFetchedTimestamp()
     {
         _cache.ReplaceFieldOptions("Cost", "fingerprint", [new TicketFieldOption("1", "One")]);
