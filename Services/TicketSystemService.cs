@@ -47,6 +47,7 @@ public class TicketSystemService : IDisposable
     private string _sessionId = string.Empty;
     private DateTime _sessionExpiresUtc;
     private IReadOnlyList<ZnunyCandidateTicket> _candidateTickets = Array.Empty<ZnunyCandidateTicket>();
+    private IReadOnlyList<ZnunyCandidateTicket> _candidatePoolTickets = Array.Empty<ZnunyCandidateTicket>();
     private int _lastCandidateUserId;
     private string _lastCandidateKeywords = string.Empty;
     private string _lastCandidateExcludeKeywords = string.Empty;
@@ -61,6 +62,7 @@ public class TicketSystemService : IDisposable
     public event Action<ZnunySyncStatusSnapshot>? FullSyncStatusChanged;
     public ZnunySyncStatusSnapshot? LastFullSyncStatus => _settings.Current.LastFullSyncStatus;
     public IReadOnlyList<ZnunyCandidateTicket> CurrentCandidateTickets => _candidateTickets;
+    public IReadOnlyList<ZnunyCandidateTicket> CurrentCandidatePoolTickets => _candidatePoolTickets;
     public string CandidateTicketsError { get; private set; } = string.Empty;
     public bool IsCandidateRefreshRunning { get; private set; }
     public string CandidateStatusMessage { get; private set; } = string.Empty;
@@ -438,9 +440,11 @@ public class TicketSystemService : IDisposable
         var remaining = _candidateTickets
             .Where(candidate => !string.Equals(candidate.TicketId, ticketId, StringComparison.OrdinalIgnoreCase))
             .ToList();
-        if (remaining.Count == _candidateTickets.Count) return;
-        _candidateSnapshots.Replace(remaining);
+        _candidatePoolTickets = _candidatePoolTickets
+            .Where(candidate => !string.Equals(candidate.TicketId, ticketId, StringComparison.OrdinalIgnoreCase)).ToList();
         _candidateScanStates.Remove(ticketId);
+        if (remaining.Count == _candidateTickets.Count) { CandidateTicketsChanged?.Invoke(); return; }
+        _candidateSnapshots.Replace(remaining);
         PublishCandidateTickets(remaining, string.Empty);
         _logger.Info($"[ZnunySelfAssign] ticketId={ticketId} action=candidate-removed-locally");
     }
@@ -1734,14 +1738,6 @@ public class TicketSystemService : IDisposable
         var excludeKeywords = ParseCandidateKeywords(_settings.Current.TicketSystemCandidateExcludeKeywords);
         var candidateUserId = _settings.Current.TicketSystemCandidateUserId;
         _logger.Info($"[ZnunyCandidates] action=refresh-start reason={reason} mode={(lightweight ? "discovery" : "reconcile")} candidateUserId={candidateUserId} includeKeywordCount={includeKeywords.Count} excludeKeywordCount={excludeKeywords.Count}");
-        if (includeKeywords.Count == 0)
-        {
-            _candidateSnapshots.Replace(Array.Empty<ZnunyCandidateTicket>());
-            _candidateScanStates.Replace(Array.Empty<CandidateScanState>());
-            PublishCandidateTickets(Array.Empty<ZnunyCandidateTicket>(), string.Empty);
-            return new CandidateDiscoveryResult(0, 0, 0);
-        }
-
         var ownerSearch = await SearchCandidateRoleActiveTicketIdsAsync("Owner", candidateUserId, sessionId, sessionHash);
         var responsibleSearch = await SearchCandidateRoleActiveTicketIdsAsync("Responsible", candidateUserId, sessionId, sessionHash);
         var ownerIds = ownerSearch.TicketIds;
@@ -1765,6 +1761,10 @@ public class TicketSystemService : IDisposable
         var partial = possiblyTruncated || idsToEvaluate.Count < requestedEvaluationIds.Count;
         var matches = (lightweight || partial ? _candidateSnapshots.Load().Where(item => partial || candidateIds.Contains(item.TicketId)) : Array.Empty<ZnunyCandidateTicket>()).ToList();
         var matchedById = matches.ToDictionary(item => item.TicketId, StringComparer.OrdinalIgnoreCase);
+        var poolById = (possiblyTruncated
+                ? _candidatePoolTickets
+                : _candidatePoolTickets.Where(item => candidateIds.Contains(item.TicketId)))
+            .ToDictionary(item => item.TicketId, StringComparer.OrdinalIgnoreCase);
         var evaluated = new Dictionary<string, (bool Matched, DateTime? Changed)>(StringComparer.OrdinalIgnoreCase);
 
         foreach (var ticketId in idsToEvaluate.OrderBy(id => id, StringComparer.OrdinalIgnoreCase))
@@ -1783,9 +1783,12 @@ public class TicketSystemService : IDisposable
                 {
                     var match = FindCandidateMatch(ticket, includeKeywords);
                     var exclusion = FindCandidateMatch(ticket, excludeKeywords);
+                    poolById[ticketId] = CreateCandidate(ticket, candidateUserId,
+                        match.Keyword.Length > 0 && exclusion.Keyword.Length == 0 ? match.Keyword : string.Empty);
                     if (match.Keyword.Length > 0 && exclusion.Keyword.Length == 0)
                         candidate = CreateCandidate(ticket, candidateUserId, match.Keyword);
                 }
+                else poolById.Remove(ticketId);
             }
 
             matchedById.Remove(ticketId);
@@ -1803,6 +1806,7 @@ public class TicketSystemService : IDisposable
             return new CandidateScanState(id, now, DateTime.MinValue, false, null);
         }).ToList();
         var snapshot = matchedById.Values.OrderByDescending(ticket => ticket.TicketNumber, StringComparer.OrdinalIgnoreCase).ToList();
+        _candidatePoolTickets = poolById.Values.OrderByDescending(ticket => ticket.TicketNumber, StringComparer.OrdinalIgnoreCase).ToList();
         _candidateScanStates.Replace(states);
         _candidateSnapshots.Replace(snapshot);
         PublishCandidateTickets(snapshot, string.Empty);
@@ -1864,7 +1868,7 @@ public class TicketSystemService : IDisposable
     {
         _candidateTickets = tickets;
         CandidateTicketsError = error;
-        _logger.Info($"[ZnunyCandidatesPublish] serviceCount={tickets.Count}");
+        _logger.Info($"[ZnunyCandidatesPublish] serviceCount={tickets.Count} poolCount={_candidatePoolTickets.Count}");
         CandidateTicketsChanged?.Invoke();
     }
 
