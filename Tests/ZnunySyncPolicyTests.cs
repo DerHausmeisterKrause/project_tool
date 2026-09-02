@@ -32,8 +32,8 @@ public sealed class ZnunySyncPolicyTests
     }
 
     [Fact]
-    public void AutomaticRequestBudgetIsHardBounded()
-        => Assert.Equal(60, ZnunySyncPolicy.MaximumAutomaticRequestsPerSync);
+    public void RunawayFuseIsHighAndNotANormalSyncBudget()
+        => Assert.Equal(5000, ZnunySyncPolicy.MaximumRequestsPerPipeline);
 
     [Fact]
     public void PersistentCursorRotatesWorkSoLaterTicketsCannotStarve()

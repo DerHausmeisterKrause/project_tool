@@ -62,11 +62,8 @@ public sealed class TicketSystemServiceHttpTests
         Assert.Equal(0, handler.Count("/Session"));
     }
 
-    [Theory]
-    [InlineData(57, 1, 1, null)]
-    [InlineData(58, 0, 0, "ZnunySyncBudgetPauseException")]
-    public async Task AutomaticReadRecoveryHonorsSixtyRequestBudget(
-        int alreadyUsed, int expectedSearchesAfterFirst, int expectedSessions, string? exceptionName)
+    [Fact]
+    public async Task AutomaticReadRecoveryIsNotStoppedByHistoricalSixtyRequestBudget()
     {
         var handler = new RecordingHandler((request, occurrence) => request.RequestUri!.AbsolutePath switch
         {
@@ -76,15 +73,14 @@ public sealed class TicketSystemServiceHttpTests
             _ => throw new InvalidOperationException()
         });
         using var service = new TicketSystemService(handler, "https://znuny.test/Session");
-        service.SetAutomaticTrafficForHttpRegressionTest(alreadyUsed);
+        service.SetAutomaticTrafficForHttpRegressionTest(60);
 
         var exception = await Record.ExceptionAsync(() => service.SendForHttpRegressionTestAsync(
             HttpMethod.Get, "https://znuny.test/Ticket/42?SessionID=old", "TicketGetDetails"));
 
-        Assert.Equal(1 + expectedSearchesAfterFirst, handler.Count("/Ticket/42"));
-        Assert.Equal(expectedSessions, handler.Count("/Session"));
-        Assert.Equal(exceptionName, exception?.GetType().Name);
-        Assert.NotEqual("ZnunySyncBudgetExceededException", exception?.GetType().Name);
+        Assert.Equal(2, handler.Count("/Ticket/42"));
+        Assert.Equal(1, handler.Count("/Session"));
+        Assert.Null(exception);
     }
 
     private const string Expired = "{\"Error\":{\"ErrorCode\":\"SessionInvalid\",\"ErrorMessage\":\"Session expired\"}}";
