@@ -37,6 +37,7 @@ public class TicketSystemService : IDisposable
     private readonly System.Threading.Timer _candidateSyncTimer;
     private bool _scheduledSyncStarted;
     private bool _initialSyncCompleted;
+    private bool _startupFullPending;
     private readonly AsyncLocal<SyncTraffic?> _syncTraffic = new();
     private readonly AsyncLocal<ZnunyRequestReason?> _requestReason = new();
     private IReadOnlyDictionary<string, IReadOnlyList<TicketFieldOption>> _dynamicFieldOptionsCache = new Dictionary<string, IReadOnlyList<TicketFieldOption>>(StringComparer.OrdinalIgnoreCase);
@@ -171,18 +172,20 @@ public class TicketSystemService : IDisposable
             return;
 
         _scheduledSyncStarted = true;
+        _startupFullPending = true;
         var now = DateTimeOffset.UtcNow;
         var startupDelay = ZnunySyncSchedulerPolicy.StartupCandidateDelay(_settings.Current.ClientInstanceId);
         _candidateScheduleAnchor = now + startupDelay;
         _fullScheduleAnchor = now + ZnunySyncSchedulerPolicy.StartupFullDelay(_settings.Current.ClientInstanceId);
         _initialSyncTimer.Change(startupDelay, Timeout.InfiniteTimeSpan);
+        _fullSyncTimer.Change(_fullScheduleAnchor - now, Timeout.InfiniteTimeSpan);
         _logger.Info($"[ZnunyScheduledSync] action=started firstRunSeconds={startupDelay.TotalSeconds:0} fullIntervalMinutes={ZnunySyncPolicy.NormalizeIntervalMinutes(_settings.Current.TicketSystemSyncIntervalMinutes)} candidateIntervalMinutes={ZnunySyncPolicy.NormalizeCandidateIntervalMinutes(_settings.Current.TicketSystemCandidateSyncIntervalMinutes)}");
     }
 
     private async Task RunInitialSyncAsync()
     {
         if (_initialSyncCompleted) return;
-        _logger.Info("[ZnunyScheduledSync] reason=InitialSync pipeline=CandidateThenAssigned");
+        _logger.Info("[ZnunyScheduledSync] reason=InitialSync pipeline=Candidate");
         if (!await _syncGate.WaitAsync(0))
         {
             var retryDelay = ZnunySyncSchedulerPolicy.BusyRetryDelay(_settings.Current.ClientInstanceId, "initial");
@@ -190,12 +193,9 @@ public class TicketSystemService : IDisposable
             _initialSyncTimer.Change(retryDelay, Timeout.InfiniteTimeSpan);
             return;
         }
-        var assignedStarted = false;
         try
         {
             await RefreshCandidateTicketsInternalAsync(ZnunyRequestReason.InitialSync, lightweight: false, updateManualStatus: false, gateAlreadyHeld: true);
-            var assigned = await SyncAssignedTicketsAsync(ZnunyRequestReason.InitialSync, gateAlreadyHeld: true);
-            assignedStarted = assigned.Started && assigned.Success && !assigned.PartiallyProcessed && !assigned.SearchLimitReached;
         }
         catch (Exception ex)
         {
@@ -204,36 +204,29 @@ public class TicketSystemService : IDisposable
         finally
         {
             _syncGate.Release();
-            if (assignedStarted)
-            {
-                _initialSyncCompleted = true;
-                ScheduleFullTimer();
-                ScheduleCandidateTimer();
-            }
-            else if (!_initialSyncCompleted)
-            {
-                var retryDelay = TimeSpan.FromMinutes(2) + TimeSpan.FromSeconds(Random.Shared.Next(0, 31));
-                _initialSyncTimer.Change(retryDelay, Timeout.InfiniteTimeSpan);
-                _logger.Info($"[ZnunyInitialSync] action=retry-scheduled retrySeconds={retryDelay.TotalSeconds:0}");
-            }
+            _initialSyncCompleted = true;
+            ScheduleCandidateTimer();
         }
     }
 
     private async Task RunFullTimerSyncAsync()
     {
-        var result = await SyncAssignedTicketsAsync(ZnunyRequestReason.FullTimerSync);
+        var result = await SyncAssignedTicketsAsync(_startupFullPending ? ZnunyRequestReason.InitialSync : ZnunyRequestReason.FullTimerSync);
         if (result.Busy)
         {
             _fullSyncTimer.Change(ZnunySyncSchedulerPolicy.BusyRetryDelay(_settings.Current.ClientInstanceId, "full"), Timeout.InfiniteTimeSpan);
             return;
         }
+        // A non-busy result consumes the one real startup occurrence. Failures return
+        // to the regular phase-aligned interval; only GateBusy receives a short retry.
+        _startupFullPending = false;
         ScheduleFullTimer();
     }
 
     private async Task RunCandidateTimerSyncAsync()
     {
-        var started = await RefreshCandidateTicketsInternalAsync(ZnunyRequestReason.CandidateTimerSync, lightweight: true, updateManualStatus: false);
-        if (!started)
+        var outcome = await RefreshCandidateTicketsInternalAsync(ZnunyRequestReason.CandidateTimerSync, lightweight: true, updateManualStatus: false);
+        if (outcome == ZnunyScheduledRunOutcome.Busy)
         {
             _candidateSyncTimer.Change(ZnunySyncSchedulerPolicy.BusyRetryDelay(_settings.Current.ClientInstanceId, "candidate"), Timeout.InfiniteTimeSpan);
             return;
@@ -541,9 +534,10 @@ public class TicketSystemService : IDisposable
     }
 
     public async Task<bool> RefreshCandidateTicketsAsync()
-        => await RefreshCandidateTicketsInternalAsync(ZnunyRequestReason.ManualCandidateRefresh, lightweight: false, updateManualStatus: true);
+        => await RefreshCandidateTicketsInternalAsync(ZnunyRequestReason.ManualCandidateRefresh, lightweight: false, updateManualStatus: true)
+            == ZnunyScheduledRunOutcome.Started;
 
-    private async Task<bool> RefreshCandidateTicketsInternalAsync(ZnunyRequestReason reason, bool lightweight, bool updateManualStatus, bool gateAlreadyHeld = false)
+    private async Task<ZnunyScheduledRunOutcome> RefreshCandidateTicketsInternalAsync(ZnunyRequestReason reason, bool lightweight, bool updateManualStatus, bool gateAlreadyHeld = false)
     {
         var ownsGate = !gateAlreadyHeld;
         if (ownsGate && !await _syncGate.WaitAsync(0))
@@ -554,7 +548,7 @@ public class TicketSystemService : IDisposable
                 CandidateStatusMessage = "Aktualisierung nicht gestartet – derzeit läuft eine andere Znuny-Aktion.";
                 CandidateTicketsChanged?.Invoke();
             }
-            return false;
+            return ZnunyScheduledRunOutcome.Busy;
         }
         if (updateManualStatus)
         {
@@ -571,7 +565,7 @@ public class TicketSystemService : IDisposable
             {
                 LastError = configError;
                 if (updateManualStatus) CandidateStatusMessage = "Aktualisierung fehlgeschlagen – letzter erfolgreicher Stand wird angezeigt.";
-                return false;
+                return ZnunyScheduledRunOutcome.Failed;
             }
             var traffic = new SyncTraffic(reason, Stopwatch.StartNew());
             _syncTraffic.Value = traffic;
@@ -582,7 +576,7 @@ public class TicketSystemService : IDisposable
                 if (updateManualStatus)
                     CandidateStatusMessage = $"Aktualisiert um {DateTime.Now:HH:mm} · {(discovery.Matched == 0 ? "keine neuen Aufgaben" : $"{discovery.Matched} neue Aufgaben")}";
                 _logger.Info($"[ZnunyActionTraffic] reason={reason} searches={traffic.SearchRequests} newCandidateIds={discovery.NewIds} existingCandidateIds={discovery.ExistingIds} candidateDetailGets={traffic.CandidateDetailGets}");
-                return true;
+                return ZnunyScheduledRunOutcome.Started;
             }
             finally { LogTraffic(traffic); _syncTraffic.Value = null; }
         }
@@ -591,7 +585,7 @@ public class TicketSystemService : IDisposable
             LastError = $"Neue Aufgaben konnten nicht aktualisiert werden: {ex.Message}";
             CandidateTicketsError = "Aktualisierung fehlgeschlagen – letzter erfolgreicher Stand wird angezeigt.";
             CandidateStatusMessage = CandidateTicketsError;
-            return false;
+            return ZnunyScheduledRunOutcome.Failed;
         }
         finally
         {

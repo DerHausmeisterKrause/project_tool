@@ -16,10 +16,23 @@ public static class ZnunySyncSchedulerPolicy
         return anchor + TimeSpan.FromTicks(checked(slots * interval.Ticks));
     }
 
+    public static TimeSpan DelayAfterRun(string clientInstanceId, string pipeline,
+        ZnunyScheduledRunOutcome outcome, DateTimeOffset anchor, DateTimeOffset now, TimeSpan interval)
+        => outcome == ZnunyScheduledRunOutcome.Busy
+            ? BusyRetryDelay(clientInstanceId, pipeline)
+            : NextSlot(anchor, now, interval) - now;
+
     private static TimeSpan StableOffset(string id, string salt, int minimumSeconds, int maximumSeconds)
     {
         var hash = SHA256.HashData(Encoding.UTF8.GetBytes(id + ":" + salt));
         var range = maximumSeconds - minimumSeconds + 1;
         return TimeSpan.FromSeconds(minimumSeconds + BitConverter.ToUInt32(hash, 0) % range);
     }
+}
+
+public enum ZnunyScheduledRunOutcome
+{
+    Started,
+    Busy,
+    Failed
 }

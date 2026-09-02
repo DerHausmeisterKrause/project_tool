@@ -27,12 +27,13 @@ public class SettingsService
     }
 
     private readonly LoggerService _logger;
-    private readonly string _path = Path.Combine(AppContext.BaseDirectory, "settings.json");
+    private readonly string _path;
     public AppSettings Current { get; private set; } = new();
 
-    public SettingsService(LoggerService logger)
+    public SettingsService(LoggerService logger, string? settingsPath = null)
     {
         _logger = logger;
+        _path = settingsPath ?? Path.Combine(AppContext.BaseDirectory, "settings.json");
         Load();
         ApplyLoggerMinimumLevel();
     }
