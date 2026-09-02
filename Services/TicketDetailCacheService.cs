@@ -172,6 +172,22 @@ ON CONFLICT(context_key) DO UPDATE SET next_ticket_id=excluded.next_ticket_id,up
         }
         if (!string.Equals(storedFingerprint, discoveryFingerprint, StringComparison.Ordinal))
         {
+            var oldDiscovered = JsonSerializer.Deserialize<List<string>>(discoveredJson ?? "[]") ?? [];
+            var oldPending = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            using (var loadPending = connection.CreateCommand())
+            {
+                loadPending.Transaction = transaction;
+                loadPending.CommandText = "SELECT ticket_id FROM znuny_reconciliation_pending WHERE context_key=$key";
+                loadPending.Parameters.AddWithValue("$key", contextKey);
+                using var reader = loadPending.ExecuteReader();
+                while (reader.Read()) oldPending.Add(reader.GetString(0));
+            }
+            // IDs completed for the previous discovery and still present are safe to
+            // retain. New IDs and removals (which callers include for verification)
+            // are queued exactly once.
+            var completedStillPresent = oldDiscovered.Except(oldPending, StringComparer.OrdinalIgnoreCase)
+                .Intersect(discoveredTicketIds, StringComparer.OrdinalIgnoreCase).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var nextPending = discoveredTicketIds.Where(id => !completedStillPresent.Contains(id)).ToList();
             using (var clearPending = connection.CreateCommand())
             {
                 clearPending.Transaction = transaction; clearPending.CommandText = "DELETE FROM znuny_reconciliation_pending WHERE context_key=$key";
@@ -184,11 +200,11 @@ ON CONFLICT(context_key) DO UPDATE SET next_ticket_id=excluded.next_ticket_id,up
             cycle.CommandText = "INSERT INTO znuny_reconciliation_cycle(context_key,discovery_fingerprint,discovered_ticket_ids_json,started_utc) VALUES($key,$fingerprint,$ids,$utc)";
             cycle.Parameters.AddWithValue("$key", contextKey); cycle.Parameters.AddWithValue("$fingerprint", discoveryFingerprint);
             cycle.Parameters.AddWithValue("$ids", JsonSerializer.Serialize(discoveredTicketIds)); cycle.Parameters.AddWithValue("$utc", now.ToString("O")); cycle.ExecuteNonQuery();
-            for (var index = 0; index < discoveredTicketIds.Count; index++)
+            for (var index = 0; index < nextPending.Count; index++)
             {
                 using var pending = connection.CreateCommand(); pending.Transaction = transaction;
                 pending.CommandText = "INSERT INTO znuny_reconciliation_pending(context_key,ticket_id,ordinal) VALUES($key,$id,$ordinal)";
-                pending.Parameters.AddWithValue("$key", contextKey); pending.Parameters.AddWithValue("$id", discoveredTicketIds[index]); pending.Parameters.AddWithValue("$ordinal", index); pending.ExecuteNonQuery();
+                pending.Parameters.AddWithValue("$key", contextKey); pending.Parameters.AddWithValue("$id", nextPending[index]); pending.Parameters.AddWithValue("$ordinal", index); pending.ExecuteNonQuery();
             }
             storedFingerprint = discoveryFingerprint; discoveredJson = JsonSerializer.Serialize(discoveredTicketIds); started = now;
         }
