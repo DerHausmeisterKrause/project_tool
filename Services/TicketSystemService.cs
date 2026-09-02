@@ -40,6 +40,7 @@ public class TicketSystemService : IDisposable
     private IReadOnlyDictionary<string, IReadOnlyList<TicketFieldOption>> _dynamicFieldOptionsCache = new Dictionary<string, IReadOnlyList<TicketFieldOption>>(StringComparer.OrdinalIgnoreCase);
     private DateTime _dynamicFieldOptionsCacheExpiresUtc;
     private bool _dynamicFieldOptionsCacheValid;
+    private string _dynamicFieldOptionsFingerprint = string.Empty;
     private string _sessionId = string.Empty;
     private DateTime _sessionExpiresUtc;
     private IReadOnlyList<ZnunyCandidateTicket> _candidateTickets = Array.Empty<ZnunyCandidateTicket>();
@@ -86,6 +87,16 @@ public class TicketSystemService : IDisposable
 
     public void HandleSettingsChanged()
     {
+        var dynamicFingerprint = DynamicFieldConfigurationFingerprint();
+        if (!string.Equals(dynamicFingerprint, _dynamicFieldOptionsFingerprint, StringComparison.Ordinal))
+        {
+            _dynamicFieldOptionsCache = new Dictionary<string, IReadOnlyList<TicketFieldOption>>(StringComparer.OrdinalIgnoreCase);
+            _dynamicFieldOptionsCacheExpiresUtc = DateTime.MinValue;
+            _dynamicFieldOptionsCacheValid = false;
+            _dynamicFieldOptionsFingerprint = dynamicFingerprint;
+            LoadPersistedDynamicFieldOptions();
+            _logger.Info("[ZnunyDynamicFieldOptions] action=configuration-changed memoryCacheInvalidated=true");
+        }
         var fullInterval = ZnunySyncPolicy.NormalizeIntervalMinutes(_settings.Current.TicketSystemSyncIntervalMinutes);
         var candidateInterval = ZnunySyncPolicy.NormalizeCandidateIntervalMinutes(_settings.Current.TicketSystemCandidateSyncIntervalMinutes);
         var fullIntervalChanged = fullInterval != _lastFullSyncInterval;
@@ -137,8 +148,8 @@ public class TicketSystemService : IDisposable
         try
         {
             var assigned = await SyncAssignedTicketsAsync(ZnunyRequestReason.InitialSync, gateAlreadyHeld: true);
-            assignedStarted = assigned.Started;
-            if (assigned.Started)
+            assignedStarted = assigned.Started && assigned.Success;
+            if (assignedStarted)
                 await RefreshCandidateTicketsInternalAsync(ZnunyRequestReason.InitialSync, lightweight: false, updateManualStatus: false, gateAlreadyHeld: true);
         }
         catch (Exception ex)
@@ -153,6 +164,12 @@ public class TicketSystemService : IDisposable
                 _initialSyncCompleted = true;
                 ScheduleFullTimer();
                 ScheduleCandidateTimer();
+            }
+            else if (!_initialSyncCompleted)
+            {
+                var retryDelay = TimeSpan.FromMinutes(2) + TimeSpan.FromSeconds(Random.Shared.Next(0, 31));
+                _initialSyncTimer.Change(retryDelay, Timeout.InfiniteTimeSpan);
+                _logger.Info($"[ZnunyInitialSync] action=retry-scheduled retrySeconds={retryDelay.TotalSeconds:0}");
             }
         }
     }
@@ -246,7 +263,23 @@ public class TicketSystemService : IDisposable
                 _logger.Error($"[ZnunySelfAssign] ticketId={ticketId} action=local-upsert-failed message='{LogValue(ex.Message)}'");
             }
 
-            _logger.Info($"[ZnunyActionTraffic] reason=ManualAssign ticketId={ticketId} updateRequests=1 metadataRequests=0 fullSyncTriggered=false localUpsert={localUpsertSucceeded.ToString().ToLowerInvariant()}");
+            stepStopwatch.Restart();
+            try
+            {
+                var details = await GetTicketDetailsAsync(ticketId, sessionId, sessionHash);
+                if (details != null)
+                {
+                    StoreTicketDetails(details, TicketDetailFetchProfile.Full(EffectiveArticleLimit));
+                    UpsertAssignedTicketLocally(details);
+                    NotifyTasksChanged();
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.Warning($"[ZnunySelfAssign] ticketId={ticketId} action=detail-refresh-deferred assignmentConfirmed=true message='{LogValue(ex.Message)}'");
+            }
+            ticketGetMs = stepStopwatch.ElapsedMilliseconds;
+            _logger.Info($"[ZnunyActionTraffic] reason=ManualAssign ticketId={ticketId} updateRequests=1 detailRequests=1 fullSyncTriggered=false localUpsert={localUpsertSucceeded.ToString().ToLowerInvariant()}");
 
             return localUpsertSucceeded
                 ? new AssignTicketResult(true, $"Ticket {candidate.TicketNumber} wurde Ihnen zugewiesen.")
@@ -398,6 +431,16 @@ public class TicketSystemService : IDisposable
             _tasks.UpdateTask(task);
             NotifyTasksChanged();
 
+            try
+            {
+                var details = await GetTicketDetailsAsync(ticketId, sessionId, HashSessionId(sessionId));
+                if (details != null) StoreTicketDetails(details, TicketDetailFetchProfile.Full(EffectiveArticleLimit));
+            }
+            catch (Exception ex)
+            {
+                _logger.Warning($"[ZnunyTicketCreate] ticketId={ticketId} action=detail-refresh-deferred createConfirmed=true message='{LogValue(ex.Message)}'");
+            }
+
             _logger.Info($"[ZnunyTicketCreate] taskId={task.Id} ticketId={ticketId} ticketNumber='{LogValue(ticketNumber)}' action=completed");
             return new CreateTicketResult(true, $"Ticket {ticketNumber} wurde erfolgreich erstellt.", ticketId, ticketNumber, task.TicketUrl);
         }
@@ -499,12 +542,41 @@ public class TicketSystemService : IDisposable
         if (string.IsNullOrWhiteSpace(ticketId))
             throw new InvalidOperationException("Der ausgewählte Task besitzt keine eindeutige Znuny-TicketID.");
 
-        var cached = _detailCache.Load(ticketId);
+        var entry = _detailCache.LoadEntry(ticketId);
+        var cached = entry?.Context;
+        if (entry?.IsCompleteFor(EffectiveArticleLimit) != true && await _syncGate.WaitAsync(0))
+        {
+            try
+            {
+                var sessionId = await CreateSessionAsync();
+                var details = await GetTicketDetailsAsync(ticketId, sessionId, HashSessionId(sessionId));
+                if (details != null)
+                {
+                    StoreTicketDetails(details, TicketDetailFetchProfile.Full(EffectiveArticleLimit));
+                    cached = _detailCache.Load(ticketId);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.Warning($"[ZnunyTicketCache] ticketId={ticketId} action=detail-refresh-deferred message='{LogValue(ex.Message)}'");
+            }
+            finally { _syncGate.Release(); }
+        }
         if (cached != null)
         {
-            var fields = _dynamicFieldOptionsCacheValid
-                ? _dynamicFieldOptionsCache
-                : new Dictionary<string, IReadOnlyList<TicketFieldOption>>(StringComparer.OrdinalIgnoreCase);
+            if (!_dynamicFieldOptionsCacheValid)
+            {
+                try
+                {
+                    if (await _syncGate.WaitAsync(0))
+                    {
+                        try { await GetDynamicFieldOptionsAsync(await CreateSessionAsync(), forceRefresh: false); }
+                        finally { _syncGate.Release(); }
+                    }
+                }
+                catch (Exception ex) { _logger.Warning($"[ZnunyDynamicFieldOptions] action=automatic-load-deferred message='{LogValue(ex.Message)}'"); }
+            }
+            var fields = _dynamicFieldOptionsCache;
             return cached with
             {
                 CostCenterOptions = GetFieldOptions(fields,
@@ -521,6 +593,8 @@ public class TicketSystemService : IDisposable
 
     public async Task<TicketBookingContext> RefreshTicketBookingContextAsync(TaskItem task)
     {
+        if (!await _syncGate.WaitAsync(TimeSpan.FromSeconds(8)))
+            throw new InvalidOperationException("Es läuft bereits eine Znuny-Aktion. Bitte versuchen Sie es gleich erneut.");
         var previousTraffic = _syncTraffic.Value;
         var traffic = new SyncTraffic(ZnunyRequestReason.ManualTicketRefresh, Stopwatch.StartNew());
         _syncTraffic.Value = traffic;
@@ -563,14 +637,16 @@ public class TicketSystemService : IDisposable
             replySource,
             replyRecipient,
             ticket.Title);
-        _detailCache.Store(context, ticket.State, ParseZnunyUtc(ticket.Changed));
+        _detailCache.Store(context, ticket.State, ParseZnunyUtc(ticket.Changed), TicketDetailFetchProfile.Full(EffectiveArticleLimit));
         return context;
         }
-        finally { LogTraffic(traffic); _syncTraffic.Value = previousTraffic; }
+        finally { LogTraffic(traffic); _syncTraffic.Value = previousTraffic; _syncGate.Release(); }
     }
 
     public async Task<TicketBookingContext> RefreshDynamicFieldOptionsAsync(TaskItem task)
     {
+        if (!await _syncGate.WaitAsync(TimeSpan.FromSeconds(8)))
+            throw new InvalidOperationException("Es läuft bereits eine Znuny-Aktion. Bitte versuchen Sie es gleich erneut.");
         var previousTraffic = _syncTraffic.Value;
         var traffic = new SyncTraffic(ZnunyRequestReason.ManualDynamicFieldRefresh, Stopwatch.StartNew());
         _syncTraffic.Value = traffic;
@@ -585,7 +661,7 @@ public class TicketSystemService : IDisposable
                 OrderOptions = GetFieldOptions(fields, _settings.Current.TicketSystemOrderFieldName, _settings.Current.TicketSystemOrderOptions)
             };
         }
-        finally { LogTraffic(traffic); _syncTraffic.Value = previousTraffic; }
+        finally { LogTraffic(traffic); _syncTraffic.Value = previousTraffic; _syncGate.Release(); }
     }
 
     public async Task<TicketReplyResult> SendTicketReplyAsync(
@@ -651,8 +727,19 @@ public class TicketSystemService : IDisposable
             EnsureTicketUpdateResponseIsInterpretable(response);
             var articleId = ExtractFirstValueRecursive(response.Body, "ArticleID");
             _tasks.TouchTaskActivity(task.Id);
+            var refreshWarning = string.Empty;
+            try
+            {
+                var details = await GetTicketDetailsAsync(ticketId, sessionId, HashSessionId(sessionId));
+                if (details != null) StoreTicketDetails(details, TicketDetailFetchProfile.Full(EffectiveArticleLimit));
+            }
+            catch (Exception ex)
+            {
+                refreshWarning = " Die Antwort wurde gesendet, aber die Nachrichtenansicht konnte nicht aktualisiert werden.";
+                _logger.Warning($"[ZnunyReply] ticketId={ticketId} action=detail-refresh-deferred replyConfirmed=true message='{LogValue(ex.Message)}'");
+            }
             _logger.Info($"[ZnunyReply] ticketId={ticketId} articleId='{articleId}' action=completed");
-            return new TicketReplyResult(true, "Antwort wurde gesendet.", articleId);
+            return new TicketReplyResult(true, "Antwort wurde gesendet." + refreshWarning, articleId);
         }
         catch (ZnunyApiException ex) when ((int)ex.StatusCode >= 500)
         {
@@ -1016,6 +1103,9 @@ public class TicketSystemService : IDisposable
             _logger.Info($"[ZnunySyncStart] reason={reason} started=true agentId={userId} searchLimit={EffectiveSearchLimit} sortBy={(assignedGet ? "<none>" : ZnunySyncPolicy.SearchSortBy)} orderBy={(assignedGet ? "<none>" : ZnunySyncPolicy.SearchOrderBy)} baseUrl='{SanitizeUrl(_settings.Current.TicketSystemApiUrl)}' auth={_settings.Current.TicketSystemTicketSearchAuthMode} onlyOpen={_settings.Current.TicketSystemOnlyOpenTickets} showClosed={_settings.Current.TicketSystemShowClosedTickets} includeOwner={_settings.Current.TicketSystemIncludeOwner} includeResponsible={_settings.Current.TicketSystemIncludeResponsible}");
             _logger.Info($"[ZnunyUser] source=ConfiguredSettings userId={userId}");
 
+            // Shared lookup data is refreshed once per TTL/fingerprint, never per ticket.
+            await GetDynamicFieldOptionsAsync(sessionId, forceRefresh: false);
+
             var discovery = await SearchAssignedTicketIdsAsync(
                 userId,
                 sessionId,
@@ -1058,13 +1148,46 @@ public class TicketSystemService : IDisposable
             var previouslyAssignedNowMissing = previousAssignmentSnapshot.Initialized
                 ? previousAssignmentSnapshot.TicketIds.Except(currentAssignedIds, StringComparer.OrdinalIgnoreCase)
                 : Array.Empty<string>();
-            var ticketIds = ZnunySyncPolicy.SelectTicketIds(uniqueTicketIds, previouslyAssignedNowMissing);
+            var discoveryComplete = !searchLimitReached;
+            var ticketIds = discoveryComplete
+                ? ZnunySyncPolicy.SelectTicketIds(uniqueTicketIds, previouslyAssignedNowMissing)
+                : uniqueTicketIds;
+            var cursor = _detailCache.LoadSyncCursor(assignmentContextKey);
+            ticketIds = ZnunySyncPolicy.RotateTicketIds(ticketIds, cursor);
+            var budgetPaused = false;
             var duplicateCount = ownerIds.Count + responsibleIds.Count - uniqueTicketIds.Count;
             _logger.Info($"[ZnunySearchMerge] ownerTickets={ownerIds.Count} responsibleTickets={responsibleIds.Count} uniqueTickets={uniqueTicketIds.Count} limit={EffectiveSearchLimit} sortBy={(assignedGet ? "<none>" : ZnunySyncPolicy.SearchSortBy)} orderBy={(assignedGet ? "<none>" : ZnunySyncPolicy.SearchOrderBy)} existingTicketsRechecked={ticketIds.Count - uniqueTicketIds.Count} duplicateOwnerResponsibleTickets={duplicateCount}");
 
             foreach (var ticketId in ticketIds)
             {
-                var ticket = await GetTicketMetadataAsync(ticketId, sessionId, sessionHash);
+                var cache = _detailCache.LoadEntry(ticketId);
+                var cacheComplete = cache?.IsCompleteFor(EffectiveArticleLimit) == true;
+                var expectedRequests = cacheComplete ? 2 : 1;
+                if (reason.IsAutomatic() && !traffic.CanStart(expectedRequests))
+                {
+                    budgetPaused = true;
+                    assignedTicketsFullyProcessed = false;
+                    _detailCache.StoreSyncCursor(assignmentContextKey, ticketId);
+                    _logger.Info($"[ZnunySyncPaused] reason={reason} ticketId={ticketId} requestBudgetRemaining={traffic.Remaining} expectedRequests={expectedRequests}");
+                    break;
+                }
+
+                ZnunyTicket? ticket;
+                var refreshReason = cache == null ? "cache-missing"
+                    : !cache.MetadataComplete ? "metadata-incomplete"
+                    : !cache.ArticlesComplete ? "articles-incomplete"
+                    : !cache.DynamicFieldsComplete ? "dynamic-fields-incomplete"
+                    : cache.FetchedArticleLimit < EffectiveArticleLimit ? "article-limit-increased"
+                    : "metadata-validation";
+                if (!cacheComplete)
+                {
+                    ticket = await GetTicketDetailsAsync(ticketId, sessionId, sessionHash);
+                    if (ticket != null) { StoreTicketDetails(ticket); traffic.DetailRemote++; }
+                }
+                else
+                {
+                    ticket = await GetTicketMetadataAsync(ticketId, sessionId, sessionHash);
+                }
                 if (ticket == null)
                 {
                     skipped++;
@@ -1073,8 +1196,8 @@ public class TicketSystemService : IDisposable
                 }
 
                 var remoteChangedUtc = ParseZnunyUtc(ticket.Changed);
-                var cachedChangedUtc = _detailCache.GetRemoteChangedUtc(ticket.TicketID);
-                if (!cachedChangedUtc.HasValue || (remoteChangedUtc.HasValue && remoteChangedUtc > cachedChangedUtc))
+                var cachedChangedUtc = cache?.RemoteChangedUtc;
+                if (cacheComplete && (!cachedChangedUtc.HasValue || (remoteChangedUtc.HasValue && remoteChangedUtc > cachedChangedUtc)))
                 {
                     var details = await GetTicketDetailsAsync(ticketId, sessionId, sessionHash);
                     if (details == null)
@@ -1087,6 +1210,7 @@ public class TicketSystemService : IDisposable
                 {
                     traffic.DetailCacheHits++;
                 }
+                _logger.Info($"[ZnunyDetailDecision] ticketId={ticketId} cacheHit={(cache != null).ToString().ToLowerInvariant()} cacheComplete={cacheComplete.ToString().ToLowerInvariant()} metadataComplete={(cache?.MetadataComplete == true).ToString().ToLowerInvariant()} articlesComplete={(cache?.ArticlesComplete == true).ToString().ToLowerInvariant()} dynamicFieldsComplete={(cache?.DynamicFieldsComplete == true).ToString().ToLowerInvariant()} cachedRemoteChanged='{cachedChangedUtc:O}' remoteChanged='{remoteChangedUtc:O}' articleLimitCached={cache?.FetchedArticleLimit ?? 0} articleLimitRequested={EffectiveArticleLimit} refreshReason={refreshReason} requestBudgetRemaining={traffic.Remaining} requestPerformed=true");
 
                 if (ambiguousTicketIds.Contains(ticket.TicketID))
                 {
@@ -1178,7 +1302,9 @@ public class TicketSystemService : IDisposable
                 }
             }
 
-            foreach (var noLongerAssigned in existing.Where(item => !currentAssignedIds.Contains(item.Key)))
+            if (!budgetPaused) _detailCache.StoreSyncCursor(assignmentContextKey, ticketIds.FirstOrDefault() ?? string.Empty);
+
+            foreach (var noLongerAssigned in existing.Where(item => discoveryComplete && !currentAssignedIds.Contains(item.Key)))
             {
                 var task = noLongerAssigned.Value;
                 if (task.Status == TaskStatus.Running)
@@ -1189,8 +1315,39 @@ public class TicketSystemService : IDisposable
                 _logger.Info($"[ZnunyAssignmentState] ticketId={noLongerAssigned.Key} taskId={task.Id} assigned=false action=hide");
             }
 
-            if (!assignedTicketsFullyProcessed)
+            if (!assignedTicketsFullyProcessed && !budgetPaused)
                 throw new InvalidOperationException("Mindestens ein aktuell zugewiesenes Ticket konnte nicht vollständig verarbeitet werden; der Assignment-Snapshot bleibt unverändert.");
+
+            if (budgetPaused)
+            {
+                _logger.Info($"[ZnunySyncFinished] reason={reason} success=true partial=true searchFound={searchResultCount} uniqueFound={uniqueTicketCount}");
+                return new ZnunySyncResult(true, true, false, searchResultCount, uniqueTicketCount,
+                    created, updated, unchanged, skipped, searchLimitReached, string.Empty, true);
+            }
+
+            if (!discoveryComplete)
+            {
+                _logger.Warning($"[ZnunyAssignmentSnapshot] committed=false reason=possibly-truncated current={currentAssignedIds.Count}");
+                return new ZnunySyncResult(true, true, false, searchResultCount, uniqueTicketCount,
+                    created, updated, unchanged, skipped, true, string.Empty, true);
+            }
+
+            // Earlier budgeted passes intentionally did not advance the assignment
+            // snapshot. Once reconciliation converges, rebuild notification candidates
+            // from all local tasks so assignments processed in earlier passes are not lost.
+            if (previousAssignmentSnapshot.Initialized)
+            {
+                foreach (var ticketId in newlyAssignedIds)
+                {
+                    if (notificationCandidates.ContainsKey(ticketId)
+                        || _manualSelfAssignmentNotificationSuppressions.ContainsKey(ticketId)) continue;
+                    var localTask = _tasks.GetAllTasks().SingleOrDefault(item => string.Equals(
+                        ExtractZnunyTicketIdFromTask(item), ticketId, StringComparison.OrdinalIgnoreCase));
+                    if (localTask == null || localTask.Status == TaskStatus.Done) continue;
+                    notificationCandidates[ticketId] = (localTask.Id,
+                        ExtractZnunyTicketNumberFromTask(localTask), localTask.Title);
+                }
+            }
 
             if (!previousAssignmentSnapshot.Initialized)
             {
@@ -1287,7 +1444,7 @@ public class TicketSystemService : IDisposable
         if (safeError.Length > 300) safeError = safeError[..300] + "…";
         var snapshot = new ZnunySyncStatusSnapshot(DateTime.UtcNow, reason, result.Started, result.Success,
             result.Busy, result.UniqueTicketCount, result.Created, result.Updated, result.Unchanged,
-            result.Skipped, result.SearchLimitReached, safeError);
+            result.Skipped, result.SearchLimitReached, safeError, result.PartiallyProcessed);
         _settings.Current.LastFullSyncStatus = snapshot;
         _settings.TrySavePassiveStatus();
         FullSyncStatusChanged?.Invoke(snapshot);
@@ -1484,10 +1641,17 @@ public class TicketSystemService : IDisposable
 
         var ownerIds = await SearchCandidateRoleActiveTicketIdsAsync("Owner", candidateUserId, sessionId, sessionHash);
         var responsibleIds = await SearchCandidateRoleActiveTicketIdsAsync("Responsible", candidateUserId, sessionId, sessionHash);
+        // Intentional compatibility policy: the configured pool user must be both Owner
+        // and Responsible. Changing this intersection would silently expand existing
+        // users' Candidate lists, so it remains the stable default contract.
         var candidateIds = ownerIds.Intersect(responsibleIds, StringComparer.OrdinalIgnoreCase).ToHashSet(StringComparer.OrdinalIgnoreCase);
         var previousState = _candidateScanStates.Load();
         var newIds = candidateIds.Where(id => !previousState.ContainsKey(id)).ToList();
-        var idsToEvaluate = lightweight ? newIds : candidateIds.ToList();
+        const int existingCandidateRefreshesPerRun = 5;
+        var staleExistingIds = candidateIds.Where(id => previousState.ContainsKey(id) && !newIds.Contains(id, StringComparer.OrdinalIgnoreCase))
+            .OrderBy(id => previousState[id].LastEvaluatedUtc)
+            .Take(existingCandidateRefreshesPerRun);
+        var idsToEvaluate = lightweight ? newIds.Concat(staleExistingIds).Distinct(StringComparer.OrdinalIgnoreCase).ToList() : candidateIds.ToList();
         var matches = (lightweight ? _candidateSnapshots.Load().Where(item => candidateIds.Contains(item.TicketId)) : Array.Empty<ZnunyCandidateTicket>()).ToList();
         var matchedById = matches.ToDictionary(item => item.TicketId, StringComparer.OrdinalIgnoreCase);
         var evaluated = new Dictionary<string, (bool Matched, DateTime? Changed)>(StringComparer.OrdinalIgnoreCase);
@@ -1496,9 +1660,10 @@ public class TicketSystemService : IDisposable
         {
             ZnunyCandidateTicket? candidate = null;
             var cachedEvaluated = false;
-            if (lightweight && _detailCache.Load(ticketId) is { Articles.Count: > 0 } cached)
+            if (lightweight && newIds.Contains(ticketId, StringComparer.OrdinalIgnoreCase)
+                && _detailCache.LoadEntry(ticketId) is { ArticlesComplete: true, Context.Articles.Count: > 0 } cachedEntry)
             {
-                candidate = EvaluateCachedCandidate(cached, ticketId, includeKeywords, excludeKeywords, candidateUserId);
+                candidate = EvaluateCachedCandidate(cachedEntry.Context, ticketId, includeKeywords, excludeKeywords, candidateUserId);
                 cachedEvaluated = true;
             }
 
@@ -1507,7 +1672,7 @@ public class TicketSystemService : IDisposable
             {
                 var ticket = await GetCandidateTicketDetailsAsync(ticketId, sessionId, sessionHash)
                     ?? throw new InvalidOperationException($"TicketGet lieferte keine Daten für TicketID {ticketId}.");
-                StoreTicketDetails(ticket);
+                StoreTicketDetails(ticket, TicketDetailFetchProfile.Candidate(EffectiveArticleLimit));
                 remoteChanged = ParseZnunyUtc(ticket.Changed);
                 if (ticket.OwnerId == candidateUserId && ticket.ResponsibleId == candidateUserId && !ticket.IsClosed)
                 {
@@ -1665,6 +1830,7 @@ public class TicketSystemService : IDisposable
 
     private async Task<List<string>> SearchTicketsAsync(string role, int userId, string route, string method, string sessionId, string sessionHash, bool? onlyOpenOverride = null, string? assignedGetStateType = null)
     {
+        sessionId = CurrentSession(sessionId);
         route = NormalizeRouteValue(route, "/Ticket");
         method = string.Equals(method, "GET", StringComparison.OrdinalIgnoreCase) ? "GET" : "POST";
         var isOwner = role == "Owner";
@@ -1692,6 +1858,7 @@ public class TicketSystemService : IDisposable
 
     private async Task<List<string>> SearchCandidateRoleActiveTicketIdsAsync(string role, int userId, string sessionId, string sessionHash)
     {
+        sessionId = CurrentSession(sessionId);
         var payload = BuildSearchAuthenticationPayload(sessionId);
         ZnunySyncPolicy.ApplyTicketRoleCriteria(payload, role, userId, onlyOpen: true);
         var route = NormalizeRouteValue(_settings.Current.TicketSystemTicketSearchRoute, "/Ticket");
@@ -1747,7 +1914,7 @@ public class TicketSystemService : IDisposable
         => GetTicketAsync(ticketId, sessionId, sessionHash, allArticles: true, dynamicFields: true,
             "TicketGetReconciliation", Math.Max(EffectiveArticleLimit, 50));
 
-    private void StoreTicketDetails(ZnunyTicket ticket)
+    private void StoreTicketDetails(ZnunyTicket ticket, TicketDetailFetchProfile? profile = null)
     {
         var articles = ticket.ToArticleItems();
         var (replySource, replyRecipient) = ResolveReplyRecipient(articles, ticket.CustomerUser);
@@ -1756,11 +1923,12 @@ public class TicketSystemService : IDisposable
             ticket.GetDynamicFieldValue(_settings.Current.TicketSystemOrderFieldName),
             Array.Empty<TicketFieldOption>(), Array.Empty<TicketFieldOption>(), string.Empty,
             articles, replySource, replyRecipient, ticket.Title);
-        _detailCache.Store(context, ticket.State, ParseZnunyUtc(ticket.Changed));
+        _detailCache.Store(context, ticket.State, ParseZnunyUtc(ticket.Changed), profile ?? TicketDetailFetchProfile.Full(EffectiveArticleLimit));
     }
 
     private async Task<ZnunyTicket?> GetTicketAsync(string ticketId, string sessionId, string sessionHash, bool allArticles, bool dynamicFields, string operation, int? articleLimit = null)
     {
+        sessionId = CurrentSession(sessionId);
         var route = NormalizeRouteValue(_settings.Current.TicketSystemTicketGetRouteTemplate, "/Ticket/{TicketID}")
             .Replace("{TicketID}", Uri.EscapeDataString(ticketId), StringComparison.OrdinalIgnoreCase);
         var query = new Dictionary<string, string>();
@@ -1790,7 +1958,7 @@ public class TicketSystemService : IDisposable
         return ticket;
     }
 
-    private async Task<ZnunyHttpResult> SendZnunyAsync(HttpRequestMessage request, string stage, string responseLogTag, bool logBody = true)
+    private async Task<ZnunyHttpResult> SendZnunyAsync(HttpRequestMessage request, string stage, string responseLogTag, bool logBody = true, bool allowReadSessionRetry = true)
     {
         if (_syncTraffic.Value is { } traffic && !traffic.TryRecord(stage))
         {
@@ -1802,6 +1970,9 @@ public class TicketSystemService : IDisposable
         var ticketId = TicketIdForLog(request.RequestUri);
         _logger.Info($"[ZnunyRequest] reason={requestReason} operation={stage} ticketId={ticketId} automatic={automatic.ToString().ToLowerInvariant()} trafficClass=GenericInterface");
         RecordGlobalTraffic(requestReason, stage);
+        var retryTemplate = allowReadSessionRetry && IsIdempotentRead(request, stage)
+            ? await CaptureRequestAsync(request)
+            : null;
         using var response = await _client.SendAsync(request);
         var body = await response.Content.ReadAsStringAsync();
         var contentType = response.Content.Headers.ContentType?.ToString() ?? string.Empty;
@@ -1812,6 +1983,8 @@ public class TicketSystemService : IDisposable
         if (!response.IsSuccessStatusCode)
         {
             var (errorCode, errorMessage) = ExtractApiError(body);
+            if (IsInvalidSession(errorCode, errorMessage) && retryTemplate != null)
+                return await RetryReadWithFreshSessionAsync(retryTemplate, stage, responseLogTag, logBody);
             if (IsInvalidSession(errorCode, errorMessage)) InvalidateSession();
             throw new ZnunyApiException(stage, response.StatusCode, errorCode, string.IsNullOrWhiteSpace(errorMessage) ? response.ReasonPhrase ?? "HTTP error" : errorMessage, body);
         }
@@ -1823,6 +1996,8 @@ public class TicketSystemService : IDisposable
                 try { ThrowIfApiError(doc.RootElement, stage, response.StatusCode, body); }
                 catch (ZnunyApiException ex)
                 {
+                    if (IsInvalidSession(ex.ErrorCode, ex.ErrorMessage) && retryTemplate != null)
+                        return await RetryReadWithFreshSessionAsync(retryTemplate, stage, responseLogTag, logBody);
                     if (IsInvalidSession(ex.ErrorCode, ex.ErrorMessage)) InvalidateSession();
                     throw;
                 }
@@ -1831,6 +2006,33 @@ public class TicketSystemService : IDisposable
 
         return new ZnunyHttpResult(response.StatusCode, contentType, body);
     }
+
+    private string CurrentSession(string supplied)
+        => !string.IsNullOrWhiteSpace(_sessionId) && DateTime.UtcNow < _sessionExpiresUtc ? _sessionId : supplied;
+
+    private static bool IsIdempotentRead(HttpRequestMessage request, string stage)
+        => request.Method == HttpMethod.Get && (stage.Contains("Search", StringComparison.OrdinalIgnoreCase)
+            || stage.Contains("TicketGet", StringComparison.OrdinalIgnoreCase)
+            || stage == "DynamicFieldOptions" || stage == "SessionGetDiagnostic");
+
+    private static async Task<RequestTemplate> CaptureRequestAsync(HttpRequestMessage request)
+        => new(request.Method, request.RequestUri!, request.Content == null ? null : await request.Content.ReadAsStringAsync(),
+            request.Content?.Headers.ContentType?.ToString());
+
+    private async Task<ZnunyHttpResult> RetryReadWithFreshSessionAsync(RequestTemplate template, string stage, string responseLogTag, bool logBody)
+    {
+        InvalidateSession();
+        var sessionId = await CreateSessionAsync();
+        var uri = Regex.Replace(template.Uri.ToString(), "(?<=SessionID=)[^&]+", Uri.EscapeDataString(sessionId), RegexOptions.IgnoreCase);
+        var body = template.Body == null ? null : Regex.Replace(template.Body,
+            "(\\\"SessionID\\\"\\s*:\\s*\\\")[^\\\"]+", $"$1{sessionId}", RegexOptions.IgnoreCase);
+        using var retry = new HttpRequestMessage(template.Method, uri);
+        if (body != null) retry.Content = new StringContent(body, Encoding.UTF8, template.ContentType?.Contains("json", StringComparison.OrdinalIgnoreCase) == true ? "application/json" : "text/plain");
+        _logger.Info($"[ZnunySession] action=read-retry operation={stage} retry=1");
+        return await SendZnunyAsync(retry, stage, responseLogTag, logBody, allowReadSessionRetry: false);
+    }
+
+    private sealed record RequestTemplate(HttpMethod Method, Uri Uri, string? Body, string? ContentType);
 
     private static ZnunyRequestReason InferManualReason(string operation)
         => operation switch
@@ -2167,17 +2369,19 @@ public class TicketSystemService : IDisposable
             {
                 try
                 {
-                    parsed[name] = await LoadDynamicFieldOptionsAsync(sessionId, name);
+                    var remote = await LoadDynamicFieldOptionsAsync(sessionId, name);
+                    if (remote.Count == 0) throw new InvalidOperationException("Znuny lieferte keine Feldoptionen.");
+                    parsed[name] = remote;
                 }
                 catch (Exception ex)
                 {
-                    parsed[name] = Array.Empty<TicketFieldOption>();
-                    _logger.Error($"[ZnunyDynamicFieldOptions] field='{name}' optionCount=0 source=ConfiguredFallback message={ex.Message}");
+                    parsed[name] = _detailCache.LoadFieldOptions(name, DynamicFieldConfigurationFingerprint(), TimeSpan.MaxValue, allowExpired: true);
+                    _logger.Warning($"[ZnunyDynamicFieldOptions] field='{name}' optionCount={parsed[name].Count} source={(parsed[name].Count > 0 ? "StalePersistedCache" : "ConfiguredFallback")} message='{LogValue(ex.Message)}'");
                 }
             }
             _dynamicFieldOptionsCache = parsed;
-            _dynamicFieldOptionsCacheExpiresUtc = DateTime.UtcNow.AddMinutes(30);
-            _dynamicFieldOptionsCacheValid = true;
+            _dynamicFieldOptionsCacheExpiresUtc = DateTime.UtcNow.AddMinutes(parsed.Values.All(value => value.Count > 0) ? 30 : 5);
+            _dynamicFieldOptionsCacheValid = parsed.Values.Any(value => value.Count > 0);
             return _dynamicFieldOptionsCache;
         }
         catch (Exception ex)
@@ -2185,7 +2389,7 @@ public class TicketSystemService : IDisposable
             _logger.Error($"[ZnunyDynamicFieldOptions] source=ConfiguredFallback message={ex.Message}");
             _dynamicFieldOptionsCache = new Dictionary<string, IReadOnlyList<TicketFieldOption>>(StringComparer.OrdinalIgnoreCase);
             _dynamicFieldOptionsCacheExpiresUtc = DateTime.UtcNow.AddMinutes(5);
-            _dynamicFieldOptionsCacheValid = true;
+            _dynamicFieldOptionsCacheValid = false;
             return _dynamicFieldOptionsCache;
         }
         finally
@@ -2196,6 +2400,7 @@ public class TicketSystemService : IDisposable
 
     private async Task<IReadOnlyList<TicketFieldOption>> LoadDynamicFieldOptionsAsync(string sessionId, string fieldName)
     {
+        sessionId = CurrentSession(sessionId);
         var template = NormalizeRouteValue(
             _settings.Current.TicketSystemDynamicFieldOptionsRoute,
             "/Ticket/DynamicField/{FieldName}/Options");
@@ -2232,7 +2437,7 @@ public class TicketSystemService : IDisposable
         var loaded = fields.ToDictionary(field => field,
             field => (IReadOnlyList<TicketFieldOption>)_detailCache.LoadFieldOptions(field, DynamicFieldConfigurationFingerprint(), TimeSpan.FromHours(24)),
             StringComparer.OrdinalIgnoreCase);
-        if (loaded.Values.Any(options => options.Count > 0))
+        if (loaded.Count > 0 && loaded.Values.All(options => options.Count > 0))
         {
             _dynamicFieldOptionsCache = loaded;
             _dynamicFieldOptionsCacheExpiresUtc = DateTime.UtcNow.AddHours(24);
@@ -2670,6 +2875,7 @@ public class TicketSystemService : IDisposable
         public int CandidateRequests { get; private set; }
         public int CandidateDetailGets { get; private set; }
         public int TotalRequests { get; private set; }
+        public int Remaining => Math.Max(0, ZnunySyncPolicy.MaximumAutomaticRequestsPerSync - TotalRequests);
         public int DetailCacheHits { get; set; }
         public int DetailRemote { get; set; }
         public int SessionRequests { get; private set; }
@@ -2680,6 +2886,8 @@ public class TicketSystemService : IDisposable
             Reason = reason;
             Stopwatch = stopwatch;
         }
+
+        public bool CanStart(int expectedRequests) => !Reason.IsAutomatic() || Remaining >= expectedRequests;
 
         public bool TryRecord(string operation)
         {
