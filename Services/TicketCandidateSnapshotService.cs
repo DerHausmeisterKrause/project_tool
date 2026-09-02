@@ -9,13 +9,16 @@ public sealed class TicketCandidateSnapshotService
     private readonly DatabaseService _database;
     public TicketCandidateSnapshotService(DatabaseService database) => _database = database;
 
-    public IReadOnlyList<ZnunyCandidateTicket> Load()
+    public IReadOnlyList<ZnunyCandidateTicket> Load() => LoadSnapshot("znuny_candidate_snapshot");
+    public IReadOnlyList<ZnunyCandidateTicket> LoadPool() => LoadSnapshot("znuny_candidate_pool_snapshot");
+
+    private IReadOnlyList<ZnunyCandidateTicket> LoadSnapshot(string table)
     {
         var result = new List<ZnunyCandidateTicket>();
         using var connection = new SqliteConnection(_database.ConnectionString);
         connection.Open();
         using var command = connection.CreateCommand();
-        command.CommandText = "SELECT * FROM znuny_candidate_snapshot ORDER BY ticket_number DESC";
+        command.CommandText = $"SELECT * FROM {table} ORDER BY ticket_number DESC";
         using var reader = command.ExecuteReader();
         while (reader.Read())
         {
@@ -38,6 +41,12 @@ public sealed class TicketCandidateSnapshotService
     }
 
     public void Replace(IReadOnlyCollection<ZnunyCandidateTicket> tickets)
+        => ReplaceSnapshot("znuny_candidate_snapshot", tickets);
+
+    public void ReplacePool(IReadOnlyCollection<ZnunyCandidateTicket> tickets)
+        => ReplaceSnapshot("znuny_candidate_pool_snapshot", tickets);
+
+    private void ReplaceSnapshot(string table, IReadOnlyCollection<ZnunyCandidateTicket> tickets)
     {
         using var connection = new SqliteConnection(_database.ConnectionString);
         connection.Open();
@@ -45,14 +54,14 @@ public sealed class TicketCandidateSnapshotService
         using (var delete = connection.CreateCommand())
         {
             delete.Transaction = transaction;
-            delete.CommandText = "DELETE FROM znuny_candidate_snapshot";
+            delete.CommandText = $"DELETE FROM {table}";
             delete.ExecuteNonQuery();
         }
         foreach (var ticket in tickets)
         {
             using var insert = connection.CreateCommand();
             insert.Transaction = transaction;
-            insert.CommandText = @"INSERT INTO znuny_candidate_snapshot
+            insert.CommandText = $@"INSERT INTO {table}
 (ticket_id,ticket_number,title,description_preview,owner,responsible,state,web_url,matched_keyword,last_synced_utc)
 VALUES($id,$number,$title,$preview,$owner,$responsible,$state,$url,$keyword,$synced)";
             insert.Parameters.AddWithValue("$id", ticket.TicketId);

@@ -11,7 +11,8 @@ public sealed record ZnunySyncResult(
     int Unchanged,
     int Skipped,
     bool SearchLimitReached,
-    string ErrorMessage)
+    string ErrorMessage,
+    bool PartiallyProcessed = false)
 {
     public static ZnunySyncResult BusyResult() => new(false, false, true, 0, 0, 0, 0, 0, 0, false,
         "Synchronisierung konnte nicht gestartet werden, da bereits eine andere Znuny-Aktion läuft.");

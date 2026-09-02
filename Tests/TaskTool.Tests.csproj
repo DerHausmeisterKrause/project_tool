@@ -1,6 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <TargetFramework>net8.0</TargetFramework>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
     <IsPackable>false</IsPackable>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
@@ -9,15 +10,7 @@
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
     <PackageReference Include="xunit" Version="2.9.2" />
     <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" PrivateAssets="all" />
-    <Compile Include="../Models/TaskItem.cs" Link="Models/TaskItem.cs" />
-    <Compile Include="../Models/TaskStatus.cs" Link="Models/TaskStatus.cs" />
-    <Compile Include="../Models/SegmentAvailabilitySlot.cs" Link="Models/SegmentAvailabilitySlot.cs" />
-    <Compile Include="../Models/ZnunySyncPolicy.cs" Link="Models/ZnunySyncPolicy.cs" />
-    <Compile Include="../Models/ZnunyRequestReason.cs" Link="Models/ZnunyRequestReason.cs" />
-    <Compile Include="../Models/ZnunySyncResult.cs" Link="Models/ZnunySyncResult.cs" />
-    <Compile Include="../Models/ZnunyApiException.cs" Link="Models/ZnunyApiException.cs" />
-    <Compile Include="../Models/ZnunyTicketSearchResponseParser.cs" Link="Models/ZnunyTicketSearchResponseParser.cs" />
-    <Compile Include="../Models/WikiSearchTermPersistence.cs" Link="Models/WikiSearchTermPersistence.cs" />
-    <Compile Include="../Models/WikiSearchPolicy.cs" Link="Models/WikiSearchPolicy.cs" />
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="8.0.8" />
+    <ProjectReference Include="../TaskTool.Wpf.csproj" />
   </ItemGroup>
 </Project>

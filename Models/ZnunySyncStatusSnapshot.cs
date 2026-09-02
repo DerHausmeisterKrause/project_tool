@@ -13,4 +13,5 @@ public sealed record ZnunySyncStatusSnapshot(
     int Unchanged,
     int Skipped,
     bool SearchLimitReached,
-    string ErrorMessage);
+    string ErrorMessage,
+    bool PartiallyProcessed = false);

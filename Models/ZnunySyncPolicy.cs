@@ -2,7 +2,7 @@ namespace TaskTool.Models;
 
 public static class ZnunySyncPolicy
 {
-    public const int MaximumAutomaticRequestsPerSync = 60;
+    public const int MaximumRequestsPerPipeline = 5000;
     public const int MinimumSearchLimit = 10;
     public const int MaximumSearchLimit = 500;
     public const int DefaultSearchLimit = 100;
@@ -12,6 +12,8 @@ public static class ZnunySyncPolicy
     public const int MinimumCandidateIntervalMinutes = 3;
     public const int MaximumCandidateIntervalMinutes = 60;
     public const int DefaultCandidateIntervalMinutes = 5;
+    public static readonly TimeSpan CandidateReevaluationTtl = TimeSpan.FromMinutes(30);
+    public static readonly TimeSpan DynamicFieldOptionsTtl = TimeSpan.FromHours(24);
     public const string ArticleOrder = "DESC";
     public const string SearchSortBy = "Changed";
     public const string SearchOrderBy = "Down";
@@ -40,6 +42,17 @@ public static class ZnunySyncPolicy
         return current.Concat(previouslyAssigned.Except(current, StringComparer.OrdinalIgnoreCase))
             .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
     }
+
+    public static IReadOnlyList<string> RotateTicketIds(IEnumerable<string> ticketIds, string? nextTicketId)
+    {
+        var ids = ticketIds.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        if (ids.Count == 0 || string.IsNullOrWhiteSpace(nextTicketId)) return ids;
+        var index = ids.FindIndex(id => string.Equals(id, nextTicketId, StringComparison.OrdinalIgnoreCase));
+        return index <= 0 ? ids : ids.Skip(index).Concat(ids.Take(index)).ToList();
+    }
+
+    public static bool RequiresFullTicketGet(TicketDetailCacheEntry? cache, int requestedArticleLimit)
+        => cache?.IsCompleteFor(NormalizeArticleLimit(requestedArticleLimit)) != true;
 
     public static IReadOnlyDictionary<string, string> TicketGetOptions(bool allArticles, bool dynamicFields, int configuredArticleLimit)
     {
