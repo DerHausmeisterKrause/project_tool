@@ -22,16 +22,18 @@ public class SettingsService
         WebShortcutOrder = 32,
         SilentUpdateDisabled = 64,
         TicketRequestLimits = 128,
-        CandidateSyncInterval = 256
+        CandidateSyncInterval = 256,
+        ClientInstanceId = 512
     }
 
     private readonly LoggerService _logger;
-    private readonly string _path = Path.Combine(AppContext.BaseDirectory, "settings.json");
+    private readonly string _path;
     public AppSettings Current { get; private set; } = new();
 
-    public SettingsService(LoggerService logger)
+    public SettingsService(LoggerService logger, string? settingsPath = null)
     {
         _logger = logger;
+        _path = settingsPath ?? Path.Combine(AppContext.BaseDirectory, "settings.json");
         Load();
         ApplyLoggerMinimumLevel();
     }
@@ -94,6 +96,11 @@ public class SettingsService
         // Versions before the confirmation dialog persisted this as true. Never carry that
         // legacy consent forward: every installation now requires an explicit user action.
         var changes = NormalizationChanges.None;
+        if (!Guid.TryParse(settings.ClientInstanceId, out _))
+        {
+            settings.ClientInstanceId = Guid.NewGuid().ToString("D");
+            changes |= NormalizationChanges.ClientInstanceId;
+        }
         if (settings.AutoInstallUpdatesOnStartup)
         {
             settings.AutoInstallUpdatesOnStartup = false;

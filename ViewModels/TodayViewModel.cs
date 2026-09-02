@@ -66,6 +66,7 @@ public class TodayViewModel : ObservableObject
                 var taskChanged = previousTaskId != value?.Id;
                 if (taskChanged)
                 {
+                    if (IsTimerEditMode) CancelTimerEdit();
                     _wikiSearchCancellation?.Cancel();
                     _wikiKeywords = Array.Empty<string>();
                     Raise(nameof(WikiKeywordsText));
@@ -142,6 +143,19 @@ public class TodayViewModel : ObservableObject
     public bool ShowCompletedTaskList => SelectedTaskScope == TodayTaskScope.Completed;
     public bool ShowCandidateTickets => SelectedTaskScope == TodayTaskScope.CandidateTickets;
     public string CandidateTabTitle => $"Neue Aufgaben ({NewTaskCandidates.Count})";
+    public bool ShowAllCandidatePoolTickets
+    {
+        get => _settings.Current.ShowAllCandidatePoolTickets;
+        set
+        {
+            if (_settings.Current.ShowAllCandidatePoolTickets == value) return;
+            _settings.Current.ShowAllCandidatePoolTickets = value;
+            _settings.Save();
+            Raise();
+            UpdateCandidateTickets();
+        }
+    }
+    public string CandidateCountsText => $"Gefiltert: {_ticketSystem.CurrentCandidateTickets.Count} · Offen im Pool: {_ticketSystem.CurrentCandidatePoolTickets.Count}";
     public bool ShowCandidateHint => ShowCandidateTickets && NewTaskCandidates.Count == 0 && !_ticketSystem.IsCandidateRefreshRunning;
     public bool ShowCandidateStatus => ShowCandidateTickets && !string.IsNullOrWhiteSpace(_ticketSystem.CandidateStatusMessage);
     public string CandidateStatus => _ticketSystem.CandidateStatusMessage;
@@ -213,6 +227,13 @@ public class TodayViewModel : ObservableObject
 
     private string _timerDisplay = "00:00:00";
     public string TimerDisplay { get => _timerDisplay; set => Set(ref _timerDisplay, value); }
+    private bool _isTimerEditMode;
+    public bool IsTimerEditMode { get => _isTimerEditMode; private set { if (Set(ref _isTimerEditMode, value)) Raise(nameof(CanEditTicketTime)); } }
+    private string _timerEditText = string.Empty;
+    public string TimerEditText { get => _timerEditText; set { if (Set(ref _timerEditText, value)) CommitTimerEditCommand.RaiseCanExecuteChanged(); } }
+    private string _timerEditError = string.Empty;
+    public string TimerEditError { get => _timerEditError; private set => Set(ref _timerEditError, value); }
+    public bool CanEditTicketTime => SelectedTask != null && !IsTicketBooking && !_hasUnresolvedTicketTimeBooking;
 
     private TicketFieldOption? _selectedCostCenter;
     public TicketFieldOption? SelectedCostCenter { get => _selectedCostCenter; set => Set(ref _selectedCostCenter, value); }
@@ -320,10 +341,14 @@ public class TodayViewModel : ObservableObject
         {
             if (Set(ref _isTicketBooking, value))
             {
+                if (value && IsTimerEditMode) CancelTimerEdit();
                 BookTimeInTicketSystemCommand.RaiseCanExecuteChanged();
                 RefreshTicketFieldOptionsCommand.RaiseCanExecuteChanged();
                 CheckTicketTimeBookingCommand.RaiseCanExecuteChanged();
                 RetryTicketTimeBookingCommand.RaiseCanExecuteChanged();
+                BeginTimerEditCommand.RaiseCanExecuteChanged();
+                CommitTimerEditCommand.RaiseCanExecuteChanged();
+                Raise(nameof(CanEditTicketTime));
             }
         }
     }
@@ -451,6 +476,9 @@ public class TodayViewModel : ObservableObject
     public RelayCommand Subtract15Command { get; }
     public RelayCommand Subtract30Command { get; }
     public RelayCommand Subtract60Command { get; }
+    public RelayCommand BeginTimerEditCommand { get; }
+    public RelayCommand CommitTimerEditCommand { get; }
+    public RelayCommand CancelTimerEditCommand { get; }
     public RelayCommand BookTimeInTicketSystemCommand { get; }
     public RelayCommand RefreshTicketFieldOptionsCommand { get; }
     public RelayCommand<TicketTimeBooking> CheckTicketTimeBookingCommand { get; }
@@ -532,6 +560,9 @@ public class TodayViewModel : ObservableObject
         Subtract15Command = new RelayCommand(() => AdjustBookedMinutes(-15), () => SelectedTask != null);
         Subtract30Command = new RelayCommand(() => AdjustBookedMinutes(-30), () => SelectedTask != null);
         Subtract60Command = new RelayCommand(() => AdjustBookedMinutes(-60), () => SelectedTask != null);
+        BeginTimerEditCommand = new RelayCommand(BeginTimerEdit, () => CanEditTicketTime && !IsTimerEditMode);
+        CommitTimerEditCommand = new RelayCommand(CommitTimerEdit, () => CanEditTicketTime && IsTimerEditMode);
+        CancelTimerEditCommand = new RelayCommand(CancelTimerEdit, () => IsTimerEditMode);
         BookTimeInTicketSystemCommand = new RelayCommand(async () => await BookTimeInTicketSystemAsync(), () => HasZnunyTicket && !IsTicketBooking && !_hasUnresolvedTicketTimeBooking && UnbookedTicketSeconds > 0);
         RefreshTicketFieldOptionsCommand = new RelayCommand(async () => await RefreshTicketFieldOptionsAsync(), () => HasZnunyTicket && !IsTicketBooking);
         CheckTicketTimeBookingCommand = new RelayCommand<TicketTimeBooking>(async booking => await CheckTicketTimeBookingAsync(booking), booking => booking?.CanCheckStatus == true && !IsTicketBooking);
@@ -601,10 +632,13 @@ public class TodayViewModel : ObservableObject
     private void UpdateCandidateTickets()
     {
         NewTaskCandidates.Clear();
-        foreach (var ticket in _ticketSystem.CurrentCandidateTickets)
+        var visible = CandidateTicketViewPolicy.Select(_ticketSystem.CurrentCandidateTickets,
+            _ticketSystem.CurrentCandidatePoolTickets, ShowAllCandidatePoolTickets);
+        foreach (var ticket in visible)
             NewTaskCandidates.Add(ticket);
         ServiceLocator.Logger.Info($"[ZnunyCandidatesUI] serviceCount={_ticketSystem.CurrentCandidateTickets.Count} viewModelCount={NewTaskCandidates.Count}");
         Raise(nameof(CandidateTabTitle));
+        Raise(nameof(CandidateCountsText));
         Raise(nameof(ShowCandidateTickets));
         Raise(nameof(ShowCandidateHint));
         Raise(nameof(CandidateHint));
@@ -676,6 +710,9 @@ public class TodayViewModel : ObservableObject
         Subtract15Command.RaiseCanExecuteChanged();
         Subtract30Command.RaiseCanExecuteChanged();
         Subtract60Command.RaiseCanExecuteChanged();
+        BeginTimerEditCommand.RaiseCanExecuteChanged();
+        CommitTimerEditCommand.RaiseCanExecuteChanged();
+        CancelTimerEditCommand.RaiseCanExecuteChanged();
         BookTimeInTicketSystemCommand.RaiseCanExecuteChanged();
         RefreshTicketFieldOptionsCommand.RaiseCanExecuteChanged();
         CreateTicketFromLocalTaskCommand.RaiseCanExecuteChanged();
@@ -1421,6 +1458,44 @@ public class TodayViewModel : ObservableObject
         Load();
     }
 
+    private void BeginTimerEdit()
+    {
+        if (!CanEditTicketTime) return;
+        TimerEditError = string.Empty;
+        TimerEditText = DurationTextParser.Format(UnbookedTicketSeconds);
+        IsTimerEditMode = true;
+        BeginTimerEditCommand.RaiseCanExecuteChanged();
+        CommitTimerEditCommand.RaiseCanExecuteChanged();
+        CancelTimerEditCommand.RaiseCanExecuteChanged();
+    }
+
+    private void CommitTimerEdit()
+    {
+        if (!CanEditTicketTime || !IsTimerEditMode || SelectedTask == null) return;
+        if (!DurationTextParser.TryParseSeconds(TimerEditText, out var desiredSeconds))
+        {
+            TimerEditError = "Bitte eine Dauer als Stunden:Minuten:Sekunden eingeben (Minuten/Sekunden 0–59).";
+            return;
+        }
+        _tasks.SetUnbookedTicketSeconds(SelectedTask, desiredSeconds,
+            _ticketTimeBookingBaselineSeconds, _successfullyTransferredSeconds);
+        IsTimerEditMode = false;
+        TimerEditError = string.Empty;
+        UpdateTimerDisplay();
+        RaiseCommandStates();
+    }
+
+    private void CancelTimerEdit()
+    {
+        IsTimerEditMode = false;
+        TimerEditError = string.Empty;
+        TimerEditText = string.Empty;
+        UpdateTimerDisplay();
+        BeginTimerEditCommand.RaiseCanExecuteChanged();
+        CommitTimerEditCommand.RaiseCanExecuteChanged();
+        CancelTimerEditCommand.RaiseCanExecuteChanged();
+    }
+
     private void LoadTicketBookingHistory()
     {
         TicketTimeBookings.Clear();
@@ -1434,6 +1509,7 @@ public class TodayViewModel : ObservableObject
                 TicketTimeBookings.Add(booking);
             var successful = TicketTimeBookings.Where(booking => booking.Status == "Succeeded").ToList();
             _hasUnresolvedTicketTimeBooking = TicketTimeBookings.Any(booking => booking.Status != "Succeeded");
+            if (_hasUnresolvedTicketTimeBooking && IsTimerEditMode) CancelTimerEdit();
             _successfullyTransferredSeconds = successful.Sum(booking => booking.SourceSeconds);
             _successfullyBookedMinutes = successful.Sum(booking => booking.BookedMinutes);
             _ticketTimeBookingBaselineSeconds = _tasks.GetTicketTimeBookingBaselineSeconds(SelectedTask.Id);
@@ -1446,6 +1522,9 @@ public class TodayViewModel : ObservableObject
         BookTimeInTicketSystemCommand.RaiseCanExecuteChanged();
         CheckTicketTimeBookingCommand.RaiseCanExecuteChanged();
         RetryTicketTimeBookingCommand.RaiseCanExecuteChanged();
+        BeginTimerEditCommand.RaiseCanExecuteChanged();
+        CommitTimerEditCommand.RaiseCanExecuteChanged();
+        Raise(nameof(CanEditTicketTime));
     }
 
     private async Task LoadTicketBookingContextAsync(

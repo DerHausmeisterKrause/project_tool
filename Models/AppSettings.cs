@@ -2,6 +2,8 @@ namespace TaskTool.Models;
 
 public class AppSettings
 {
+    public string ClientInstanceId { get; set; } = string.Empty;
+    public bool ShowAllCandidatePoolTickets { get; set; }
     // Bootstrap/delivery version for fresh settings created by this distribution.
     // Existing non-empty InstalledVersion values remain authoritative until a successful update.
     public const string InitialInstalledVersion = "2.1.0";
