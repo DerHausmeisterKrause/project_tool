@@ -22,7 +22,8 @@ public class SettingsService
         WebShortcutOrder = 32,
         SilentUpdateDisabled = 64,
         TicketRequestLimits = 128,
-        CandidateSyncInterval = 256
+        CandidateSyncInterval = 256,
+        ClientInstanceId = 512
     }
 
     private readonly LoggerService _logger;
@@ -94,6 +95,11 @@ public class SettingsService
         // Versions before the confirmation dialog persisted this as true. Never carry that
         // legacy consent forward: every installation now requires an explicit user action.
         var changes = NormalizationChanges.None;
+        if (!Guid.TryParse(settings.ClientInstanceId, out _))
+        {
+            settings.ClientInstanceId = Guid.NewGuid().ToString("D");
+            changes |= NormalizationChanges.ClientInstanceId;
+        }
         if (settings.AutoInstallUpdatesOnStartup)
         {
             settings.AutoInstallUpdatesOnStartup = false;

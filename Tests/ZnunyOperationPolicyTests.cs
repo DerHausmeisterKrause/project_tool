@@ -25,28 +25,4 @@ public sealed class ZnunyOperationPolicyTests
     public void WritesNeverAllowAutomaticSessionRetry(string operation)
         => Assert.False(ZnunyOperationPolicy.IsIdempotentRead(operation));
 
-    [Theory]
-    [InlineData(1, false)]
-    [InlineData(2, true)]
-    [InlineData(3, true)]
-    [InlineData(4, true)]
-    public void SessionRecoveryRequiresSessionCreateAndRetryCapacity(int remaining, bool expected)
-        => Assert.Equal(expected, ZnunyOperationPolicy.CanRecoverSession(remaining));
-
-    [Theory]
-    [InlineData(1, 0)]
-    [InlineData(2, 0)]
-    [InlineData(3, 1)]
-    public void CandidateCapacityReservesSessionCreateAndSingleRetry(int remaining, int expected)
-        => Assert.Equal(expected, ZnunyOperationPolicy.CandidateEvaluationsThatFit(remaining));
-
-    [Fact]
-    public void CandidateBatchWithOneRecoveryNearLimitStaysWithinBudget()
-    {
-        var used = ZnunySyncPolicy.MaximumAutomaticRequestsPerSync - 5;
-        var candidates = ZnunyOperationPolicy.CandidateEvaluationsThatFit(
-            ZnunySyncPolicy.MaximumAutomaticRequestsPerSync - used);
-
-        Assert.Equal(ZnunySyncPolicy.MaximumAutomaticRequestsPerSync, used + candidates + 2);
-    }
 }

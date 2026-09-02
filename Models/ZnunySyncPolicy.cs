@@ -2,7 +2,7 @@ namespace TaskTool.Models;
 
 public static class ZnunySyncPolicy
 {
-    public const int MaximumAutomaticRequestsPerSync = 60;
+    public const int MaximumRequestsPerPipeline = 5000;
     public const int MinimumSearchLimit = 10;
     public const int MaximumSearchLimit = 500;
     public const int DefaultSearchLimit = 100;
