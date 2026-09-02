@@ -170,9 +170,11 @@ ON CONFLICT(context_key) DO UPDATE SET next_ticket_id=excluded.next_ticket_id,up
             using var reader = load.ExecuteReader();
             if (reader.Read()) { storedFingerprint = reader.GetString(0); discoveredJson = reader.GetString(1); started = Parse(reader.GetString(2)); }
         }
-        if (!string.Equals(storedFingerprint, discoveryFingerprint, StringComparison.Ordinal))
+        var storedDiscovered = JsonSerializer.Deserialize<List<string>>(discoveredJson ?? "[]") ?? [];
+        if (!string.Equals(storedFingerprint, discoveryFingerprint, StringComparison.Ordinal)
+            || !storedDiscovered.SequenceEqual(discoveredTicketIds, StringComparer.OrdinalIgnoreCase))
         {
-            var oldDiscovered = JsonSerializer.Deserialize<List<string>>(discoveredJson ?? "[]") ?? [];
+            var oldDiscovered = storedDiscovered;
             var oldPending = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             using (var loadPending = connection.CreateCommand())
             {
