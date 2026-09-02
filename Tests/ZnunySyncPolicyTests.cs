@@ -36,6 +36,17 @@ public sealed class ZnunySyncPolicyTests
         => Assert.Equal(60, ZnunySyncPolicy.MaximumAutomaticRequestsPerSync);
 
     [Fact]
+    public void PersistentCursorRotatesWorkSoLaterTicketsCannotStarve()
+    {
+        var ids = Enumerable.Range(1, 150).Select(value => value.ToString()).ToList();
+        var first = ZnunySyncPolicy.RotateTicketIds(ids, "1").Take(55).ToList();
+        var second = ZnunySyncPolicy.RotateTicketIds(ids, "56").Take(55).ToList();
+        var third = ZnunySyncPolicy.RotateTicketIds(ids, "111").Take(55).ToList();
+        Assert.Equal(150, first.Concat(second).Concat(third).Distinct().Count());
+        Assert.Contains("150", third);
+    }
+
+    [Fact]
     public void TicketSearchLimitIsExplicitAndBounded()
     {
         var payload = new Dictionary<string, object?> { ["SessionID"] = "secret" };
@@ -109,6 +120,14 @@ public sealed class ZnunySyncPolicyTests
     [Fact]
     public void CandidateTimerIsAnAutomaticRequestReason()
         => Assert.True(ZnunyRequestReason.CandidateTimerSync.IsAutomatic());
+
+    [Fact]
+    public void ExistingCandidatesAreNotReevaluatedEveryFiveMinutes()
+        => Assert.Equal(TimeSpan.FromMinutes(30), ZnunySyncPolicy.CandidateReevaluationTtl);
+
+    [Fact]
+    public void DynamicFieldFreshnessHasStableTwentyFourHourTtl()
+        => Assert.Equal(TimeSpan.FromHours(24), ZnunySyncPolicy.DynamicFieldOptionsTtl);
 
     [Theory]
     [InlineData("Owner", "OwnerIDs")]

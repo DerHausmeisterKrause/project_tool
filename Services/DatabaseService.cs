@@ -6,10 +6,14 @@ namespace TaskTool.Services;
 public class DatabaseService
 {
     private readonly LoggerService _logger;
-    private readonly string _dbPath = Path.Combine(AppContext.BaseDirectory, "TaskTool.db");
+    private readonly string _dbPath;
     public string ConnectionString => new SqliteConnectionStringBuilder { DataSource = _dbPath }.ToString();
 
-    public DatabaseService(LoggerService logger) => _logger = logger;
+    public DatabaseService(LoggerService logger, string? dbPath = null)
+    {
+        _logger = logger;
+        _dbPath = dbPath ?? Path.Combine(AppContext.BaseDirectory, "TaskTool.db");
+    }
 
     public void Initialize()
     {
@@ -62,10 +66,12 @@ CREATE TABLE IF NOT EXISTS schema_version (
             MigrateToV19(conn);
             MigrateToV20(conn);
             MigrateToV21(conn);
+            MigrateToV22(conn);
+            MigrateToV23(conn);
 
-            if (currentVersion < 21)
+            if (currentVersion < 23)
             {
-                SetVersion(conn, 21);
+                SetVersion(conn, 23);
             }
         }
         catch (Exception ex)
@@ -328,6 +334,31 @@ CREATE TABLE IF NOT EXISTS znuny_dynamic_field_options_cache (
         Exec(conn, @"CREATE TABLE IF NOT EXISTS znuny_candidate_scan_state (
  ticket_id TEXT PRIMARY KEY, last_seen_utc TEXT NOT NULL, last_evaluated_utc TEXT NOT NULL,
  matched INTEGER NOT NULL DEFAULT 0, remote_changed_utc TEXT NULL); ");
+    }
+
+    private static void MigrateToV22(SqliteConnection conn)
+    {
+        // Existing rows deliberately remain incomplete. Only a fetch performed by the
+        // v22 code can prove which TicketGet components were returned.
+        EnsureColumn(conn, "znuny_ticket_detail_cache", "metadata_complete", "INTEGER NOT NULL DEFAULT 0");
+        EnsureColumn(conn, "znuny_ticket_detail_cache", "articles_complete", "INTEGER NOT NULL DEFAULT 0");
+        EnsureColumn(conn, "znuny_ticket_detail_cache", "dynamic_fields_complete", "INTEGER NOT NULL DEFAULT 0");
+        EnsureColumn(conn, "znuny_ticket_detail_cache", "fetched_article_limit", "INTEGER NOT NULL DEFAULT 0");
+        Exec(conn, @"CREATE TABLE IF NOT EXISTS znuny_sync_cursor (
+ context_key TEXT PRIMARY KEY, next_ticket_id TEXT NOT NULL DEFAULT '', updated_utc TEXT NOT NULL);");
+    }
+
+    private static void MigrateToV23(SqliteConnection conn)
+    {
+        Exec(conn, @"CREATE TABLE IF NOT EXISTS znuny_reconciliation_cycle (
+ context_key TEXT PRIMARY KEY, discovery_fingerprint TEXT NOT NULL,
+ discovered_ticket_ids_json TEXT NOT NULL, started_utc TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS znuny_reconciliation_pending (
+ context_key TEXT NOT NULL, ticket_id TEXT NOT NULL, ordinal INTEGER NOT NULL,
+ PRIMARY KEY(context_key,ticket_id),
+ FOREIGN KEY(context_key) REFERENCES znuny_reconciliation_cycle(context_key) ON DELETE CASCADE);
+CREATE INDEX IF NOT EXISTS idx_znuny_reconciliation_pending
+ON znuny_reconciliation_pending(context_key,ordinal);");
     }
 
     private static void EnsureColumn(SqliteConnection conn, string table, string column, string definition)
