@@ -1026,24 +1026,24 @@ public class TicketSystemService : IDisposable
                 ticketGetStatus = ticket == null ? "Fehlgeschlagen, keine Ticketdaten in der Antwort." : "Erfolgreich";
             }
 
-            async Task<string> CheckOptionsAsync(string fieldName)
+            async Task<(string Status, bool Success)> CheckOptionsAsync(string fieldName)
             {
-                if (string.IsNullOrWhiteSpace(fieldName)) return "Nicht konfiguriert";
+                if (string.IsNullOrWhiteSpace(fieldName)) return ("Nicht konfiguriert", true);
                 try
                 {
                     var options = await LoadDynamicFieldOptionsAsync(sessionId, fieldName);
-                    return options.Count > 0 ? $"Erfolgreich ({options.Count})" : "Fehlgeschlagen (leere Antwort)";
+                    return options.Count > 0 ? ($"Erfolgreich ({options.Count})", true) : ("Fehlgeschlagen (leere Antwort)", false);
                 }
                 catch (Exception ex)
                 {
                     _logger.Warning($"[ZnunyConnectionTest] stage=DynamicFieldOptions field='{LogValue(fieldName)}' message='{LogValue(ex.Message)}'");
-                    return $"Fehlgeschlagen: {ex.Message}";
+                    return ($"Fehlgeschlagen: {ex.Message}", false);
                 }
             }
-            var costOptionsStatus = await CheckOptionsAsync(_settings.Current.TicketSystemCostCenterFieldName);
-            var orderOptionsStatus = await CheckOptionsAsync(_settings.Current.TicketSystemOrderFieldName);
+            var costOptions = await CheckOptionsAsync(_settings.Current.TicketSystemCostCenterFieldName);
+            var orderOptions = await CheckOptionsAsync(_settings.Current.TicketSystemOrderFieldName);
 
-            return (true, $"Authentication: Erfolgreich\nOwner Search: Erfolgreich ({ownerIds.Count})\nResponsible Search: Erfolgreich ({responsibleIds.Count})\nTicketGet: {ticketGetStatus}\nKostenstellen-Options: {costOptionsStatus}\nAuftrags-Options: {orderOptionsStatus}\nTicketSearch-Route: {_settings.Current.TicketSystemTicketSearchMethod} {_settings.Current.TicketSystemTicketSearchRoute}\nAgenten-ID: {userId}\nEindeutige Tickets: {uniqueIds.Count}\nDoppelte Owner/Responsible-Treffer: {duplicateCount}\nMapping auf internen Task: Validiert");
+            return (costOptions.Success && orderOptions.Success, $"Authentication: Erfolgreich\nOwner Search: Erfolgreich ({ownerIds.Count})\nResponsible Search: Erfolgreich ({responsibleIds.Count})\nTicketGet: {ticketGetStatus}\nKostenstellen-Options: {costOptions.Status}\nAuftrags-Options: {orderOptions.Status}\nTicketSearch-Route: {_settings.Current.TicketSystemTicketSearchMethod} {_settings.Current.TicketSystemTicketSearchRoute}\nAgenten-ID: {userId}\nEindeutige Tickets: {uniqueIds.Count}\nDoppelte Owner/Responsible-Treffer: {duplicateCount}\nMapping auf internen Task: Validiert");
         }
         catch (ZnunyApiException ex)
         {
@@ -1315,6 +1315,13 @@ public class TicketSystemService : IDisposable
                 }
                 else
                 {
+                    if (!ZnunyReconciliationPolicy.ShouldCreateTask(isCurrentlyAssigned))
+                    {
+                        skipped++;
+                        if (cycle != null) _detailCache.CompleteCycleTicket(assignmentContextKey, ticketId);
+                        continue;
+                    }
+
                     if (ticket.IsClosed && _settings.Current.TicketSystemOnlyOpenTickets && !_settings.Current.TicketSystemShowClosedTickets)
                     {
                         skipped++;
@@ -1708,7 +1715,8 @@ public class TicketSystemService : IDisposable
         var requestedEvaluationIds = (lightweight ? newIds.Concat(staleExistingIds).Distinct(StringComparer.OrdinalIgnoreCase) : candidateIds).ToList();
         var idsToEvaluate = requestedEvaluationIds;
         if (reason.IsAutomatic() && _syncTraffic.Value is { } candidateTraffic)
-            idsToEvaluate = requestedEvaluationIds.Take(Math.Max(0, candidateTraffic.Remaining - 1)).ToList();
+            idsToEvaluate = requestedEvaluationIds.Take(
+                ZnunyOperationPolicy.CandidateEvaluationsThatFit(candidateTraffic.Remaining)).ToList();
         var partial = possiblyTruncated || idsToEvaluate.Count < requestedEvaluationIds.Count;
         var matches = (lightweight || partial ? _candidateSnapshots.Load().Where(item => partial || candidateIds.Contains(item.TicketId)) : Array.Empty<ZnunyCandidateTicket>()).ToList();
         var matchedById = matches.ToDictionary(item => item.TicketId, StringComparer.OrdinalIgnoreCase);
