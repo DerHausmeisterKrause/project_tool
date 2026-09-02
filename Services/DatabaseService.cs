@@ -68,10 +68,11 @@ CREATE TABLE IF NOT EXISTS schema_version (
             MigrateToV21(conn);
             MigrateToV22(conn);
             MigrateToV23(conn);
+            MigrateToV24(conn);
 
-            if (currentVersion < 23)
+            if (currentVersion < 24)
             {
-                SetVersion(conn, 23);
+                SetVersion(conn, 24);
             }
         }
         catch (Exception ex)
@@ -359,6 +360,15 @@ CREATE TABLE IF NOT EXISTS znuny_reconciliation_pending (
  FOREIGN KEY(context_key) REFERENCES znuny_reconciliation_cycle(context_key) ON DELETE CASCADE);
 CREATE INDEX IF NOT EXISTS idx_znuny_reconciliation_pending
 ON znuny_reconciliation_pending(context_key,ordinal);");
+    }
+
+    private static void MigrateToV24(SqliteConnection conn)
+    {
+        Exec(conn, @"CREATE TABLE IF NOT EXISTS znuny_candidate_pool_snapshot (
+ ticket_id TEXT PRIMARY KEY, ticket_number TEXT NOT NULL DEFAULT '', title TEXT NOT NULL DEFAULT '',
+ description_preview TEXT NOT NULL DEFAULT '', owner TEXT NOT NULL DEFAULT '', responsible TEXT NOT NULL DEFAULT '',
+ state TEXT NOT NULL DEFAULT '', web_url TEXT NOT NULL DEFAULT '', matched_keyword TEXT NOT NULL DEFAULT '',
+ last_synced_utc TEXT NOT NULL);");
     }
 
     private static void EnsureColumn(SqliteConnection conn, string table, string column, string definition)

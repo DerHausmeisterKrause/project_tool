@@ -14,10 +14,4 @@ public static class ZnunyOperationPolicy
            || operation.StartsWith("TicketGet", StringComparison.Ordinal)
            || operation.StartsWith("CandidateTicketGet", StringComparison.Ordinal);
 
-    public static int RequiredTicketStepBudget(bool cacheComplete) => cacheComplete ? 4 : 3;
-
-    public static bool CanRecoverSession(int remainingRequests) => remainingRequests >= 2;
-
-    public static int CandidateEvaluationsThatFit(int remainingRequests)
-        => Math.Max(0, remainingRequests - 2);
 }
