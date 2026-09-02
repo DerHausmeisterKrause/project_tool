@@ -230,6 +230,19 @@ VALUES ($id,$title,$desc,$url,$start,$end,$status,$priority,$tags,$entry,$ticket
         UpdateTask(task);
     }
 
+    public void SetUnbookedTicketSeconds(TaskItem task, long desiredUnbookedSeconds,
+        long bookingBaselineSeconds, long successfullyTransferredSeconds)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(desiredUnbookedSeconds);
+        var wasRunning = task.Status == TaskStatus.Running;
+        if (wasRunning) StopTimer(task);
+        task.TicketSecondsBooked = checked(Math.Max(0, bookingBaselineSeconds)
+            + Math.Max(0, successfullyTransferredSeconds) + desiredUnbookedSeconds);
+        task.TicketMinutesBooked = (int)(task.TicketSecondsBooked / 60);
+        UpdateTask(task);
+        if (wasRunning) StartTimer(task);
+    }
+
     public void CreateTicketTimeBooking(TicketTimeBooking booking)
     {
         using var conn = new SqliteConnection(_db.ConnectionString);
