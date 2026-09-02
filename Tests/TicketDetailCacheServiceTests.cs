@@ -177,6 +177,59 @@ public sealed class TicketDetailCacheServiceTests : IDisposable
         Assert.Equal(["1", "2", "3"], changed.DiscoveredTicketIds);
     }
 
+    [Theory]
+    [InlineData(ZnunyReconciliationWorkKind.RemovalVerification, ZnunyReconciliationWorkKind.Assigned, true)]
+    [InlineData(ZnunyReconciliationWorkKind.Assigned, ZnunyReconciliationWorkKind.RemovalVerification, true)]
+    [InlineData(ZnunyReconciliationWorkKind.Assigned, ZnunyReconciliationWorkKind.Assigned, false)]
+    [InlineData(ZnunyReconciliationWorkKind.RemovalVerification, ZnunyReconciliationWorkKind.RemovalVerification, false)]
+    public void ChangedDiscoveryRetainsCompletionOnlyForSameWorkKind(
+        ZnunyReconciliationWorkKind firstKind, ZnunyReconciliationWorkKind secondKind, bool expectedPending)
+    {
+        var first = new ZnunyReconciliationWorkItem("42", firstKind).PersistedKey;
+        var second = new ZnunyReconciliationWorkItem("42", secondKind).PersistedKey;
+        _cache.StartOrLoadCycle("agent", "one", [first]);
+        _cache.CompleteCycleTicket("agent", first);
+
+        var changed = _cache.StartOrLoadCycle("agent", "two", [second]);
+
+        Assert.Equal(expectedPending ? [second] : [], changed.PendingTicketIds);
+    }
+
+    [Fact]
+    public void RepeatedDiscoveryChangesDoNotStarvePendingWork()
+    {
+        var completed = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        for (var generation = 0; generation < 20; generation++)
+        {
+            var items = Enumerable.Range(generation, 150)
+                .Select(id => new ZnunyReconciliationWorkItem(id.ToString(), ZnunyReconciliationWorkKind.Assigned).PersistedKey)
+                .ToList();
+            var cycle = _cache.StartOrLoadCycle("agent", $"generation-{generation}", items);
+            foreach (var item in cycle.PendingTicketIds.Take(50))
+            {
+                completed.Add(item);
+                _cache.CompleteCycleTicket("agent", item);
+            }
+        }
+
+        var finalItems = Enumerable.Range(19, 150)
+            .Select(id => new ZnunyReconciliationWorkItem(id.ToString(), ZnunyReconciliationWorkKind.Assigned).PersistedKey)
+            .ToList();
+        var finalCycle = _cache.StartOrLoadCycle("agent", "generation-19", finalItems);
+        while (finalCycle.PendingTicketIds.Count > 0)
+        {
+            foreach (var item in finalCycle.PendingTicketIds.Take(50))
+            {
+                completed.Add(item);
+                _cache.CompleteCycleTicket("agent", item);
+            }
+            finalCycle = _cache.StartOrLoadCycle("agent", "generation-19", finalItems);
+        }
+
+        Assert.Empty(finalCycle.PendingTicketIds);
+        Assert.All(finalItems, item => Assert.Contains(item, completed));
+    }
+
     [Fact]
     public void PersistedDynamicFieldFreshnessUsesOriginalFetchedTimestamp()
     {
