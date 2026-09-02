@@ -205,11 +205,12 @@
                                    FontSize="12" Margin="0,3,0,0"/>
                     </StackPanel>
                     <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
-                        <ToggleButton Content="Alle offenen" Style="{StaticResource TogglePillStyle}"
-                                      IsChecked="{Binding ShowAllCandidatePoolTickets}" Height="34" MinWidth="120"
-                                      Padding="14,5" Margin="0,0,8,0"
+                        <ToggleButton Content="Alle offenen" Style="{StaticResource SecondaryToggleButtonStyle}"
+                                      IsChecked="{Binding ShowAllCandidatePoolTickets}" Width="120" Height="34"
+                                      Margin="0,0,8,0"
                                       ToolTip="Auch offene Tickets ohne Filtertreffer anzeigen"/>
-                        <Button Content="Aktualisieren" Width="120" Style="{StaticResource SecondaryButtonStyle}"
+                        <Button Content="Aktualisieren" Width="120" Height="34" Margin="0"
+                                Style="{StaticResource SecondaryButtonStyle}"
                                 Command="{Binding RefreshCandidateTicketsCommand}"/>
                     </StackPanel>
                 </Grid>
