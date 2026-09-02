@@ -123,7 +123,26 @@
                     </Grid.RowDefinitions>
                     <StackPanel x:Name="BookingTimerPanel" Grid.Column="0" Grid.Row="0" Margin="0,0,12,0">
                         <TextBlock Text="Timer / Buchung" FontSize="13" Foreground="{StaticResource MutedTextBrush}"/>
-                        <TextBlock Text="{Binding TimerDisplay}" FontSize="38" FontWeight="Bold" Margin="0,6,0,4" HorizontalAlignment="Center"/>
+                        <Button Command="{Binding BeginTimerEditCommand}" IsEnabled="{Binding CanEditTicketTime}"
+                                Background="Transparent" BorderThickness="0" Padding="4" Margin="0,6,0,4"
+                                HorizontalAlignment="Center" Cursor="Hand" ToolTip="Zeit direkt bearbeiten"
+                                Visibility="{Binding IsTimerEditMode, Converter={StaticResource InverseBooleanConverter}}">
+                            <TextBlock Text="{Binding TimerDisplay}" FontSize="38" FontWeight="Bold"/>
+                        </Button>
+                        <StackPanel Visibility="{Binding IsTimerEditMode, Converter={StaticResource BooleanToVisibilityConverter}}">
+                            <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,6,0,4">
+                                <TextBox Text="{Binding TimerEditText, UpdateSourceTrigger=PropertyChanged}" FontSize="32" FontWeight="Bold"
+                                         Width="210" HorizontalContentAlignment="Center" ToolTip="Stunden:Minuten:Sekunden">
+                                    <TextBox.InputBindings>
+                                        <KeyBinding Key="Enter" Command="{Binding CommitTimerEditCommand}"/>
+                                        <KeyBinding Key="Escape" Command="{Binding CancelTimerEditCommand}"/>
+                                    </TextBox.InputBindings>
+                                </TextBox>
+                                <Button Content="✓" Command="{Binding CommitTimerEditCommand}" Width="42" Margin="6,0,0,0"/>
+                                <Button Content="✕" Command="{Binding CancelTimerEditCommand}" Width="42" Margin="4,0,0,0" Style="{StaticResource SecondaryButtonStyle}"/>
+                            </StackPanel>
+                            <TextBlock Text="{Binding TimerEditError}" Foreground="#F87171" TextWrapping="Wrap" HorizontalAlignment="Center" Margin="0,0,0,4"/>
+                        </StackPanel>
                         <TextBlock Text="{Binding UnbookedTicketTimeText}" FontWeight="SemiBold" Foreground="#FBBF24" HorizontalAlignment="Center" Margin="0,0,0,10"/>
                         <WrapPanel HorizontalAlignment="Center">
                             <Button Content="Start" Width="82" Command="{Binding StartTimerCommand}"/>
