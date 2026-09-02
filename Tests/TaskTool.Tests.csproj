@@ -16,6 +16,7 @@
     <Compile Include="../Models/ZnunySyncPolicy.cs" Link="Models/ZnunySyncPolicy.cs" />
     <Compile Include="../Models/ZnunyRequestReason.cs" Link="Models/ZnunyRequestReason.cs" />
     <Compile Include="../Models/ZnunyOperationPolicy.cs" Link="Models/ZnunyOperationPolicy.cs" />
+    <Compile Include="../Models/ZnunyReconciliationPolicy.cs" Link="Models/ZnunyReconciliationPolicy.cs" />
     <Compile Include="../Models/ZnunySyncResult.cs" Link="Models/ZnunySyncResult.cs" />
     <Compile Include="../Models/ZnunyApiException.cs" Link="Models/ZnunyApiException.cs" />
     <Compile Include="../Models/ZnunyTicketSearchResponseParser.cs" Link="Models/ZnunyTicketSearchResponseParser.cs" />
