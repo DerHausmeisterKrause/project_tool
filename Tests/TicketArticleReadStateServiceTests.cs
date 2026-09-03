@@ -1,3 +1,4 @@
+using Microsoft.Data.Sqlite;
 using TaskTool.Models;
 using TaskTool.Services;
 using Xunit;
@@ -85,6 +86,65 @@ public sealed class TicketArticleReadStateServiceTests : IDisposable
         Assert.False(article.DropdownDisplayText.StartsWith("★", StringComparison.Ordinal));
     }
 
+    [Fact]
+    public void NumericIdFallbackRecognizesNewArticleWhenBaselineTimestampIsMissing()
+    {
+        var service = new TicketArticleReadStateService(_database);
+        service.ReconcileFetchedArticles("4711", [ArticleWithoutTime("100")]);
+        service.ReconcileFetchedArticles("4711", [Article("101", 1)]);
+        Assert.True(service.IsUnread("4711", "101"));
+    }
+
+    [Fact]
+    public void NumericIdFallbackWorksWhenBothTimestampsAreMissing()
+    {
+        var service = new TicketArticleReadStateService(_database);
+        service.ReconcileFetchedArticles("4711", [ArticleWithoutTime("100")]);
+        service.ReconcileFetchedArticles("4711", [ArticleWithoutTime("101")]);
+        Assert.True(service.IsUnread("4711", "101"));
+    }
+
+    [Fact]
+    public void NumericIdFallbackTreatsLowerIdAsHistoricalAndDoesNotMoveWatermarkBackwards()
+    {
+        var service = new TicketArticleReadStateService(_database);
+        service.ReconcileFetchedArticles("4711", [ArticleWithoutTime("100")]);
+        service.ReconcileFetchedArticles("4711", [ArticleWithoutTime("99")]);
+        Assert.False(service.IsUnread("4711", "99"));
+        service.ReconcileFetchedArticles("4711", [ArticleWithoutTime("101")]);
+        Assert.True(service.IsUnread("4711", "101"));
+    }
+
+    [Fact]
+    public void NonNumericIdsWithoutComparableTimestampsRemainConservativelyRead()
+    {
+        var service = new TicketArticleReadStateService(_database);
+        service.ReconcileFetchedArticles("4711", [ArticleWithoutTime("base")]);
+        service.ReconcileFetchedArticles("4711", [Article("new", 1)]);
+        Assert.False(service.IsUnread("4711", "new"));
+    }
+
+    [Fact]
+    public void EqualTimestampUsesNumericArticleIdAsTieBreaker()
+    {
+        var service = new TicketArticleReadStateService(_database);
+        var created = new DateTime(2026, 9, 3, 10, 0, 0, DateTimeKind.Utc);
+        service.ReconcileFetchedArticles("4711", [ArticleAt("100", created)]);
+        service.ReconcileFetchedArticles("4711", [ArticleAt("101", created)]);
+        Assert.True(service.IsUnread("4711", "101"));
+    }
+
+    [Fact]
+    public void ConfirmedOwnArticleCanBeMarkedReadWithoutAffectingOtherUnreadArticles()
+    {
+        var service = new TicketArticleReadStateService(_database);
+        service.ReconcileFetchedArticles("4711", [Article("100", 0)]);
+        service.ReconcileFetchedArticles("4711", [Article("101", 1), Article("102", 2)]);
+        service.MarkRead("4711", "101");
+        Assert.False(service.IsUnread("4711", "101"));
+        Assert.True(service.IsUnread("4711", "102"));
+    }
+
     private static TicketArticleItem Article(string id, int minute) => new()
     {
         ArticleId = id,
@@ -93,8 +153,16 @@ public sealed class TicketArticleReadStateServiceTests : IDisposable
         DisplayText = id
     };
 
+    private static TicketArticleItem ArticleWithoutTime(string id) => new() { ArticleId = id, Body = "message", DisplayText = id };
+    private static TicketArticleItem ArticleAt(string id, DateTime created) => new() { ArticleId = id, CreatedLocal = created, Body = "message", DisplayText = id };
+
     private static TicketBookingContext Context(string id, params TicketArticleItem[] articles)
         => new(id, id, "", "", [], [], "", articles, articles.LastOrDefault(), "customer@example.test", "Ticket");
 
-    public void Dispose() { try { File.Delete(_path); } catch { } }
+    public void Dispose()
+    {
+        SqliteConnection.ClearAllPools();
+        if (File.Exists(_path)) File.Delete(_path);
+        Assert.False(File.Exists(_path));
+    }
 }

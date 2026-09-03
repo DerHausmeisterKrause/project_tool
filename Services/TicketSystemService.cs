@@ -925,6 +925,7 @@ public class TicketSystemService : IDisposable
                 var reconciledArticleId = currentTicket?.FindArticleIdContaining(BookingMarker(pending.BookingId));
                 if (!string.IsNullOrWhiteSpace(reconciledArticleId))
                 {
+                    _articleReadState.MarkRead(ticketId, reconciledArticleId);
                     _tasks.CompleteTicketTimeBooking(pending, reconciledArticleId);
                     _logger.Info($"[ZnunyTimeBooking] ticketId={ticketId} taskId={task.Id} bookingId={pending.BookingId} articleId={reconciledArticleId} action=reconciled");
                     return new TicketBookingResult(true, false, $"{pending.Minutes:0.##} Min. erfasst, {pending.BookedMinutes:0.##} Min. in OTRS gebucht.");
@@ -964,6 +965,7 @@ public class TicketSystemService : IDisposable
             EnsureTicketUpdateResponseIsInterpretable(response);
             serverConfirmed = true;
             var articleId = ExtractFirstValueRecursive(response.Body, "ArticleID");
+            if (!string.IsNullOrWhiteSpace(articleId)) _articleReadState.MarkRead(ticketId, articleId);
             _tasks.CompleteTicketTimeBooking(booking, articleId);
             _logger.Info($"[ZnunyTimeBooking] ticketId={ticketId} taskId={task.Id} bookingId={booking.BookingId} articleId={articleId} action=completed");
             return new TicketBookingResult(true, false, $"{minutes:0.##} Min. erfasst, auf {bookedMinutes:0.##} Min. aufgerundet und erfolgreich in OTRS gebucht.");
@@ -1007,6 +1009,7 @@ public class TicketSystemService : IDisposable
             var articleId = ticket?.FindArticleIdContaining(BookingMarker(booking.BookingId));
             if (!string.IsNullOrWhiteSpace(articleId))
             {
+                _articleReadState.MarkRead(booking.TicketId, articleId);
                 _tasks.CompleteTicketTimeBooking(booking, articleId);
                 _logger.Info($"[ZnunyTimeBooking] ticketId={booking.TicketId} taskId={task.Id} bookingId={booking.BookingId} articleId={articleId} action=reconciled-manual");
                 return new TicketBookingResult(true, false, "Buchung wurde in Znuny gefunden und lokal als gebucht bestätigt.");
@@ -1035,6 +1038,7 @@ public class TicketSystemService : IDisposable
             var existingArticleId = ticket?.FindArticleIdContaining(BookingMarker(booking.BookingId));
             if (!string.IsNullOrWhiteSpace(existingArticleId))
             {
+                _articleReadState.MarkRead(booking.TicketId, existingArticleId);
                 _tasks.CompleteTicketTimeBooking(booking, existingArticleId);
                 return new TicketBookingResult(true, false, "Buchung war bereits vorhanden und wurde ohne erneutes TicketUpdate übernommen.");
             }
@@ -1051,6 +1055,7 @@ public class TicketSystemService : IDisposable
             var response = await SendZnunyAsync(request, "TicketUpdateTimeBookingRetry", "[ZnunyTicketUpdateResponse]", logBody: false);
             EnsureTicketUpdateResponseIsInterpretable(response);
             var articleId = ExtractFirstValueRecursive(response.Body, "ArticleID");
+            if (!string.IsNullOrWhiteSpace(articleId)) _articleReadState.MarkRead(booking.TicketId, articleId);
             _tasks.CompleteTicketTimeBooking(booking, articleId);
             _logger.Info($"[ZnunyTimeBooking] ticketId={booking.TicketId} taskId={task.Id} bookingId={booking.BookingId} articleId={articleId} action=retried");
             return new TicketBookingResult(true, false, $"{booking.BookedMinutes:0.##} Min. erfolgreich erneut übertragen.");

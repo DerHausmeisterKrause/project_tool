@@ -56,8 +56,7 @@ public sealed class TicketArticleReadStateService
         {
             foreach (var article in articles)
                 InsertState(connection, transaction, ticketId, article.ArticleId, DateTime.UtcNow);
-            var initialNewest = articles.OrderBy(a => a.CreatedLocal ?? DateTime.MinValue)
-                .ThenBy(a => ParseNumericId(a.ArticleId)).ThenBy(a => a.ArticleId, StringComparer.OrdinalIgnoreCase).LastOrDefault();
+            var initialNewest = FindNewest(articles);
             if (initialNewest != null)
                 UpdateWatermark(connection, transaction, ticketId, initialNewest.CreatedLocal, initialNewest.ArticleId);
             transaction.Commit();
@@ -116,28 +115,41 @@ VALUES($ticket,$article,$now,$now) ON CONFLICT(ticket_id,article_id) DO UPDATE S
         {
             var compare = DateTime.Compare(created.Value.ToUniversalTime(), watermarkCreated.Value.ToUniversalTime());
             if (compare != 0) return compare > 0;
-            return CompareIds(id, watermarkId) > 0;
+            return TryCompareNumericIds(id, watermarkId, out var idCompare) && idCompare > 0;
         }
-        return !created.HasValue && !watermarkCreated.HasValue && CompareIds(id, watermarkId) > 0;
+        return TryCompareNumericIds(id, watermarkId, out var fallbackCompare) && fallbackCompare > 0;
     }
 
-    private static int CompareIds(string left, string right)
+    private static bool TryCompareNumericIds(string left, string right, out int comparison)
     {
         if (long.TryParse(left, NumberStyles.None, CultureInfo.InvariantCulture, out var l)
-            && long.TryParse(right, NumberStyles.None, CultureInfo.InvariantCulture, out var r)) return l.CompareTo(r);
-        return string.IsNullOrWhiteSpace(left) || string.IsNullOrWhiteSpace(right)
-            ? 0 : string.Compare(left, right, StringComparison.OrdinalIgnoreCase);
+            && long.TryParse(right, NumberStyles.None, CultureInfo.InvariantCulture, out var r))
+        {
+            comparison = l.CompareTo(r);
+            return true;
+        }
+        comparison = 0;
+        return false;
     }
 
     private static TicketArticleItem? FindNewest(IEnumerable<TicketArticleItem> articles, DateTime? created, string id)
-        => articles.Where(a => IsReliablyAfter(a.CreatedLocal, a.ArticleId, created, id))
-            .OrderBy(a => a.CreatedLocal ?? DateTime.MinValue).ThenBy(a => ParseNumericId(a.ArticleId)).ThenBy(a => a.ArticleId, StringComparer.OrdinalIgnoreCase).LastOrDefault();
-    private static long ParseNumericId(string id) => long.TryParse(id, out var value) ? value : long.MinValue;
+        => FindNewest(articles.Where(a => IsReliablyAfter(a.CreatedLocal, a.ArticleId, created, id)));
+
+    private static TicketArticleItem? FindNewest(IEnumerable<TicketArticleItem> articles)
+    {
+        TicketArticleItem? newest = null;
+        foreach (var article in articles)
+        {
+            if (newest == null || IsReliablyAfter(article.CreatedLocal, article.ArticleId, newest.CreatedLocal, newest.ArticleId))
+                newest = article;
+        }
+        return newest;
+    }
 
     private static void CreateBaseline(SqliteConnection connection, SqliteTransaction transaction, string ticketId,
         IReadOnlyCollection<TicketArticleItem> articles, bool markKnownRead)
     {
-        var newest = articles.OrderBy(a => a.CreatedLocal ?? DateTime.MinValue).ThenBy(a => ParseNumericId(a.ArticleId)).ThenBy(a => a.ArticleId, StringComparer.OrdinalIgnoreCase).LastOrDefault();
+        var newest = FindNewest(articles);
         using (var baseline = connection.CreateCommand()) { baseline.Transaction = transaction; baseline.CommandText = @"INSERT OR IGNORE INTO znuny_ticket_article_read_baseline(ticket_id,initialized_utc,newest_seen_created_utc,newest_seen_article_id) VALUES($id,$now,$created,$article)"; baseline.Parameters.AddWithValue("$id", ticketId); baseline.Parameters.AddWithValue("$now", DateTime.UtcNow.ToString("O")); baseline.Parameters.AddWithValue("$created", (object?)newest?.CreatedLocal?.ToUniversalTime().ToString("O") ?? DBNull.Value); baseline.Parameters.AddWithValue("$article", (object?)newest?.ArticleId ?? DBNull.Value); baseline.ExecuteNonQuery(); }
         if (markKnownRead) foreach (var article in articles.Where(a => !string.IsNullOrWhiteSpace(a.ArticleId))) InsertState(connection, transaction, ticketId, article.ArticleId, DateTime.UtcNow);
     }
