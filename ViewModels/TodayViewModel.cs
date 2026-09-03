@@ -255,6 +255,8 @@ public class TodayViewModel : ObservableObject
         {
             if (Set(ref _selectedTicketArticle, value))
             {
+                if (value != null && SelectedTask != null)
+                    _ticketSystem.MarkTicketArticleRead(SelectedTask, value);
                 Raise(nameof(HasSelectedTicketArticle));
                 BeginTicketReplyCommand.RaiseCanExecuteChanged();
             }
@@ -913,6 +915,7 @@ public class TodayViewModel : ObservableObject
         var active = allActive.ToList();
         foreach (var task in active)
         {
+            _ticketSystem.ApplyArticleReadPresentation(task);
             task.CurrentListBadgeText = task.Status == TaskStatus.Running
                 ? "Running"
                 : taskIdsWithActiveOrFutureSegments.Contains(task.Id) ? "Geplant" : string.Empty;
@@ -1558,6 +1561,7 @@ public class TodayViewModel : ObservableObject
             TicketBookingInformation = context.Information;
             TicketArticles.Clear();
             foreach (var article in context.Articles) TicketArticles.Add(article);
+            _ticketSystem.ApplyArticleReadPresentation(task, TicketArticles);
             _ticketReplySourceArticle = context.ReplySourceArticle;
             TicketReplyRecipient = context.ReplyRecipient;
             _ticketTitle = context.TicketTitle;
@@ -1571,6 +1575,7 @@ public class TodayViewModel : ObservableObject
             }
             var requestedArticleId = !string.IsNullOrWhiteSpace(preferredArticleId) ? preferredArticleId : previousArticleId;
             SelectedTicketArticle = TicketArticles.FirstOrDefault(article => string.Equals(article.ArticleId, requestedArticleId, StringComparison.OrdinalIgnoreCase))
+                                    ?? TicketArticles.FirstOrDefault(article => article.IsUnread)
                                     ?? (selectNewestWhenPreferredMissing ? TicketArticles.LastOrDefault() : TicketArticles.FirstOrDefault());
             TicketConversationMessage = TicketArticles.Count == 0
                 ? "Für dieses Ticket wurden keine fachlichen Nachrichten gefunden."
@@ -1803,6 +1808,8 @@ public class TodayViewModel : ObservableObject
         {
             var result = await _ticketSystem.CheckTicketTimeBookingAsync(task, booking);
             StatusMessage = result.Message;
+            if (result.Success)
+                ApplyTaskFilters();
             if (SelectedTask?.Id == task.Id)
             {
                 LoadTicketBookingHistory();
@@ -1824,6 +1831,8 @@ public class TodayViewModel : ObservableObject
         {
             var result = await _ticketSystem.RetryTicketTimeBookingAsync(task, booking);
             StatusMessage = result.Message;
+            if (result.Success)
+                ApplyTaskFilters();
             if (SelectedTask?.Id == task.Id)
             {
                 LoadTicketBookingHistory();
