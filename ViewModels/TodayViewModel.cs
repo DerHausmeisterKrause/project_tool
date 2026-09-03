@@ -1808,6 +1808,8 @@ public class TodayViewModel : ObservableObject
         {
             var result = await _ticketSystem.CheckTicketTimeBookingAsync(task, booking);
             StatusMessage = result.Message;
+            if (result.Success)
+                ApplyTaskFilters();
             if (SelectedTask?.Id == task.Id)
             {
                 LoadTicketBookingHistory();
@@ -1829,6 +1831,8 @@ public class TodayViewModel : ObservableObject
         {
             var result = await _ticketSystem.RetryTicketTimeBookingAsync(task, booking);
             StatusMessage = result.Message;
+            if (result.Success)
+                ApplyTaskFilters();
             if (SelectedTask?.Id == task.Id)
             {
                 LoadTicketBookingHistory();
