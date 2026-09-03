@@ -257,6 +257,9 @@
                                         </StackPanel>
 
                                         <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="4,0,12,0">
+                                            <TextBlock Text="★" Foreground="#FBBF24" FontSize="16" FontWeight="SemiBold"
+                                                       ToolTip="Neue ungelesene Ticket-Nachricht"
+                                                       Visibility="{Binding HasUnreadTicketArticles, Converter={StaticResource BooleanToVisibilityConverter}}"/>
                                             <TextBlock Text="{Binding Title}" FontSize="16" FontWeight="SemiBold" TextWrapping="Wrap"/>
                                             <TextBlock Text="{Binding Location}" Margin="0,3,0,0" FontSize="11" Foreground="{StaticResource MutedTextBrush}"
                                                        TextTrimming="CharacterEllipsis" Visibility="{Binding Location, Converter={StaticResource StringEmptyToVisibilityConverter}}"/>
@@ -314,8 +317,13 @@
                                     <Grid>
                                         <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
                                         <StackPanel Margin="0,0,16,0">
-                                            <TextBlock Text="{Binding CurrentListTicketNumber, Mode=OneWay}" Foreground="{StaticResource AccentBrush}" FontWeight="SemiBold"
-                                                       Visibility="{Binding ShowCurrentListTicketNumber, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}"/>
+                                            <StackPanel Orientation="Horizontal">
+                                                <TextBlock Text="★" Foreground="#FBBF24" FontSize="16" FontWeight="SemiBold" Margin="0,0,6,0"
+                                                           ToolTip="Neue ungelesene Ticket-Nachricht"
+                                                           Visibility="{Binding HasUnreadTicketArticles, Converter={StaticResource BooleanToVisibilityConverter}}"/>
+                                                <TextBlock Text="{Binding CurrentListTicketNumber, Mode=OneWay}" Foreground="{StaticResource AccentBrush}" FontWeight="SemiBold"
+                                                           Visibility="{Binding ShowCurrentListTicketNumber, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}"/>
+                                            </StackPanel>
                                             <TextBlock Text="{Binding CurrentListDisplayTitle, Mode=OneWay}" FontSize="18" FontWeight="Bold" TextWrapping="Wrap" Margin="0,3,0,0"/>
                                             <TextBlock Text="{Binding CurrentListPreviewText, Mode=OneWay}" Foreground="{StaticResource MutedTextBrush}" TextWrapping="Wrap"
                                                        MaxHeight="58" Margin="0,5,0,0"

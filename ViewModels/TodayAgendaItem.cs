@@ -15,6 +15,7 @@ public sealed class TodayAgendaItem
     public bool IsTask => Task != null;
     public bool IsOutlook => OutlookEvent != null;
     public bool HasTeamsLink => OutlookEvent?.HasTeamsLink == true;
+    public bool HasUnreadTicketArticles => Task?.HasUnreadTicketArticles == true;
     public Guid TaskId => Task?.Id ?? Guid.Empty;
     public string TypeLabel => IsTask ? "Task" : "Outlook";
     public string TimeLabel => IsAllDay ? "Ganztägig" : $"{Start:HH:mm} – {End:HH:mm}";

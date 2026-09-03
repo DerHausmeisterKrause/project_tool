@@ -22,6 +22,7 @@ public class TicketSystemService : IDisposable
     private readonly TicketCandidateSnapshotService _candidateSnapshots;
     private readonly TicketCandidateScanStateService _candidateScanStates;
     private readonly TicketDetailCacheService _detailCache;
+    private readonly TicketArticleReadStateService _articleReadState;
     private readonly NotificationService _notifications;
     private readonly LoggerService _logger;
     private readonly HttpClient _client;
@@ -69,7 +70,7 @@ public class TicketSystemService : IDisposable
 
     private const int MaxIndividualAssignmentNotifications = 5;
 
-    public TicketSystemService(SettingsService settings, TaskService tasks, TicketAssignmentSnapshotService assignmentSnapshots, TicketCandidateSnapshotService candidateSnapshots, TicketCandidateScanStateService candidateScanStates, TicketDetailCacheService detailCache, NotificationService notifications, LoggerService logger, HttpMessageHandler? httpMessageHandler = null)
+    public TicketSystemService(SettingsService settings, TaskService tasks, TicketAssignmentSnapshotService assignmentSnapshots, TicketCandidateSnapshotService candidateSnapshots, TicketCandidateScanStateService candidateScanStates, TicketDetailCacheService detailCache, TicketArticleReadStateService articleReadState, NotificationService notifications, LoggerService logger, HttpMessageHandler? httpMessageHandler = null)
     {
         _settings = settings;
         _tasks = tasks;
@@ -77,6 +78,7 @@ public class TicketSystemService : IDisposable
         _candidateSnapshots = candidateSnapshots;
         _candidateScanStates = candidateScanStates;
         _detailCache = detailCache;
+        _articleReadState = articleReadState;
         _notifications = notifications;
         _logger = logger;
         _client = httpMessageHandler == null ? new HttpClient() : new HttpClient(httpMessageHandler, disposeHandler: true);
@@ -99,7 +101,7 @@ public class TicketSystemService : IDisposable
     internal TicketSystemService(HttpMessageHandler httpMessageHandler, string sessionEndpoint)
     {
         _settings = null!; _tasks = null!; _assignmentSnapshots = null!; _candidateSnapshots = null!;
-        _candidateScanStates = null!; _detailCache = null!; _notifications = null!;
+        _candidateScanStates = null!; _detailCache = null!; _articleReadState = null!; _notifications = null!;
         _logger = new LoggerService();
         _client = new HttpClient(httpMessageHandler, disposeHandler: true);
         _rateLimiter = new ZnunyClientRateLimiter();
@@ -330,7 +332,7 @@ public class TicketSystemService : IDisposable
                 var details = await GetTicketDetailsAsync(ticketId, sessionId, sessionHash);
                 if (details != null)
                 {
-                    StoreTicketDetails(details, TicketDetailFetchProfile.Full(EffectiveArticleLimit));
+                    StoreTicketDetails(details, TicketDetailFetchProfile.Full(EffectiveArticleLimit), trackUnread: true);
                     UpsertAssignedTicketLocally(details);
                     NotifyTasksChanged();
                 }
@@ -498,7 +500,7 @@ public class TicketSystemService : IDisposable
             try
             {
                 var details = await GetTicketDetailsAsync(ticketId, sessionId, HashSessionId(sessionId));
-                if (details != null) StoreTicketDetails(details, TicketDetailFetchProfile.Full(EffectiveArticleLimit));
+                if (details != null) StoreTicketDetails(details, TicketDetailFetchProfile.Full(EffectiveArticleLimit), trackUnread: true);
             }
             catch (Exception ex)
             {
@@ -622,7 +624,7 @@ public class TicketSystemService : IDisposable
                 var details = await GetTicketDetailsAsync(ticketId, sessionId, HashSessionId(sessionId));
                 if (details != null)
                 {
-                    StoreTicketDetails(details, TicketDetailFetchProfile.Full(EffectiveArticleLimit));
+                    StoreTicketDetails(details, TicketDetailFetchProfile.Full(EffectiveArticleLimit), trackUnread: true);
                     cached = _detailCache.Load(ticketId);
                 }
             }
@@ -708,7 +710,9 @@ public class TicketSystemService : IDisposable
             replySource,
             replyRecipient,
             ticket.Title);
+        var unreadChanged = _articleReadState.ReconcileFetchedArticles(ticket.TicketID, articles);
         _detailCache.Store(context, ticket.State, ParseZnunyUtc(ticket.Changed), TicketDetailFetchProfile.Full(EffectiveArticleLimit));
+        if (unreadChanged) NotifyTasksChanged();
         return context;
         }
         finally { LogTraffic(traffic); _syncTraffic.Value = previousTraffic; _syncGate.Release(); }
@@ -797,12 +801,13 @@ public class TicketSystemService : IDisposable
             var response = await SendZnunyAsync(request, "TicketUpdateReply", "[ZnunyTicketUpdateResponse]", logBody: false);
             EnsureTicketUpdateResponseIsInterpretable(response);
             var articleId = ExtractFirstValueRecursive(response.Body, "ArticleID");
+            if (!string.IsNullOrWhiteSpace(articleId)) _articleReadState.MarkRead(ticketId, articleId);
             _tasks.TouchTaskActivity(task.Id);
             var refreshWarning = string.Empty;
             try
             {
                 var details = await GetTicketDetailsAsync(ticketId, sessionId, HashSessionId(sessionId));
-                if (details != null) StoreTicketDetails(details, TicketDetailFetchProfile.Full(EffectiveArticleLimit));
+                if (details != null) StoreTicketDetails(details, TicketDetailFetchProfile.Full(EffectiveArticleLimit), trackUnread: true);
             }
             catch (Exception ex)
             {
@@ -1290,7 +1295,7 @@ public class TicketSystemService : IDisposable
                 if (!cacheComplete)
                 {
                     ticket = await GetTicketDetailsAsync(ticketId, sessionId, sessionHash);
-                    if (ticket != null) { StoreTicketDetails(ticket); traffic.DetailRemote++; }
+                    if (ticket != null) { StoreTicketDetails(ticket, trackUnread: true); traffic.DetailRemote++; }
                 }
                 else
                 {
@@ -1311,7 +1316,7 @@ public class TicketSystemService : IDisposable
                     if (details == null)
                         throw new InvalidOperationException($"TicketGet lieferte keine Detaildaten für TicketID {ticketId}; der Assignment-Snapshot bleibt unverändert.");
                     ticket = details;
-                    StoreTicketDetails(details);
+                    StoreTicketDetails(details, trackUnread: true);
                     traffic.DetailRemote++;
                 }
                 else if (cacheComplete)
@@ -2033,9 +2038,10 @@ public class TicketSystemService : IDisposable
         => GetTicketAsync(ticketId, sessionId, sessionHash, allArticles: true, dynamicFields: true,
             "TicketGetReconciliation", Math.Max(EffectiveArticleLimit, 50));
 
-    private void StoreTicketDetails(ZnunyTicket ticket, TicketDetailFetchProfile? profile = null)
+    private void StoreTicketDetails(ZnunyTicket ticket, TicketDetailFetchProfile? profile = null, bool trackUnread = false)
     {
         var articles = ticket.ToArticleItems();
+        var unreadChanged = trackUnread && _articleReadState.ReconcileFetchedArticles(ticket.TicketID, articles);
         var (replySource, replyRecipient) = ResolveReplyRecipient(articles, ticket.CustomerUser);
         var context = new TicketBookingContext(ticket.TicketID, ticket.TicketNumber,
             ticket.GetDynamicFieldValue(_settings.Current.TicketSystemCostCenterFieldName),
@@ -2043,6 +2049,27 @@ public class TicketSystemService : IDisposable
             Array.Empty<TicketFieldOption>(), Array.Empty<TicketFieldOption>(), string.Empty,
             articles, replySource, replyRecipient, ticket.Title);
         _detailCache.Store(context, ticket.State, ParseZnunyUtc(ticket.Changed), profile ?? TicketDetailFetchProfile.Full(EffectiveArticleLimit));
+        if (unreadChanged) NotifyTasksChanged();
+    }
+
+    public void ApplyArticleReadPresentation(TaskItem task, IReadOnlyCollection<TicketArticleItem>? articles = null)
+    {
+        var ticketId = ExtractZnunyTicketIdFromTask(task);
+        task.UnreadTicketArticleCount = string.IsNullOrWhiteSpace(ticketId) ? 0 : _articleReadState.GetUnreadCount(ticketId);
+        if (articles == null || string.IsNullOrWhiteSpace(ticketId)) return;
+        var unread = _articleReadState.GetUnreadArticleIds(ticketId);
+        foreach (var article in articles) article.IsUnread = unread.Contains(article.ArticleId);
+    }
+
+    public bool MarkTicketArticleRead(TaskItem task, TicketArticleItem article)
+    {
+        var ticketId = ExtractZnunyTicketIdFromTask(task);
+        if (string.IsNullOrWhiteSpace(ticketId) || !_articleReadState.IsUnread(ticketId, article.ArticleId)) return false;
+        _articleReadState.MarkRead(ticketId, article.ArticleId);
+        article.IsUnread = false;
+        task.UnreadTicketArticleCount = _articleReadState.GetUnreadCount(ticketId);
+        NotifyTasksChanged();
+        return true;
     }
 
     private async Task<ZnunyTicket?> GetTicketAsync(string ticketId, string sessionId, string sessionHash, bool allArticles, bool dynamicFields, string operation, int? articleLimit = null)
