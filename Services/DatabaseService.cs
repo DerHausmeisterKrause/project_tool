@@ -69,10 +69,11 @@ CREATE TABLE IF NOT EXISTS schema_version (
             MigrateToV22(conn);
             MigrateToV23(conn);
             MigrateToV24(conn);
+            MigrateToV25(conn);
 
-            if (currentVersion < 24)
+            if (currentVersion < 25)
             {
-                SetVersion(conn, 24);
+                SetVersion(conn, 25);
             }
         }
         catch (Exception ex)
@@ -369,6 +370,18 @@ ON znuny_reconciliation_pending(context_key,ordinal);");
  description_preview TEXT NOT NULL DEFAULT '', owner TEXT NOT NULL DEFAULT '', responsible TEXT NOT NULL DEFAULT '',
  state TEXT NOT NULL DEFAULT '', web_url TEXT NOT NULL DEFAULT '', matched_keyword TEXT NOT NULL DEFAULT '',
  last_synced_utc TEXT NOT NULL);");
+    }
+
+    private static void MigrateToV25(SqliteConnection conn)
+    {
+        Exec(conn, @"CREATE TABLE IF NOT EXISTS znuny_ticket_article_read_baseline (
+ ticket_id TEXT PRIMARY KEY, initialized_utc TEXT NOT NULL,
+ newest_seen_created_utc TEXT NULL, newest_seen_article_id TEXT NULL);
+CREATE TABLE IF NOT EXISTS znuny_ticket_article_read_state (
+ ticket_id TEXT NOT NULL, article_id TEXT NOT NULL, first_seen_utc TEXT NOT NULL, read_utc TEXT NULL,
+ PRIMARY KEY(ticket_id,article_id));
+CREATE INDEX IF NOT EXISTS idx_znuny_article_read_unread
+ON znuny_ticket_article_read_state(ticket_id,read_utc);");
     }
 
     private static void EnsureColumn(SqliteConnection conn, string table, string column, string definition)

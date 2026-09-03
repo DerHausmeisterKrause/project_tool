@@ -29,6 +29,8 @@ public class TaskItem
     public string CurrentListPreviewText { get; set; } = string.Empty;
     public bool ShowCurrentListTicketNumber => !string.IsNullOrWhiteSpace(CurrentListTicketNumber);
     public bool ShowCurrentListPreview => !string.IsNullOrWhiteSpace(CurrentListPreviewText);
+    public int UnreadTicketArticleCount { get; set; }
+    public bool HasUnreadTicketArticles => IsZnunyTask && UnreadTicketArticleCount > 0;
     public DateTime CreatedUtc { get; set; } = DateTime.UtcNow;
     public DateTime UpdatedUtc { get; set; } = DateTime.UtcNow;
     public DateTime? TicketCreatedUtc { get; set; }
