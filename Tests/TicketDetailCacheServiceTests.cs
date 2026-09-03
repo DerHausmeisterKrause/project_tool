@@ -119,11 +119,11 @@ public sealed class TicketDetailCacheServiceTests : IDisposable
     }
 
     [Fact]
-    public void SchemaV24IsAdditiveAndKeepsPreviousMigrations()
+    public void SchemaV25IsAdditiveAndKeepsPreviousMigrations()
     {
         using var connection = new SqliteConnection($"Data Source={_path}"); connection.Open();
         using var version = connection.CreateCommand(); version.CommandText = "SELECT version FROM schema_version";
-        Assert.Equal(24L, version.ExecuteScalar());
+        Assert.Equal(25L, version.ExecuteScalar());
         using var columns = connection.CreateCommand(); columns.CommandText = "PRAGMA table_info(znuny_ticket_detail_cache)";
         using var reader = columns.ExecuteReader(); var names = new List<string>(); while (reader.Read()) names.Add(reader.GetString(1));
         Assert.Contains("articles_complete", names); Assert.Contains("dynamic_fields_complete", names);
@@ -131,6 +131,9 @@ public sealed class TicketDetailCacheServiceTests : IDisposable
         using var poolTable = connection.CreateCommand();
         poolTable.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='znuny_candidate_pool_snapshot'";
         Assert.Equal(1L, poolTable.ExecuteScalar());
+        using var readTables = connection.CreateCommand();
+        readTables.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name IN ('znuny_ticket_article_read_baseline','znuny_ticket_article_read_state')";
+        Assert.Equal(2L, readTables.ExecuteScalar());
     }
 
     [Theory]

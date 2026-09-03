@@ -25,7 +25,7 @@
                         </DockPanel>
                         <TextBlock Text="Nachricht" Foreground="{StaticResource MutedTextBrush}" Margin="0,0,0,3"/>
                         <ComboBox Style="{StaticResource DarkComboBoxStyle}" ItemsSource="{Binding TicketArticles, Mode=OneWay}"
-                                  SelectedItem="{Binding SelectedTicketArticle, Mode=TwoWay}" DisplayMemberPath="DisplayText" HorizontalAlignment="Stretch"/>
+                                  SelectedItem="{Binding SelectedTicketArticle, Mode=TwoWay}" DisplayMemberPath="DropdownDisplayText" HorizontalAlignment="Stretch"/>
                         <TextBlock Text="{Binding TicketConversationMessage, Mode=OneWay}" Foreground="{StaticResource MutedTextBrush}"
                                    TextWrapping="Wrap" Margin="0,6,0,0"/>
 
