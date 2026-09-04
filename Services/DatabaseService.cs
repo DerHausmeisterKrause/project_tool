@@ -70,10 +70,11 @@ CREATE TABLE IF NOT EXISTS schema_version (
             MigrateToV23(conn);
             MigrateToV24(conn);
             MigrateToV25(conn);
+            MigrateToV26(conn);
 
-            if (currentVersion < 25)
+            if (currentVersion < 26)
             {
-                SetVersion(conn, 25);
+                SetVersion(conn, 26);
             }
         }
         catch (Exception ex)
@@ -382,6 +383,14 @@ CREATE TABLE IF NOT EXISTS znuny_ticket_article_read_state (
  PRIMARY KEY(ticket_id,article_id));
 CREATE INDEX IF NOT EXISTS idx_znuny_article_read_unread
 ON znuny_ticket_article_read_state(ticket_id,read_utc);");
+    }
+
+    private static void MigrateToV26(SqliteConnection conn)
+    {
+        Exec(conn, @"UPDATE ticket_time_bookings
+SET minutes = booked_minutes
+WHERE status = 'Succeeded'
+  AND booked_minutes > 0;");
     }
 
     private static void EnsureColumn(SqliteConnection conn, string table, string column, string definition)
