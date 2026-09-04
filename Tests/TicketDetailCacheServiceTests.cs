@@ -119,11 +119,11 @@ public sealed class TicketDetailCacheServiceTests : IDisposable
     }
 
     [Fact]
-    public void SchemaV25IsAdditiveAndKeepsPreviousMigrations()
+    public void SchemaV26IsAdditiveAndKeepsPreviousMigrations()
     {
         using var connection = new SqliteConnection($"Data Source={_path}"); connection.Open();
         using var version = connection.CreateCommand(); version.CommandText = "SELECT version FROM schema_version";
-        Assert.Equal(25L, version.ExecuteScalar());
+        Assert.Equal(26L, version.ExecuteScalar());
         using var columns = connection.CreateCommand(); columns.CommandText = "PRAGMA table_info(znuny_ticket_detail_cache)";
         using var reader = columns.ExecuteReader(); var names = new List<string>(); while (reader.Read()) names.Add(reader.GetString(1));
         Assert.Contains("articles_complete", names); Assert.Contains("dynamic_fields_complete", names);
