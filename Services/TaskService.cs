@@ -260,12 +260,20 @@ VALUES ($id,$task,$ticket,$number,$booking,$article,$minutes,$bookedMinutes,$sec
         using var conn = new SqliteConnection(_db.ConnectionString);
         conn.Open();
         using var cmd = conn.CreateCommand();
-        cmd.CommandText = "UPDATE ticket_time_bookings SET article_id=$article,status='Succeeded',booked_at_utc=$booked WHERE id=$id AND status<>'Succeeded'";
+        cmd.CommandText = @"UPDATE ticket_time_bookings
+SET article_id=$article,
+    status='Succeeded',
+    booked_at_utc=$booked,
+    minutes=booked_minutes
+WHERE id=$id AND status<>'Succeeded'";
         cmd.Parameters.AddWithValue("$article", articleId ?? string.Empty);
         cmd.Parameters.AddWithValue("$booked", DateTime.UtcNow.ToString("O"));
         cmd.Parameters.AddWithValue("$id", booking.Id.ToString());
         if (cmd.ExecuteNonQuery() > 0)
+        {
+            booking.Minutes = booking.BookedMinutes;
             TouchTaskActivity(booking.TaskId);
+        }
     }
 
     public void FailTicketTimeBooking(TicketTimeBooking booking)
@@ -408,7 +416,7 @@ VALUES ($id,$task,$ticket,$number,$booking,$article,$minutes,$bookedMinutes,$sec
         using var conn = new SqliteConnection(_db.ConnectionString);
         conn.Open();
         using var cmd = conn.CreateCommand();
-        cmd.CommandText = @"SELECT booked_at_utc, source_seconds
+        cmd.CommandText = @"SELECT booked_at_utc, booked_minutes
 FROM ticket_time_bookings
 WHERE status = 'Succeeded'";
         using var reader = cmd.ExecuteReader();
@@ -422,7 +430,7 @@ WHERE status = 'Succeeded'";
                 continue;
 
             var bookedLocal = TimeZoneInfo.ConvertTime(bookedAtUtc, calendarTimeZone);
-            var seconds = Math.Max(0, Convert.ToInt64(reader["source_seconds"]));
+            var seconds = checked(Math.Max(0, Convert.ToInt64(Convert.ToDecimal(reader["booked_minutes"]) * 60m)));
             var month = new DateTime(bookedLocal.Year, bookedLocal.Month, 1);
             secondsByMonth[month] = secondsByMonth.GetValueOrDefault(month) + seconds;
             if (bookedLocal.Date == localDay.Date)

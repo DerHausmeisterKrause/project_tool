@@ -936,7 +936,7 @@ public class TicketSystemService : IDisposable
             }
 
             var minutes = decimal.Round(sourceSeconds / 60m, 2, MidpointRounding.AwayFromZero);
-            var bookedMinutes = Math.Ceiling(sourceSeconds / 900m) * 15m;
+            var bookedMinutes = CalculateBookedMinutes(sourceSeconds);
             var timeUnit = bookedMinutes;
             booking = new TicketTimeBooking
             {
@@ -968,7 +968,7 @@ public class TicketSystemService : IDisposable
             if (!string.IsNullOrWhiteSpace(articleId)) _articleReadState.MarkRead(ticketId, articleId);
             _tasks.CompleteTicketTimeBooking(booking, articleId);
             _logger.Info($"[ZnunyTimeBooking] ticketId={ticketId} taskId={task.Id} bookingId={booking.BookingId} articleId={articleId} action=completed");
-            return new TicketBookingResult(true, false, $"{minutes:0.##} Min. erfasst, auf {bookedMinutes:0.##} Min. aufgerundet und erfolgreich in OTRS gebucht.");
+            return new TicketBookingResult(true, false, $"{bookedMinutes:0.##} Min. erfasst und erfolgreich in OTRS gebucht.");
         }
         catch (ZnunyApiException ex)
         {
@@ -997,6 +997,9 @@ public class TicketSystemService : IDisposable
         }
         finally { _syncGate.Release(); }
     }
+
+    internal static decimal CalculateBookedMinutes(long sourceSeconds)
+        => Math.Ceiling(sourceSeconds / 900m) * 15m;
 
     public async Task<TicketBookingResult> CheckTicketTimeBookingAsync(TaskItem task, TicketTimeBooking booking)
     {
