@@ -11,6 +11,7 @@ public static class ServiceLocator
     public static NotificationService Notifications { get; private set; } = null!;
     public static OutlookCalendarService OutlookCalendar { get; private set; } = null!;
     public static PlenaroShareImportService PlenaroShareImporter { get; private set; } = null!;
+    public static PlenaroShareImportCoordinator PlenaroShareCoordinator { get; private set; } = null!;
     public static TaskService Tasks { get; private set; } = null!;
     public static WorkDayService WorkDays { get; private set; } = null!;
     public static TicketSystemService TicketSystem { get; private set; } = null!;
@@ -54,7 +55,8 @@ public static class ServiceLocator
         TicketSystem = new TicketSystemService(Settings, Tasks, TicketAssignmentSnapshots, TicketCandidateSnapshots, TicketCandidateScanStates, TicketDetails, TicketArticleReadStates, Notifications, Logger);
         OutlookCalendar = new OutlookCalendarService(Logger, Settings, Outlook, WorkDays);
         PlenaroShareImporter = new PlenaroShareImportService(Database, Tasks, Settings, Logger);
-        OutlookCalendar.EventsUpdated += () => PlenaroShareImporter.Import(OutlookCalendar.GetEvents(DateTime.Today.AddDays(-30), DateTime.Today.AddDays(181)));
+        PlenaroShareCoordinator = new PlenaroShareImportCoordinator(OutlookCalendar, PlenaroShareImporter, Settings, Logger);
+        _ = PlenaroShareCoordinator.StartAsync();
         HomeOffice = new HomeOfficeService(WorkDays, Settings, Outlook, OutlookCalendar, Logger);
         MainViewModel = new MainViewModel(Tasks, WorkDays, Settings, Notifications, OutlookCalendar, TicketSystem, Updates, HomeOffice, GermanTime, Logger);
     }

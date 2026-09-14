@@ -188,7 +188,8 @@ public sealed class TicketArticleReadStateServiceTests : IDisposable
     private static TicketArticleItem ArticleAt(string id, DateTime created) => new() { ArticleId = id, CreatedLocal = created, Body = "message", DisplayText = id };
 
     private static TicketBookingContext Context(string id, params TicketArticleItem[] articles)
-        => new(id, id, "", "", [], [], "", articles, articles.LastOrDefault(), "customer@example.test", "Ticket");
+        => new(id, id, "", "", [], [], "", articles, articles.LastOrDefault(), "customer@example.test", "Ticket",
+            null, string.Empty, null, string.Empty);
 
     public void Dispose()
     {
