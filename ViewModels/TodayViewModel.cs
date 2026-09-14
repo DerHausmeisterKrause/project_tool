@@ -41,6 +41,7 @@ public class TodayViewModel : ObservableObject
     public ObservableCollection<TicketFieldOption> CostCenterOptions { get; } = new();
     public ObservableCollection<TicketFieldOption> OrderOptions { get; } = new();
     public ObservableCollection<TicketArticleItem> TicketArticles { get; } = new();
+    public ObservableCollection<ZnunyAgent> TicketAgents { get; } = new();
     public ObservableCollection<WikiSearchResult> WikiResults { get; } = new();
     private CancellationTokenSource? _wikiSearchCancellation;
     private IReadOnlyList<string> _wikiKeywords = Array.Empty<string>();
@@ -71,6 +72,7 @@ public class TodayViewModel : ObservableObject
                     _wikiKeywords = Array.Empty<string>();
                     Raise(nameof(WikiKeywordsText));
                     TicketBookingNote = string.Empty;
+                    ResetTicketAssignment();
                     ResetTicketConversation();
                 }
                 LoadPersistedWikiResults(value);
@@ -364,6 +366,22 @@ public class TodayViewModel : ObservableObject
     public string UnbookedTicketTimeText => $"Noch nicht gebucht: {UnbookedTicketSeconds / 60m:0.##} Min.";
     public string TransferredTicketTimeText => $"Insgesamt über TaskTool in OTRS gebucht: {_successfullyBookedMinutes:0.##} Min.";
     public bool HasZnunyTicket => SelectedTask?.Tags.Contains("ZnunyTicketID:", StringComparison.OrdinalIgnoreCase) == true;
+    private ZnunyAgent? _selectedOwner;
+    public ZnunyAgent? SelectedOwner { get => _selectedOwner; set { if (Set(ref _selectedOwner, value)) RaiseTicketAssignmentState(); } }
+    private ZnunyAgent? _selectedResponsible;
+    public ZnunyAgent? SelectedResponsible { get => _selectedResponsible; set { if (Set(ref _selectedResponsible, value)) RaiseTicketAssignmentState(); } }
+    private int? _originalOwnerId;
+    private int? _originalResponsibleId;
+    private bool _isAgentListLoading;
+    private bool _isAgentListAvailable;
+    public bool IsAgentListLoading { get => _isAgentListLoading; private set { if (Set(ref _isAgentListLoading, value)) RaiseTicketAssignmentState(); } }
+    private bool _isTicketAssignmentUpdating;
+    public bool IsTicketAssignmentUpdating { get => _isTicketAssignmentUpdating; private set { if (Set(ref _isTicketAssignmentUpdating, value)) RaiseTicketAssignmentState(); } }
+    private string _ticketAssignmentStatus = string.Empty;
+    public string TicketAssignmentStatus { get => _ticketAssignmentStatus; private set => Set(ref _ticketAssignmentStatus, value); }
+    public bool CanEditTicketAssignment => HasZnunyTicket && !IsAgentListLoading && _isAgentListAvailable && TicketAgents.Count > 0;
+    public bool HasTicketAssignmentChanges => SelectedOwner?.UserId != _originalOwnerId || SelectedResponsible?.UserId != _originalResponsibleId;
+    public bool CanSaveTicketAssignment => CanEditTicketAssignment && HasTicketAssignmentChanges && !IsTicketAssignmentUpdating;
     public bool ShowCreateTicketFromSelectedTask => SelectedTask != null && !SelectedTask.IsZnunyTask;
     public bool CanCreateTicketFromSelectedTask => ShowCreateTicketFromSelectedTask && !IsCreatingTicket;
 
@@ -483,6 +501,8 @@ public class TodayViewModel : ObservableObject
     public RelayCommand CancelTimerEditCommand { get; }
     public RelayCommand BookTimeInTicketSystemCommand { get; }
     public RelayCommand RefreshTicketFieldOptionsCommand { get; }
+    public RelayCommand SaveTicketAssignmentCommand { get; }
+    public RelayCommand RefreshTicketAgentsCommand { get; }
     public RelayCommand<TicketTimeBooking> CheckTicketTimeBookingCommand { get; }
     public RelayCommand<TicketTimeBooking> RetryTicketTimeBookingCommand { get; }
     public RelayCommand ComeCommand { get; }
@@ -567,6 +587,8 @@ public class TodayViewModel : ObservableObject
         CancelTimerEditCommand = new RelayCommand(CancelTimerEdit, () => IsTimerEditMode);
         BookTimeInTicketSystemCommand = new RelayCommand(async () => await BookTimeInTicketSystemAsync(), () => HasZnunyTicket && !IsTicketBooking && !_hasUnresolvedTicketTimeBooking && UnbookedTicketSeconds > 0);
         RefreshTicketFieldOptionsCommand = new RelayCommand(async () => await RefreshTicketFieldOptionsAsync(), () => HasZnunyTicket && !IsTicketBooking);
+        SaveTicketAssignmentCommand = new RelayCommand(async () => await SaveTicketAssignmentAsync(), () => CanSaveTicketAssignment);
+        RefreshTicketAgentsCommand = new RelayCommand(async () => await LoadTicketAgentsAsync(SelectedTask, true), () => HasZnunyTicket && !IsAgentListLoading && !IsTicketAssignmentUpdating);
         CheckTicketTimeBookingCommand = new RelayCommand<TicketTimeBooking>(async booking => await CheckTicketTimeBookingAsync(booking), booking => booking?.CanCheckStatus == true && !IsTicketBooking);
         RetryTicketTimeBookingCommand = new RelayCommand<TicketTimeBooking>(async booking => await RetryTicketTimeBookingAsync(booking), booking => booking?.CanRetry == true && !IsTicketBooking);
         ComeCommand = new RelayCommand(() => { _workDays.SetCome(DateTime.Now); Load(); });
@@ -1559,6 +1581,10 @@ public class TodayViewModel : ObservableObject
             SelectedCostCenter = EnsureCurrentOption(CostCenterOptions, context.CostCenterValue);
             SelectedOrder = EnsureCurrentOption(OrderOptions, context.OrderValue);
             TicketBookingInformation = context.Information;
+            _originalOwnerId = context.OwnerId;
+            _originalResponsibleId = context.ResponsibleId;
+            await LoadTicketAgentsAsync(task, false, context);
+            if (SelectedTask?.Id != task.Id) return;
             TicketArticles.Clear();
             foreach (var article in context.Articles) TicketArticles.Add(article);
             _ticketSystem.ApplyArticleReadPresentation(task, TicketArticles);
@@ -1598,6 +1624,104 @@ public class TodayViewModel : ObservableObject
             if (SelectedTask?.Id == task.Id)
                 IsTicketConversationLoading = false;
         }
+    }
+
+    private async Task LoadTicketAgentsAsync(TaskItem? task, bool forceRefresh, TicketBookingContext? context = null)
+    {
+        if (task?.IsZnunyTask != true) return;
+        IsAgentListLoading = true;
+        TicketAssignmentStatus = "Lade Agenten …";
+        try
+        {
+            context ??= await _ticketSystem.GetTicketBookingContextAsync(task);
+            var agents = await _ticketSystem.GetAgentsAsync(forceRefresh);
+            if (SelectedTask?.Id != task.Id) return;
+            TicketAgents.Clear();
+            foreach (var agent in AddCurrentAgents(agents, context)) TicketAgents.Add(agent);
+            _isAgentListAvailable = true;
+            SelectedOwner = TicketAgents.FirstOrDefault(agent => agent.UserId == context.OwnerId);
+            SelectedResponsible = TicketAgents.FirstOrDefault(agent => agent.UserId == context.ResponsibleId);
+            TicketAssignmentStatus = string.Empty;
+        }
+        catch (Exception ex)
+        {
+            if (SelectedTask?.Id != task.Id) return;
+            TicketAgents.Clear();
+            _isAgentListAvailable = false;
+            if (context != null)
+                foreach (var agent in AddCurrentAgents(Array.Empty<ZnunyAgent>(), context)) TicketAgents.Add(agent);
+            SelectedOwner = TicketAgents.FirstOrDefault(agent => agent.UserId == context?.OwnerId);
+            SelectedResponsible = TicketAgents.FirstOrDefault(agent => agent.UserId == context?.ResponsibleId);
+            TicketAssignmentStatus = $"Agenten konnten nicht geladen werden: {ex.Message}";
+        }
+        finally
+        {
+            if (SelectedTask?.Id == task.Id) IsAgentListLoading = false;
+        }
+    }
+
+    internal static IReadOnlyList<ZnunyAgent> AddCurrentAgents(IReadOnlyList<ZnunyAgent> agents, TicketBookingContext context)
+    {
+        var result = agents.ToDictionary(agent => agent.UserId);
+        void Add(int? id, string name)
+        {
+            if (id is > 0 && !result.ContainsKey(id.Value))
+                result[id.Value] = new ZnunyAgent { UserId = id.Value, Name = name };
+        }
+        Add(context.OwnerId, context.Owner);
+        Add(context.ResponsibleId, context.Responsible);
+        return result.Values.OrderBy(agent => agent.DisplayName, StringComparer.OrdinalIgnoreCase).ThenBy(agent => agent.UserId).ToList();
+    }
+
+    private async Task SaveTicketAssignmentAsync()
+    {
+        var task = SelectedTask;
+        if (task == null || !CanSaveTicketAssignment) return;
+        var ownerChanged = SelectedOwner?.UserId != _originalOwnerId;
+        var responsibleChanged = SelectedResponsible?.UserId != _originalResponsibleId;
+        if (!ownerChanged && !responsibleChanged) return;
+        IsTicketAssignmentUpdating = true;
+        TicketAssignmentStatus = "Änderungen werden übernommen …";
+        try
+        {
+            var ticketId = (task.Tags ?? string.Empty).Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .FirstOrDefault(tag => tag.StartsWith("ZnunyTicketID:", StringComparison.OrdinalIgnoreCase))?.Split(':', 2)[1] ?? string.Empty;
+            var result = await _ticketSystem.UpdateTicketAssignmentAsync(ticketId,
+                ownerChanged ? SelectedOwner?.UserId : null,
+                responsibleChanged ? SelectedResponsible?.UserId : null);
+            if (SelectedTask?.Id != task.Id) return;
+            TicketAssignmentStatus = result.Message;
+            if (result.Success)
+            {
+                if (ownerChanged) _originalOwnerId = SelectedOwner?.UserId;
+                if (responsibleChanged) _originalResponsibleId = SelectedResponsible?.UserId;
+            }
+        }
+        finally
+        {
+            if (SelectedTask?.Id == task.Id) IsTicketAssignmentUpdating = false;
+        }
+    }
+
+    private void ResetTicketAssignment()
+    {
+        TicketAgents.Clear();
+        _isAgentListAvailable = false;
+        _originalOwnerId = null;
+        _originalResponsibleId = null;
+        SelectedOwner = null;
+        SelectedResponsible = null;
+        TicketAssignmentStatus = string.Empty;
+        RaiseTicketAssignmentState();
+    }
+
+    private void RaiseTicketAssignmentState()
+    {
+        Raise(nameof(CanEditTicketAssignment));
+        Raise(nameof(HasTicketAssignmentChanges));
+        Raise(nameof(CanSaveTicketAssignment));
+        SaveTicketAssignmentCommand?.RaiseCanExecuteChanged();
+        RefreshTicketAgentsCommand?.RaiseCanExecuteChanged();
     }
 
     private void LoadPersistedWikiResults(TaskItem? task)

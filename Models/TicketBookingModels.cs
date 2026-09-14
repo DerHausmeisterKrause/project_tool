@@ -16,6 +16,10 @@ public sealed record TicketBookingContext(
     IReadOnlyList<TicketArticleItem> Articles,
     TicketArticleItem? ReplySourceArticle,
     string ReplyRecipient,
-    string TicketTitle);
+    string TicketTitle,
+    int? OwnerId,
+    string Owner,
+    int? ResponsibleId,
+    string Responsible);
 
 public sealed record TicketBookingResult(bool Success, bool PendingReconciliation, string Message);

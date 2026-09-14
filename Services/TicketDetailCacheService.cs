@@ -24,7 +24,8 @@ public sealed class TicketDetailCacheService
         if (!reader.Read()) return null;
         var context = new TicketBookingContext(ticketId, Text(reader, "ticket_number"), Text(reader, "cost_center_value"),
             Text(reader, "order_value"), Array.Empty<TicketFieldOption>(), Array.Empty<TicketFieldOption>(), "",
-            Array.Empty<TicketArticleItem>(), null, Text(reader, "reply_recipient"), Text(reader, "title"));
+            Array.Empty<TicketArticleItem>(), null, Text(reader, "reply_recipient"), Text(reader, "title"),
+            null, string.Empty, null, string.Empty);
         var state = Text(reader, "state");
         var changed = Parse(NullableText(reader, "remote_changed_utc"));
         var fetched = Parse(NullableText(reader, "last_fetched_utc")) ?? DateTime.MinValue;

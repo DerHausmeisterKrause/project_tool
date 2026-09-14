@@ -148,6 +148,7 @@ public class SettingsViewModel : ObservableObject
     public string TicketSystemTicketGetMethod { get => _settings.Current.TicketSystemTicketGetMethod; set { _settings.Current.TicketSystemTicketGetMethod = value; Save(); } }
     public string TicketSystemTicketGetAuthMode { get => _settings.Current.TicketSystemTicketGetAuthMode; set { _settings.Current.TicketSystemTicketGetAuthMode = value; Save(); } }
     public string TicketSystemTicketUpdateRoute { get => _settings.Current.TicketSystemTicketUpdateRoute; set { _settings.Current.TicketSystemTicketUpdateRoute = value; Save(); } }
+    public string TicketSystemAgentListRoute { get => _settings.Current.TicketSystemAgentListRoute; set { _settings.Current.TicketSystemAgentListRoute = value; Save(); } }
     public string TicketSystemTicketCreateRoute { get => _settings.Current.TicketSystemTicketCreateRoute; set { _settings.Current.TicketSystemTicketCreateRoute = value; Save(); } }
     public string TicketSystemTicketCreateMethod { get => _settings.Current.TicketSystemTicketCreateMethod; set { _settings.Current.TicketSystemTicketCreateMethod = value; Save(); } }
     public string TicketSystemCreateQueue { get => _settings.Current.TicketSystemCreateQueue; set { _settings.Current.TicketSystemCreateQueue = value; Save(); } }
