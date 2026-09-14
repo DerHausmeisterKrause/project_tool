@@ -1245,6 +1245,7 @@ public class TicketSystemService : IDisposable
                 : 0;
             _logger.Info($"[ZnunyAssignmentState] previous={previousAssignmentSnapshot.TicketIds.Count} current={currentAssignedIds.Count} new={newlyAssignedIds.Count} removed={removedAssignmentCount}");
             var notificationCandidates = new Dictionary<string, (Guid TaskId, string TicketNumber, string TicketTitle)>(StringComparer.OrdinalIgnoreCase);
+            var ticketChangeNotificationCandidates = new Dictionary<string, (Guid TaskId, string TicketNumber, string TicketTitle)>(StringComparer.OrdinalIgnoreCase);
             var assignedTicketsFullyProcessed = true;
             var existingGroups = _tasks.GetAllTasks()
                 .Where(t => !string.IsNullOrWhiteSpace(ExtractZnunyTicketIdFromTask(t)))
@@ -1291,6 +1292,7 @@ public class TicketSystemService : IDisposable
             foreach (var workItem in workItems)
             {
                 var ticketId = workItem.TicketId;
+                var becameUnread = false;
                 var cache = _detailCache.LoadEntry(ticketId);
                 var cacheComplete = !ZnunySyncPolicy.RequiresFullTicketGet(cache, EffectiveArticleLimit);
                 ZnunyTicket? ticket;
@@ -1303,7 +1305,7 @@ public class TicketSystemService : IDisposable
                 if (!cacheComplete)
                 {
                     ticket = await GetTicketDetailsAsync(ticketId, sessionId, sessionHash);
-                    if (ticket != null) { StoreTicketDetails(ticket, trackUnread: true); traffic.DetailRemote++; }
+                    if (ticket != null) { becameUnread = StoreTicketDetails(ticket, trackUnread: true); traffic.DetailRemote++; }
                 }
                 else
                 {
@@ -1324,7 +1326,7 @@ public class TicketSystemService : IDisposable
                     if (details == null)
                         throw new InvalidOperationException($"TicketGet lieferte keine Detaildaten für TicketID {ticketId}; der Assignment-Snapshot bleibt unverändert.");
                     ticket = details;
-                    StoreTicketDetails(details, trackUnread: true);
+                    becameUnread = StoreTicketDetails(details, trackUnread: true);
                     traffic.DetailRemote++;
                 }
                 else if (cacheComplete)
@@ -1430,6 +1432,11 @@ public class TicketSystemService : IDisposable
                         _logger.Info($"[ZnunyNotificationCandidate] ticketId={ticket.TicketID} ticketNumber='{ticket.TicketNumber}' taskId={task.Id}");
                     }
                 }
+                else if (becameUnread && isCurrentlyAssigned && task.Status != TaskStatus.Done)
+                {
+                    ticketChangeNotificationCandidates[ticket.TicketID] = (task.Id, ticket.TicketNumber, ticket.Title);
+                    _logger.Info($"[ZnunyTicketChangeNotificationCandidate] ticketId={ticket.TicketID} ticketNumber='{ticket.TicketNumber}' taskId={task.Id}");
+                }
                 if (cycle != null) _detailCache.CompleteCycleTicket(assignmentContextKey, workItem.PersistedKey);
             }
 
@@ -1510,6 +1517,13 @@ public class TicketSystemService : IDisposable
                 _detailCache.CompleteCycle(assignmentContextKey);
                 _logger.Info($"[ZnunyAssignmentSnapshot] committed=true contextHash={assignmentContextHash} current={currentAssignedIds.Count}");
                 CompleteManualSelfAssignmentSuppressions(currentAssignedIds);
+            }
+
+            if (_settings.Current.NotifyOnTicketChanges && ticketChangeNotificationCandidates.Count > 0)
+            {
+                var payloads = BuildTicketChangeNotificationPayloads(ticketChangeNotificationCandidates);
+                if (!await _notifications.EnqueueTicketNotificationsAsync(payloads))
+                    throw new InvalidOperationException("Die Ticketänderungs-Benachrichtigungen wurden nicht von der Dynamic-Island-Queue angenommen.");
             }
 
             _logger.Info($"[ZnunySyncFinished] reason={reason} success=true searchFound={searchResultCount} uniqueFound={uniqueTicketCount} created={created} updated={updated} unchanged={unchanged} skipped={skipped}");
@@ -2046,10 +2060,12 @@ public class TicketSystemService : IDisposable
         => GetTicketAsync(ticketId, sessionId, sessionHash, allArticles: true, dynamicFields: true,
             "TicketGetReconciliation", Math.Max(EffectiveArticleLimit, 50));
 
-    private void StoreTicketDetails(ZnunyTicket ticket, TicketDetailFetchProfile? profile = null, bool trackUnread = false)
+    private bool StoreTicketDetails(ZnunyTicket ticket, TicketDetailFetchProfile? profile = null, bool trackUnread = false)
     {
         var articles = ticket.ToArticleItems();
-        var unreadChanged = trackUnread && _articleReadState.ReconcileFetchedArticles(ticket.TicketID, articles);
+        var reconcileResult = trackUnread
+            ? _articleReadState.ReconcileFetchedArticlesWithResult(ticket.TicketID, articles)
+            : default;
         var (replySource, replyRecipient) = ResolveReplyRecipient(articles, ticket.CustomerUser);
         var context = new TicketBookingContext(ticket.TicketID, ticket.TicketNumber,
             ticket.GetDynamicFieldValue(_settings.Current.TicketSystemCostCenterFieldName),
@@ -2057,7 +2073,22 @@ public class TicketSystemService : IDisposable
             Array.Empty<TicketFieldOption>(), Array.Empty<TicketFieldOption>(), string.Empty,
             articles, replySource, replyRecipient, ticket.Title);
         _detailCache.Store(context, ticket.State, ParseZnunyUtc(ticket.Changed), profile ?? TicketDetailFetchProfile.Full(EffectiveArticleLimit));
-        if (unreadChanged) NotifyTasksChanged();
+        if (reconcileResult.UnreadChanged) NotifyTasksChanged();
+        return reconcileResult.BecameUnread;
+    }
+
+    internal static IReadOnlyList<TicketNotificationPayload> BuildTicketChangeNotificationPayloads(
+        IReadOnlyDictionary<string, (Guid TaskId, string TicketNumber, string TicketTitle)> candidates)
+    {
+        if (candidates.Count > MaxIndividualAssignmentNotifications)
+            return [new TicketNotificationPayload(Guid.Empty, $"Neue Nachrichten in {candidates.Count} Tickets\nÖffne Plenaro, um die Änderungen anzusehen.")];
+
+        return candidates.OrderBy(item => item.Key, StringComparer.OrdinalIgnoreCase)
+            .Select(candidate => new TicketNotificationPayload(candidate.Value.TaskId,
+                string.IsNullOrWhiteSpace(candidate.Value.TicketTitle)
+                    ? $"Neue Nachricht in Ticket {candidate.Value.TicketNumber}"
+                    : $"Neue Nachricht in Ticket {candidate.Value.TicketNumber}\n{candidate.Value.TicketTitle}"))
+            .ToList();
     }
 
     public void ApplyArticleReadPresentation(TaskItem task, IReadOnlyCollection<TicketArticleItem>? articles = null)

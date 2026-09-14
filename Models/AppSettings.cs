@@ -82,6 +82,7 @@ public class AppSettings
     public bool TicketSystemIncludeOwner { get; set; } = true;
     public bool TicketSystemIncludeResponsible { get; set; } = true;
     public bool NotifyOnNewAssignedTickets { get; set; } = true;
+    public bool NotifyOnTicketChanges { get; set; } = true;
     public bool TicketSystemAutofillCredentials { get; set; } = false;
     public bool TicketSystemAutoLogin { get; set; } = false;
     public List<WikiSourceSettings> WikiSources { get; set; } = new();

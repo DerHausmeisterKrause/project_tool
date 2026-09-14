@@ -170,6 +170,7 @@ public class SettingsViewModel : ObservableObject
     public bool TicketSystemIncludeOwner { get => _settings.Current.TicketSystemIncludeOwner; set { _settings.Current.TicketSystemIncludeOwner = value; Save(); } }
     public bool TicketSystemIncludeResponsible { get => _settings.Current.TicketSystemIncludeResponsible; set { _settings.Current.TicketSystemIncludeResponsible = value; Save(); } }
     public bool NotifyOnNewAssignedTickets { get => _settings.Current.NotifyOnNewAssignedTickets; set { _settings.Current.NotifyOnNewAssignedTickets = value; Save(); } }
+    public bool NotifyOnTicketChanges { get => _settings.Current.NotifyOnTicketChanges; set { _settings.Current.NotifyOnTicketChanges = value; Save(); } }
     public bool TicketSystemAutofillCredentials
     {
         get => _settings.Current.TicketSystemAutofillCredentials;

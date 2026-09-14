@@ -39,16 +39,21 @@ public sealed class TicketArticleReadStateService
 
     /// <returns>True when the unread set changed.</returns>
     public bool ReconcileFetchedArticles(string ticketId, IReadOnlyCollection<TicketArticleItem> fetchedArticles)
+        => ReconcileFetchedArticlesWithResult(ticketId, fetchedArticles).UnreadChanged;
+
+    public TicketArticleReconcileResult ReconcileFetchedArticlesWithResult(string ticketId, IReadOnlyCollection<TicketArticleItem> fetchedArticles)
     {
-        if (string.IsNullOrWhiteSpace(ticketId)) return false;
+        if (string.IsNullOrWhiteSpace(ticketId)) return default;
         var articles = fetchedArticles.Where(a => !string.IsNullOrWhiteSpace(a.ArticleId)).ToList();
         using var connection = Open();
         using var transaction = connection.BeginTransaction();
+        var unreadBefore = GetUnreadCount(connection, transaction, ticketId);
         if (!HasBaseline(connection, transaction, ticketId))
         {
             CreateBaseline(connection, transaction, ticketId, articles, markKnownRead: true);
+            var unreadAfter = GetUnreadCount(connection, transaction, ticketId);
             transaction.Commit();
-            return false;
+            return new TicketArticleReconcileResult(false, unreadBefore, unreadAfter);
         }
 
         var (watermarkCreated, watermarkId) = LoadWatermark(connection, transaction, ticketId);
@@ -60,7 +65,7 @@ public sealed class TicketArticleReadStateService
             if (initialNewest != null)
                 UpdateWatermark(connection, transaction, ticketId, initialNewest.CreatedLocal, initialNewest.ArticleId);
             transaction.Commit();
-            return false;
+            return new TicketArticleReconcileResult(false, unreadBefore, unreadBefore);
         }
         var changed = false;
         foreach (var article in articles)
@@ -73,8 +78,9 @@ public sealed class TicketArticleReadStateService
         var newest = FindNewest(articles, watermarkCreated, watermarkId);
         if (newest != null && IsReliablyAfter(newest.CreatedLocal, newest.ArticleId, watermarkCreated, watermarkId))
             UpdateWatermark(connection, transaction, ticketId, newest.CreatedLocal, newest.ArticleId);
+        var unreadAfter = GetUnreadCount(connection, transaction, ticketId);
         transaction.Commit();
-        return changed;
+        return new TicketArticleReconcileResult(changed, unreadBefore, unreadAfter);
     }
 
     public IReadOnlySet<string> GetUnreadArticleIds(string ticketId)
@@ -90,6 +96,13 @@ public sealed class TicketArticleReadStateService
     public int GetUnreadCount(string ticketId)
     {
         using var connection = Open(); using var command = connection.CreateCommand();
+        command.CommandText = "SELECT COUNT(*) FROM znuny_ticket_article_read_state WHERE ticket_id=$id AND read_utc IS NULL";
+        command.Parameters.AddWithValue("$id", ticketId); return Convert.ToInt32(command.ExecuteScalar());
+    }
+
+    private static int GetUnreadCount(SqliteConnection connection, SqliteTransaction transaction, string ticketId)
+    {
+        using var command = connection.CreateCommand(); command.Transaction = transaction;
         command.CommandText = "SELECT COUNT(*) FROM znuny_ticket_article_read_state WHERE ticket_id=$id AND read_utc IS NULL";
         command.Parameters.AddWithValue("$id", ticketId); return Convert.ToInt32(command.ExecuteScalar());
     }
@@ -160,4 +173,9 @@ VALUES($ticket,$article,$now,$now) ON CONFLICT(ticket_id,article_id) DO UPDATE S
     private static void UpdateWatermark(SqliteConnection c,SqliteTransaction t,string id,DateTime? created,string article){using var q=c.CreateCommand();q.Transaction=t;q.CommandText="UPDATE znuny_ticket_article_read_baseline SET newest_seen_created_utc=$created,newest_seen_article_id=$article WHERE ticket_id=$id";q.Parameters.AddWithValue("$id",id);q.Parameters.AddWithValue("$created",(object?)created?.ToUniversalTime().ToString("O")??DBNull.Value);q.Parameters.AddWithValue("$article",article);q.ExecuteNonQuery();}
     private static List<TicketArticleItem> LoadCachedArticles(SqliteConnection c,SqliteTransaction t,string id){var result=new List<TicketArticleItem>();using var q=c.CreateCommand();q.Transaction=t;q.CommandText="SELECT payload_json FROM znuny_ticket_article_cache WHERE ticket_id=$id";q.Parameters.AddWithValue("$id",id);using var r=q.ExecuteReader();while(r.Read()){try{var a=JsonSerializer.Deserialize<TicketArticleItem>(r.GetString(0));if(a!=null&&!string.IsNullOrWhiteSpace(a.ArticleId))result.Add(a);}catch(JsonException){}}return result;}
     private SqliteConnection Open(){var c=new SqliteConnection(_database.ConnectionString);c.Open();return c;}
+}
+
+public readonly record struct TicketArticleReconcileResult(bool UnreadChanged, int UnreadBefore, int UnreadAfter)
+{
+    public bool BecameUnread => UnreadBefore == 0 && UnreadAfter > 0;
 }
