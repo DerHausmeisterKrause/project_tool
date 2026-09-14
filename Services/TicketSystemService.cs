@@ -772,7 +772,7 @@ public class TicketSystemService : IDisposable
         var entry = _detailCache.LoadEntry(ticketId);
         var cached = entry?.Context;
         var ownsGate = false;
-        if (entry?.IsCompleteFor(EffectiveArticleLimit) != true
+        if (ZnunySyncPolicy.RequiresFullTicketGet(entry, EffectiveArticleLimit)
             && (gateAlreadyHeld || (ownsGate = await _syncGate.WaitAsync(0))))
         {
             try
@@ -1469,6 +1469,7 @@ public class TicketSystemService : IDisposable
                 var cacheComplete = !ZnunySyncPolicy.RequiresFullTicketGet(cache, EffectiveArticleLimit);
                 ZnunyTicket? ticket;
                 var refreshReason = cache == null ? "cache-missing"
+                    : !cache.AssignmentMetadataComplete ? "assignment-metadata-incomplete"
                     : !cache.MetadataComplete ? "metadata-incomplete"
                     : !cache.ArticlesComplete ? "articles-incomplete"
                     : !cache.DynamicFieldsComplete ? "dynamic-fields-incomplete"
