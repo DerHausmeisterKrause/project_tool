@@ -85,7 +85,7 @@ public sealed class TicketTimeBookingAccountingTests : IDisposable
     }
 
     [Fact]
-    public void MigrationV26NormalizesOnlySucceededRowsAndKeepsV25Structures()
+    public void MigrationThroughV27NormalizesOnlySucceededRowsAndKeepsV25Structures()
     {
         _tasks.CreateTicketTimeBooking(Booking("Succeeded", 70, 75, 4200));
         _tasks.CreateTicketTimeBooking(Booking("Pending", 70, 75, 4200));
@@ -109,7 +109,7 @@ public sealed class TicketTimeBookingAccountingTests : IDisposable
         Assert.Equal((75m, 75m, 4200L), rows["Succeeded"]);
         reader.Close();
         command.CommandText = "SELECT version FROM schema_version";
-        Assert.Equal(26L, command.ExecuteScalar());
+        Assert.Equal(27L, command.ExecuteScalar());
         command.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name IN ('znuny_ticket_article_read_baseline','znuny_ticket_article_read_state')";
         Assert.Equal(2L, command.ExecuteScalar());
     }
