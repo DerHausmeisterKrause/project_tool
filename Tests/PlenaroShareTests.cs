@@ -7,6 +7,10 @@ namespace TaskTool.Tests;
 
 public sealed class PlenaroShareTests
 {
+    private const string SharedTaskId = "11111111-1111-1111-1111-111111111111";
+    private const string FirstSegmentId = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
+    private const string SecondSegmentId = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb";
+
     [Fact]
     public void AttendeesAreValidatedAndDeduplicatedCaseInsensitively()
     {
@@ -25,7 +29,7 @@ public sealed class PlenaroShareTests
         Assert.Equal(payload.TaskShareId, parsed!.TaskShareId);
         Assert.Equal(hash, parsedHash);
         Assert.False(PlenaroShareCodec.TryParse(body.Replace("Payload: ", "Payload: A"), out _, out _, out var reason));
-        Assert.Contains(reason, new[] { "checksum-invalid", "json-invalid" });
+        Assert.Contains(reason, new[] { "checksum-invalid", "json-invalid", "base64-invalid" });
     }
 
     [Fact]
@@ -50,10 +54,10 @@ public sealed class PlenaroShareTests
     public void V29ToV30MigrationIsAdditiveAndKeepsData()
     {
         var path=Path.GetTempFileName();
-        try { using(var c=new SqliteConnection($"Data Source={path}")){c.Open();var cmd=c.CreateCommand();cmd.CommandText="CREATE TABLE schema_version(version INTEGER NOT NULL); INSERT INTO schema_version VALUES(29); CREATE TABLE tasks(id TEXT PRIMARY KEY,title TEXT NOT NULL,description TEXT,ticket_url TEXT,start_local TEXT,end_local TEXT,status TEXT NOT NULL,priority INTEGER,tags TEXT,outlook_entry_id TEXT,ticket_minutes_booked INTEGER NOT NULL DEFAULT 0,ticket_seconds_booked INTEGER NOT NULL DEFAULT 0,is_pinned INTEGER NOT NULL DEFAULT 0,created_utc TEXT NOT NULL,updated_utc TEXT NOT NULL); INSERT INTO tasks VALUES('keep','Keep','','',NULL,NULL,'Planned',NULL,'','',0,0,0,'2020-01-01','2020-01-01'); CREATE TABLE plenaro_shared_task_imports(task_share_id TEXT PRIMARY KEY,local_task_id TEXT NOT NULL,origin_client_instance_id TEXT NOT NULL DEFAULT '',last_payload_hash TEXT NOT NULL DEFAULT ''); INSERT INTO plenaro_shared_task_imports VALUES('share','keep','origin','hash');";cmd.ExecuteNonQuery();}
+        try { using(var c=new SqliteConnection($"Data Source={path}")){c.Open();using var cmd=c.CreateCommand();cmd.CommandText="CREATE TABLE schema_version(version INTEGER NOT NULL); INSERT INTO schema_version VALUES(29); CREATE TABLE tasks(id TEXT PRIMARY KEY,title TEXT NOT NULL,description TEXT,ticket_url TEXT,start_local TEXT,end_local TEXT,status TEXT NOT NULL,priority INTEGER,tags TEXT,outlook_entry_id TEXT,ticket_minutes_booked INTEGER NOT NULL DEFAULT 0,ticket_seconds_booked INTEGER NOT NULL DEFAULT 0,is_pinned INTEGER NOT NULL DEFAULT 0,created_utc TEXT NOT NULL,updated_utc TEXT NOT NULL); INSERT INTO tasks VALUES('keep','Keep','','',NULL,NULL,'Planned',NULL,'','',0,0,0,'2020-01-01','2020-01-01'); CREATE TABLE plenaro_shared_task_imports(task_share_id TEXT PRIMARY KEY,local_task_id TEXT NOT NULL,origin_client_instance_id TEXT NOT NULL DEFAULT '',last_payload_hash TEXT NOT NULL DEFAULT ''); INSERT INTO plenaro_shared_task_imports VALUES('share','keep','origin','hash');";cmd.ExecuteNonQuery();}
             new DatabaseService(new LoggerService(AppLogLevel.Error),path).Initialize();
             using var check=new SqliteConnection($"Data Source={path}");check.Open();using var cmd2=check.CreateCommand();cmd2.CommandText="SELECT (SELECT version FROM schema_version),(SELECT title FROM tasks WHERE id='keep'),(SELECT COUNT(*) FROM pragma_table_info('plenaro_shared_task_imports') WHERE name='last_generated_utc'),(SELECT last_payload_hash FROM plenaro_shared_task_imports WHERE task_share_id='share')";using var r=cmd2.ExecuteReader();Assert.True(r.Read());Assert.Equal(30,r.GetInt32(0));Assert.Equal("Keep",r.GetString(1));Assert.Equal(1,r.GetInt32(2));Assert.Equal("hash",r.GetString(3));
-        } finally { File.Delete(path); }
+        } finally { SqliteConnection.ClearAllPools(); File.Delete(path); }
     }
 
     [Fact]
@@ -93,8 +97,8 @@ public sealed class PlenaroShareTests
     {
         using var fixture = new ImportFixture();
         var generated = new DateTime(2026, 9, 14, 12, 0, 0, DateTimeKind.Utc);
-        var first = fixture.Event(Payload("TASK-1", "SEG-A", "New title", generated, 9));
-        var second = fixture.Event(Payload("TASK-1", "SEG-B", "New title", generated, 11));
+        var first = fixture.Event(Payload(SharedTaskId, FirstSegmentId, "New title", generated, 9));
+        var second = fixture.Event(Payload(SharedTaskId, SecondSegmentId, "New title", generated, 11));
         fixture.Importer.Import([first, second]);
 
         var task = Assert.Single(fixture.Tasks.GetAllTasks());
@@ -105,14 +109,14 @@ public sealed class PlenaroShareTests
         Assert.Equal(updated, task.UpdatedUtc);
         Assert.Equal(2, fixture.Tasks.GetSegments(task.Id).Count);
 
-        fixture.Importer.Import([fixture.Event(Payload("TASK-1", "SEG-A", "Old title", generated.AddMinutes(-1), 10))]);
+        fixture.Importer.Import([fixture.Event(Payload(SharedTaskId, FirstSegmentId, "Old title", generated.AddMinutes(-1), 10))]);
         task = Assert.Single(fixture.Tasks.GetAllTasks());
         Assert.Equal("New title", task.Title);
         var segments = fixture.Tasks.GetSegments(task.Id);
-        Assert.Equal(10, segments.Single(segment => segment.SegmentShareId == "SEG-A").StartLocal.Hour);
-        Assert.Equal(11, segments.Single(segment => segment.SegmentShareId == "SEG-B").StartLocal.Hour);
+        Assert.Equal(10, segments.Single(segment => segment.SegmentShareId == FirstSegmentId).StartLocal.Hour);
+        Assert.Equal(11, segments.Single(segment => segment.SegmentShareId == SecondSegmentId).StartLocal.Hour);
 
-        fixture.Importer.Import([fixture.Event(Payload("TASK-1", "SEG-A", "Newest title", generated.AddMinutes(1), 12))]);
+        fixture.Importer.Import([fixture.Event(Payload(SharedTaskId, FirstSegmentId, "Newest title", generated.AddMinutes(1), 12))]);
         Assert.Equal("Newest title", Assert.Single(fixture.Tasks.GetAllTasks()).Title);
         Assert.Equal(2, fixture.Tasks.GetSegments(task.Id).Count);
     }
@@ -121,7 +125,7 @@ public sealed class PlenaroShareTests
     public void MissingSegmentMappingAndMissingTaskMappingRecoverWithoutDuplicateTask()
     {
         using var fixture = new ImportFixture();
-        var payload = Payload("TASK-RECOVERY", "SEG-RECOVERY", "Recovery", DateTime.UtcNow, 9);
+        var payload = Payload(SharedTaskId, FirstSegmentId, "Recovery", DateTime.UtcNow, 9);
         fixture.Importer.Import([fixture.Event(payload)]);
         var task = Assert.Single(fixture.Tasks.GetAllTasks());
         var segment = Assert.Single(fixture.Tasks.GetSegments(task.Id));
@@ -143,11 +147,41 @@ public sealed class PlenaroShareTests
             command.CommandText = "DELETE FROM plenaro_shared_task_imports; DELETE FROM plenaro_shared_segment_imports; DELETE FROM task_segments;";
             command.ExecuteNonQuery();
         }
-        payload.SegmentShareId = "SEG-RECOVERY-2";
+        payload.SegmentShareId = SecondSegmentId;
         fixture.Importer.Import([fixture.Event(payload)]);
         Assert.Single(fixture.Tasks.GetAllTasks());
         Assert.Single(fixture.Tasks.GetSegments(task.Id));
         Assert.NotEqual(segment.Id, fixture.Tasks.GetSegments(task.Id)[0].Id);
+    }
+
+    [Fact]
+    public void MissingSegmentMappingReusesSegmentShareIdAndRepairsMapping()
+    {
+        using var fixture = new ImportFixture();
+        var payload = Payload(SharedTaskId, FirstSegmentId, "Recovery", DateTime.UtcNow, 9);
+        fixture.Importer.Import([fixture.Event(payload)]);
+        var task = Assert.Single(fixture.Tasks.GetAllTasks());
+        var originalSegment = Assert.Single(fixture.Tasks.GetSegments(task.Id));
+
+        using (var connection = new SqliteConnection(fixture.Database.ConnectionString))
+        {
+            connection.Open();
+            using var command = connection.CreateCommand();
+            command.CommandText = "DELETE FROM plenaro_shared_segment_imports;";
+            command.ExecuteNonQuery();
+        }
+
+        fixture.Importer.Import([fixture.Event(payload)]);
+
+        Assert.Single(fixture.Tasks.GetAllTasks());
+        var recoveredSegment = Assert.Single(fixture.Tasks.GetSegments(task.Id));
+        Assert.Equal(originalSegment.Id, recoveredSegment.Id);
+        using var check = new SqliteConnection(fixture.Database.ConnectionString);
+        check.Open();
+        using var checkCommand = check.CreateCommand();
+        checkCommand.CommandText = "SELECT local_segment_id FROM plenaro_shared_segment_imports WHERE segment_share_id=$id";
+        checkCommand.Parameters.AddWithValue("$id", FirstSegmentId);
+        Assert.Equal(originalSegment.Id, (long)checkCommand.ExecuteScalar()!);
     }
 
     private static PlenaroSharePayloadV1 Sample()=>new(){TaskShareId=Guid.NewGuid().ToString(),SegmentShareId=Guid.NewGuid().ToString(),OriginClientInstanceId=Guid.NewGuid().ToString(),TaskTitle="Titel",TaskDescription="Beschreibung",SegmentStartLocal=DateTime.Today.AddHours(9),SegmentEndLocal=DateTime.Today.AddHours(10),GeneratedUtc=DateTime.UtcNow};
