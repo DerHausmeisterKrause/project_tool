@@ -95,9 +95,22 @@ public sealed class PlenaroShareImportService
                 task = ticketMatches[0];
         }
 
-        var existingSegment = task == null || mappedSegmentId == 0
-            ? null
-            : _tasks.GetSegments(task.Id).SingleOrDefault(segment => segment.Id == mappedSegmentId);
+        TaskSegment? existingSegment = null;
+        if (task != null)
+        {
+            var localSegments = _tasks.GetSegments(task.Id);
+            existingSegment = mappedSegmentId == 0
+                ? null
+                : localSegments.SingleOrDefault(segment => segment.Id == mappedSegmentId);
+            if (existingSegment == null)
+            {
+                var shareMatches = localSegments.Where(segment => string.Equals(
+                    segment.SegmentShareId, payload.SegmentShareId, StringComparison.OrdinalIgnoreCase)).ToList();
+                if (shareMatches.Count > 1)
+                    throw new InvalidOperationException("Multiple local segments have the same SegmentShareId.");
+                existingSegment = shareMatches.SingleOrDefault();
+            }
+        }
         if (mappedTaskId != Guid.Empty && existingSegment != null && string.Equals(segmentHash, hash, StringComparison.Ordinal))
             return;
 
