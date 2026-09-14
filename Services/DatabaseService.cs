@@ -71,10 +71,11 @@ CREATE TABLE IF NOT EXISTS schema_version (
             MigrateToV24(conn);
             MigrateToV25(conn);
             MigrateToV26(conn);
+            MigrateToV27(conn);
 
-            if (currentVersion < 26)
+            if (currentVersion < 27)
             {
-                SetVersion(conn, 26);
+                SetVersion(conn, 27);
             }
         }
         catch (Exception ex)
@@ -391,6 +392,14 @@ ON znuny_ticket_article_read_state(ticket_id,read_utc);");
 SET minutes = booked_minutes
 WHERE status = 'Succeeded'
   AND booked_minutes > 0;");
+    }
+
+    private static void MigrateToV27(SqliteConnection conn)
+    {
+        EnsureColumn(conn, "znuny_ticket_detail_cache", "owner_id", "INTEGER NULL");
+        EnsureColumn(conn, "znuny_ticket_detail_cache", "owner_name", "TEXT NOT NULL DEFAULT ''");
+        EnsureColumn(conn, "znuny_ticket_detail_cache", "responsible_id", "INTEGER NULL");
+        EnsureColumn(conn, "znuny_ticket_detail_cache", "responsible_name", "TEXT NOT NULL DEFAULT ''");
     }
 
     private static void EnsureColumn(SqliteConnection conn, string table, string column, string definition)
