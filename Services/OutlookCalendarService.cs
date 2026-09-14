@@ -101,8 +101,7 @@ public class OutlookCalendarService : IDisposable
 
         lock (_syncLock)
         {
-            if (IsCacheCoveringRange(requestedFrom, requestedTo)
-                && string.Equals(reason, "week-load-visible-range", StringComparison.OrdinalIgnoreCase))
+            if (IsCacheCoveringRange(requestedFrom, requestedTo))
             {
                 _logger.Info($"[OutlookCalendarSync] Skip reason={reason} from={requestedFrom:O} to={requestedTo:O} cacheFrom={_cacheFromInclusiveLocal:O} cacheTo={_cacheToExclusiveLocal:O}");
                 return;

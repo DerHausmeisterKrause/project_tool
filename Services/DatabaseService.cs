@@ -74,10 +74,11 @@ CREATE TABLE IF NOT EXISTS schema_version (
             MigrateToV27(conn);
             MigrateToV28(conn);
             MigrateToV29(conn);
+            MigrateToV30(conn);
 
-            if (currentVersion < 29)
+            if (currentVersion < 30)
             {
-                SetVersion(conn, 29);
+                SetVersion(conn, 30);
             }
         }
         catch (Exception ex)
@@ -426,6 +427,11 @@ CREATE TABLE IF NOT EXISTS plenaro_shared_task_imports (
  task_share_id TEXT PRIMARY KEY, local_task_id TEXT NOT NULL, origin_client_instance_id TEXT NOT NULL DEFAULT '', last_payload_hash TEXT NOT NULL DEFAULT '');
 CREATE TABLE IF NOT EXISTS plenaro_shared_segment_imports (
  segment_share_id TEXT PRIMARY KEY, local_segment_id INTEGER NOT NULL, task_share_id TEXT NOT NULL, last_payload_hash TEXT NOT NULL DEFAULT '');");
+    }
+
+    private static void MigrateToV30(SqliteConnection conn)
+    {
+        EnsureColumn(conn, "plenaro_shared_task_imports", "last_generated_utc", "TEXT NULL");
     }
 
     private static void EnsureColumn(SqliteConnection conn, string table, string column, string definition)

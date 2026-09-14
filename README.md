@@ -99,6 +99,16 @@ Die Anmeldung erfolgt standardmäßig über `POST /Session`; anschließend werde
 - Alles bleibt lokal, keine Cloud, kein Webserver.
 - Outlook-Reminder werden immer deaktiviert (`ReminderSet = false`).
 - Bei Outlook/COM Fehlern läuft die App weiter; Fehlertext erscheint in der Heute-Ansicht und im Log.
+- Das Empfangen über Outlook geteilter Aufgaben benötigt die aktivierte Outlook-Kalenderintegration. Dafür wird beim Start und nach einer Aktivierung der begrenzte Kalenderbereich von heute minus 30 Tagen bis einschließlich heute plus 180 Tagen in den bestehenden Kalender-Cache geladen.
+
+### Manueller Outlook-Test: Meeting wird wieder Fokusblock
+
+Dieser COM-Ablauf benötigt ein installiertes klassisches Outlook und kann deshalb nicht im plattformunabhängigen Unit-Test ausgeführt werden:
+
+1. Ein Segment mit mindestens einem Test-Teilnehmer nach Outlook synchronisieren und beim Teilnehmer den eingegangenen Termin prüfen.
+2. Alle Teilnehmer vom Segment entfernen und erneut synchronisieren.
+3. Prüfen, dass der Teilnehmer eine Absage erhält und der alte Termin aus dessen Kalender entfernt wird.
+4. Beim Organisator prüfen, dass ein neuer lokaler Fokusblock ohne Teilnehmer bestehen bleibt und weitere Änderungen diesen neuen Termin aktualisieren.
 
 ## License
 MIT

@@ -97,9 +97,35 @@ public class OutlookInteropService
                         {
                             existingRecipients = itemDyn.Recipients;
                             dynamic existingDyn = existingRecipients;
-                            while (existingDyn.Count > 0) existingDyn.Remove(1);
-                            // olNonMeeting: Outlook persists the removal on the same appointment.
-                            itemDyn.MeetingStatus = 0;
+                            var previousMeetingStatus = Convert.ToInt32(itemDyn.MeetingStatus);
+                            var existingRecipientCount = Convert.ToInt32(existingDyn.Count);
+                            if (ShouldCancelMeeting(previousMeetingStatus, existingRecipientCount, recipients.Length))
+                            {
+                                // olMeetingCanceled. Send the cancellation from the original
+                                // meeting, then create a separate local appointment.
+                                itemDyn.MeetingStatus = 5;
+                                itemDyn.Send();
+                                SafeReleaseComObject(existingRecipients);
+                                existingRecipients = null;
+                                SafeReleaseComObject(item);
+                                item = appDyn.CreateItem(OlAppointmentItem);
+                                itemDyn = item;
+                                itemDyn.Subject = $"Fokus: {title}";
+                                itemDyn.Body = body ?? string.Empty;
+                                itemDyn.Start = start;
+                                itemDyn.End = end;
+                                itemDyn.BusyStatus = OlBusy;
+                                itemDyn.ReminderSet = false;
+                                itemDyn.Categories = string.IsNullOrWhiteSpace(_settings.Current.OutlookCategoryName)
+                                    ? "FocusBlock"
+                                    : _settings.Current.OutlookCategoryName;
+                                _logger.Info($"[PlenaroShareOutlook] action=meeting-cancelled attendeeCount={existingRecipientCount}");
+                            }
+                            else
+                            {
+                                while (existingDyn.Count > 0) existingDyn.Remove(1);
+                                itemDyn.MeetingStatus = 0;
+                            }
                         }
                         finally { SafeReleaseComObject(existingRecipients); }
                         itemDyn.Save();
@@ -112,7 +138,12 @@ public class OutlookInteropService
                             recipientCollection = itemDyn.Recipients;
                             dynamic recipientsDyn = recipientCollection;
                             while (recipientsDyn.Count > 0) recipientsDyn.Remove(1);
-                            foreach (var address in recipients) { dynamic recipient = recipientsDyn.Add(address); recipient.Type = 1; }
+                            foreach (var address in recipients)
+                            {
+                                object? recipient = null;
+                                try { recipient = recipientsDyn.Add(address); ((dynamic)recipient).Type = 1; }
+                                finally { SafeReleaseComObject(recipient); }
+                            }
                             if (!recipientsDyn.ResolveAll()) return (false, existingEntryId ?? string.Empty, "Mindestens eine Outlook-Teilnehmer-Adresse konnte nicht aufgelöst werden.");
                             itemDyn.MeetingStatus = 1;
                             itemDyn.Send();
@@ -138,6 +169,9 @@ public class OutlookInteropService
             return (false, existingEntryId ?? string.Empty, BuildUserFacingOutlookError(ex));
         }
     }
+
+    internal static bool ShouldCancelMeeting(int previousMeetingStatus, int existingRecipientCount, int requestedRecipientCount)
+        => requestedRecipientCount == 0 && existingRecipientCount > 0 && previousMeetingStatus != 0;
 
     public (bool ok, string error) DeleteBlock(string? entryId, bool ignoreSyncDisabled = false)
     {

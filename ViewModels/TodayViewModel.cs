@@ -1628,8 +1628,17 @@ public class TodayViewModel : ObservableObject
         {
             if (SelectedTask?.Id == task.Id)
             {
-                TicketBookingInformation = $"Ticketdaten konnten nicht geladen werden: {ex.Message}";
-                TicketConversationMessage = $"Ticket-Nachrichten konnten nicht geladen werden: {ex.Message}";
+                if (task.IsPlenaroShared && IsZnunyAccessDenied(ex))
+                {
+                    const string message = "Die Aufgabe wurde über Outlook geteilt, dein Znuny-Benutzer besitzt jedoch keinen Zugriff auf dieses Ticket.";
+                    TicketBookingInformation = message;
+                    TicketConversationMessage = message;
+                }
+                else
+                {
+                    TicketBookingInformation = $"Ticketdaten konnten nicht geladen werden: {ex.Message}";
+                    TicketConversationMessage = $"Ticket-Nachrichten konnten nicht geladen werden: {ex.Message}";
+                }
             }
         }
         finally
@@ -1638,6 +1647,12 @@ public class TodayViewModel : ObservableObject
                 IsTicketConversationLoading = false;
         }
     }
+
+    internal static bool IsZnunyAccessDenied(Exception exception)
+        => exception is ZnunyApiException apiException
+           && (apiException.StatusCode == System.Net.HttpStatusCode.Forbidden
+               || string.Equals(apiException.ErrorCode, "AccessDenied", StringComparison.OrdinalIgnoreCase)
+               || string.Equals(apiException.ErrorCode, "PermissionDenied", StringComparison.OrdinalIgnoreCase));
 
     private async Task LoadTicketAgentsAsync(TaskItem? task, bool forceRefresh, TicketBookingContext? context = null)
     {
