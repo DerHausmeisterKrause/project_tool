@@ -34,18 +34,19 @@ public sealed class TicketDetailCacheService
         var articlesComplete = Bool(reader, "articles_complete");
         var dynamicFieldsComplete = Bool(reader, "dynamic_fields_complete");
         var articleLimit = Int(reader, "fetched_article_limit");
+        var assignmentMetadataComplete = Bool(reader, "assignment_metadata_complete");
         var replyId = Text(reader, "reply_source_article_id");
         reader.Close();
         var articles = LoadArticles(connection, ticketId);
         context = context with { Articles = articles, ReplySourceArticle = articles.FirstOrDefault(a => a.ArticleId == replyId) };
         return new TicketDetailCacheEntry(context, state, changed, fetched, metadataComplete,
-            articlesComplete, dynamicFieldsComplete, articleLimit);
+            articlesComplete, dynamicFieldsComplete, articleLimit, assignmentMetadataComplete);
     }
 
     public void Store(TicketBookingContext context, string state, DateTime? remoteChangedUtc,
         TicketDetailFetchProfile? profile = null)
     {
-        profile ??= new TicketDetailFetchProfile(true, false, false, 0);
+        profile ??= new TicketDetailFetchProfile(true, false, false, 0, false);
         var existing = LoadEntry(context.TicketId);
         var sameRemoteVersion = existing != null && SameRemoteVersion(existing.RemoteChangedUtc, remoteChangedUtc);
         // A narrower Candidate read may refresh metadata, but must never erase richer
@@ -76,7 +77,8 @@ public sealed class TicketDetailCacheService
             profile.DynamicFieldsComplete || (sameRemoteVersion && existing?.DynamicFieldsComplete == true),
             profile.ArticlesComplete
                 ? Math.Max(profile.FetchedArticleLimit, sameRemoteVersion ? existing?.FetchedArticleLimit ?? 0 : 0)
-                : sameRemoteVersion ? existing?.FetchedArticleLimit ?? 0 : 0);
+                : sameRemoteVersion ? existing?.FetchedArticleLimit ?? 0 : 0,
+            profile.AssignmentMetadataComplete || existing?.AssignmentMetadataComplete == true);
 
         using var connection = Open();
         using var transaction = connection.BeginTransaction();
@@ -84,14 +86,15 @@ public sealed class TicketDetailCacheService
         {
             command.Transaction = transaction;
             command.CommandText = @"INSERT INTO znuny_ticket_detail_cache
-(ticket_id,ticket_number,title,state,remote_changed_utc,last_fetched_utc,cost_center_value,order_value,reply_recipient,reply_source_article_id,metadata_complete,articles_complete,dynamic_fields_complete,fetched_article_limit,owner_id,owner_name,responsible_id,responsible_name)
-VALUES($id,$number,$title,$state,$changed,$fetched,$cost,$order,$recipient,$reply,$metadata,$articles,$dynamic,$limit,$ownerId,$ownerName,$responsibleId,$responsibleName)
+(ticket_id,ticket_number,title,state,remote_changed_utc,last_fetched_utc,cost_center_value,order_value,reply_recipient,reply_source_article_id,metadata_complete,articles_complete,dynamic_fields_complete,fetched_article_limit,owner_id,owner_name,responsible_id,responsible_name,assignment_metadata_complete)
+VALUES($id,$number,$title,$state,$changed,$fetched,$cost,$order,$recipient,$reply,$metadata,$articles,$dynamic,$limit,$ownerId,$ownerName,$responsibleId,$responsibleName,$assignmentMetadata)
 ON CONFLICT(ticket_id) DO UPDATE SET ticket_number=excluded.ticket_number,title=excluded.title,state=excluded.state,
 remote_changed_utc=excluded.remote_changed_utc,last_fetched_utc=excluded.last_fetched_utc,cost_center_value=excluded.cost_center_value,
 order_value=excluded.order_value,reply_recipient=excluded.reply_recipient,reply_source_article_id=excluded.reply_source_article_id,
 metadata_complete=excluded.metadata_complete,articles_complete=excluded.articles_complete,
 dynamic_fields_complete=excluded.dynamic_fields_complete,fetched_article_limit=excluded.fetched_article_limit,
-owner_id=excluded.owner_id,owner_name=excluded.owner_name,responsible_id=excluded.responsible_id,responsible_name=excluded.responsible_name";
+owner_id=excluded.owner_id,owner_name=excluded.owner_name,responsible_id=excluded.responsible_id,responsible_name=excluded.responsible_name,
+assignment_metadata_complete=excluded.assignment_metadata_complete";
             command.Parameters.AddWithValue("$id", merged.TicketId); command.Parameters.AddWithValue("$number", merged.TicketNumber);
             command.Parameters.AddWithValue("$title", merged.TicketTitle); command.Parameters.AddWithValue("$state", state);
             command.Parameters.AddWithValue("$changed", (object?)remoteChangedUtc?.ToUniversalTime().ToString("O") ?? DBNull.Value);
@@ -106,6 +109,7 @@ owner_id=excluded.owner_id,owner_name=excluded.owner_name,responsible_id=exclude
             command.Parameters.AddWithValue("$ownerName", merged.Owner);
             command.Parameters.AddWithValue("$responsibleId", (object?)merged.ResponsibleId ?? DBNull.Value);
             command.Parameters.AddWithValue("$responsibleName", merged.Responsible);
+            command.Parameters.AddWithValue("$assignmentMetadata", mergedProfile.AssignmentMetadataComplete ? 1 : 0);
             command.ExecuteNonQuery();
         }
         if (!preserveArticles)

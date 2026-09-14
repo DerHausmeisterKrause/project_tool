@@ -4,10 +4,11 @@ public sealed record TicketDetailFetchProfile(
     bool MetadataComplete,
     bool ArticlesComplete,
     bool DynamicFieldsComplete,
-    int FetchedArticleLimit)
+    int FetchedArticleLimit,
+    bool AssignmentMetadataComplete)
 {
-    public static TicketDetailFetchProfile Full(int articleLimit) => new(true, true, true, articleLimit);
-    public static TicketDetailFetchProfile Candidate(int articleLimit) => new(true, true, false, articleLimit);
+    public static TicketDetailFetchProfile Full(int articleLimit) => new(true, true, true, articleLimit, true);
+    public static TicketDetailFetchProfile Candidate(int articleLimit) => new(true, true, false, articleLimit, false);
 }
 
 public sealed record TicketDetailCacheEntry(
@@ -18,7 +19,8 @@ public sealed record TicketDetailCacheEntry(
     bool MetadataComplete,
     bool ArticlesComplete,
     bool DynamicFieldsComplete,
-    int FetchedArticleLimit)
+    int FetchedArticleLimit,
+    bool AssignmentMetadataComplete)
 {
     public bool IsCompleteFor(int requestedArticleLimit) => MetadataComplete
         && ArticlesComplete

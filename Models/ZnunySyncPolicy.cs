@@ -52,7 +52,8 @@ public static class ZnunySyncPolicy
     }
 
     public static bool RequiresFullTicketGet(TicketDetailCacheEntry? cache, int requestedArticleLimit)
-        => cache?.IsCompleteFor(NormalizeArticleLimit(requestedArticleLimit)) != true;
+        => cache?.IsCompleteFor(NormalizeArticleLimit(requestedArticleLimit)) != true
+           || cache.AssignmentMetadataComplete != true;
 
     public static IReadOnlyDictionary<string, string> TicketGetOptions(bool allArticles, bool dynamicFields, int configuredArticleLimit)
     {

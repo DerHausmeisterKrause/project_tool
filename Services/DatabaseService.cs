@@ -72,10 +72,11 @@ CREATE TABLE IF NOT EXISTS schema_version (
             MigrateToV25(conn);
             MigrateToV26(conn);
             MigrateToV27(conn);
+            MigrateToV28(conn);
 
-            if (currentVersion < 27)
+            if (currentVersion < 28)
             {
-                SetVersion(conn, 27);
+                SetVersion(conn, 28);
             }
         }
         catch (Exception ex)
@@ -400,6 +401,14 @@ WHERE status = 'Succeeded'
         EnsureColumn(conn, "znuny_ticket_detail_cache", "owner_name", "TEXT NOT NULL DEFAULT ''");
         EnsureColumn(conn, "znuny_ticket_detail_cache", "responsible_id", "INTEGER NULL");
         EnsureColumn(conn, "znuny_ticket_detail_cache", "responsible_name", "TEXT NOT NULL DEFAULT ''");
+    }
+
+    private static void MigrateToV28(SqliteConnection conn)
+    {
+        // Existing rows deliberately remain unconfirmed until a full fetch made by
+        // V28 backfills their assignment metadata.
+        EnsureColumn(conn, "znuny_ticket_detail_cache", "assignment_metadata_complete",
+            "INTEGER NOT NULL DEFAULT 0");
     }
 
     private static void EnsureColumn(SqliteConnection conn, string table, string column, string definition)
