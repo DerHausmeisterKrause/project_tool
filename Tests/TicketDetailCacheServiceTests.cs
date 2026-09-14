@@ -24,6 +24,7 @@ public sealed class TicketDetailCacheServiceTests : IDisposable
         var entry = Assert.IsType<TicketDetailCacheEntry>(_cache.LoadEntry("1"));
         Assert.False(entry.ArticlesComplete);
         Assert.False(entry.DynamicFieldsComplete);
+        Assert.False(entry.AssignmentMetadataComplete);
         Assert.False(entry.IsCompleteFor(20));
         Assert.True(ZnunySyncPolicy.RequiresFullTicketGet(entry, 20));
     }
@@ -36,6 +37,7 @@ public sealed class TicketDetailCacheServiceTests : IDisposable
         var entry = _cache.LoadEntry("1")!;
         Assert.True(entry.MetadataComplete);
         Assert.True(entry.DynamicFieldsComplete);
+        Assert.True(entry.AssignmentMetadataComplete);
         Assert.True(entry.IsCompleteFor(20));
         Assert.False(entry.IsCompleteFor(21));
     }
@@ -89,7 +91,7 @@ public sealed class TicketDetailCacheServiceTests : IDisposable
         _cache.Store(Context("1", [Article("old")], "cost", "order"), "open", oldChanged,
             TicketDetailFetchProfile.Full(20));
         _cache.Store(Context("1", [], "new-cost", "new-order"), "open", oldChanged.AddHours(1),
-            new TicketDetailFetchProfile(true, false, true, 0));
+            new TicketDetailFetchProfile(true, false, true, 0, false));
 
         var entry = _cache.LoadEntry("1")!;
         Assert.Equal("old", Assert.Single(entry.Context.Articles).ArticleId);
@@ -119,14 +121,76 @@ public sealed class TicketDetailCacheServiceTests : IDisposable
     }
 
     [Fact]
-    public void SchemaV26IsAdditiveAndKeepsPreviousMigrations()
+    public void CacheHitReturnsAssignmentMetadataAndCanPreselectAgentsByUserId()
+    {
+        _cache.Store(Context("1", [], "cost", "order", 12, "Marcel Asböck", 23, "Max Mustermann"),
+            "open", DateTime.UtcNow, TicketDetailFetchProfile.Full(20));
+
+        var context = Assert.IsType<TicketBookingContext>(_cache.Load("1"));
+        Assert.Equal(12, context.OwnerId);
+        Assert.Equal("Marcel Asböck", context.Owner);
+        Assert.Equal(23, context.ResponsibleId);
+        Assert.Equal("Max Mustermann", context.Responsible);
+        var agents = new[]
+        {
+            new ZnunyAgent { UserId = 12, Name = "Marcel Asböck" },
+            new ZnunyAgent { UserId = 23, Name = "Max Mustermann" }
+        };
+        Assert.Equal("Marcel Asböck", agents.FirstOrDefault(agent => agent.UserId == context.OwnerId)?.DisplayName);
+        Assert.Equal("Max Mustermann", agents.FirstOrDefault(agent => agent.UserId == context.ResponsibleId)?.DisplayName);
+    }
+
+    [Fact]
+    public void NullableAssignmentIdsRoundTripWithoutInventingAgents()
+    {
+        _cache.Store(Context("1", [], "", "", null, "", null, ""), "open", DateTime.UtcNow);
+
+        var context = Assert.IsType<TicketBookingContext>(_cache.Load("1"));
+        Assert.Null(context.OwnerId);
+        Assert.Equal(string.Empty, context.Owner);
+        Assert.Null(context.ResponsibleId);
+        Assert.Equal(string.Empty, context.Responsible);
+    }
+
+    [Fact]
+    public void NarrowRefreshDoesNotEraseKnownAssignmentMetadata()
+    {
+        _cache.Store(Context("1", [], "cost", "order", 12, "Marcel Asböck", 23, "Max Mustermann"),
+            "open", DateTime.UtcNow, TicketDetailFetchProfile.Full(20));
+        _cache.Store(Context("1", [], "", ""), "open", DateTime.UtcNow,
+            TicketDetailFetchProfile.Candidate(20));
+
+        var context = _cache.Load("1")!;
+        Assert.Equal((12, "Marcel Asböck", 23, "Max Mustermann"),
+            (context.OwnerId, context.Owner, context.ResponsibleId, context.Responsible));
+        Assert.True(_cache.LoadEntry("1")!.AssignmentMetadataComplete);
+    }
+
+    [Fact]
+    public void FullFetchConfirmsLegitimatelyNullableResponsible()
+    {
+        _cache.Store(Context("1", [], "cost", "order", 12, "Marcel Asböck", null, ""),
+            "open", DateTime.UtcNow, TicketDetailFetchProfile.Full(20));
+
+        var entry = _cache.LoadEntry("1")!;
+        Assert.True(entry.AssignmentMetadataComplete);
+        Assert.Equal(12, entry.Context.OwnerId);
+        Assert.Null(entry.Context.ResponsibleId);
+        Assert.False(ZnunySyncPolicy.RequiresFullTicketGet(entry, 20));
+    }
+
+    [Fact]
+    public void SchemaV28IsAdditiveAndKeepsPreviousMigrations()
     {
         using var connection = new SqliteConnection($"Data Source={_path}"); connection.Open();
         using var version = connection.CreateCommand(); version.CommandText = "SELECT version FROM schema_version";
-        Assert.Equal(26L, version.ExecuteScalar());
+        Assert.Equal(28L, version.ExecuteScalar());
         using var columns = connection.CreateCommand(); columns.CommandText = "PRAGMA table_info(znuny_ticket_detail_cache)";
         using var reader = columns.ExecuteReader(); var names = new List<string>(); while (reader.Read()) names.Add(reader.GetString(1));
         Assert.Contains("articles_complete", names); Assert.Contains("dynamic_fields_complete", names);
+        Assert.Contains("owner_id", names); Assert.Contains("owner_name", names);
+        Assert.Contains("responsible_id", names); Assert.Contains("responsible_name", names);
+        Assert.Contains("assignment_metadata_complete", names);
         reader.Close();
         using var poolTable = connection.CreateCommand();
         poolTable.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='znuny_candidate_pool_snapshot'";
@@ -134,6 +198,92 @@ public sealed class TicketDetailCacheServiceTests : IDisposable
         using var readTables = connection.CreateCommand();
         readTables.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name IN ('znuny_ticket_article_read_baseline','znuny_ticket_article_read_state')";
         Assert.Equal(2L, readTables.ExecuteScalar());
+    }
+
+    [Fact]
+    public void MigrationFromV26PreservesExistingTicketCacheFields()
+    {
+        var legacyPath = Path.Combine(Path.GetTempPath(), $"plenaro-v26-{Guid.NewGuid():N}.db");
+        try
+        {
+            using (var connection = new SqliteConnection($"Data Source={legacyPath}"))
+            {
+                connection.Open();
+                using var command = connection.CreateCommand();
+                command.CommandText = @"CREATE TABLE schema_version(version INTEGER NOT NULL);
+INSERT INTO schema_version(version) VALUES(26);
+CREATE TABLE znuny_ticket_detail_cache(
+ ticket_id TEXT PRIMARY KEY, ticket_number TEXT NOT NULL DEFAULT '', title TEXT NOT NULL DEFAULT '',
+ state TEXT NOT NULL DEFAULT '', remote_changed_utc TEXT NULL, last_fetched_utc TEXT NOT NULL,
+ cost_center_value TEXT NOT NULL DEFAULT '', order_value TEXT NOT NULL DEFAULT '',
+ reply_recipient TEXT NOT NULL DEFAULT '', reply_source_article_id TEXT NOT NULL DEFAULT '',
+ metadata_complete INTEGER NOT NULL DEFAULT 0, articles_complete INTEGER NOT NULL DEFAULT 0,
+ dynamic_fields_complete INTEGER NOT NULL DEFAULT 0, fetched_article_limit INTEGER NOT NULL DEFAULT 0);
+INSERT INTO znuny_ticket_detail_cache(ticket_id,ticket_number,title,state,last_fetched_utc,cost_center_value,order_value)
+VALUES('42','2026000042','Bestehender Titel','open','2026-01-01T00:00:00Z','4711','A-1');";
+                command.ExecuteNonQuery();
+            }
+
+            var database = new DatabaseService(new LoggerService(), legacyPath);
+            database.Initialize();
+            var context = new TicketDetailCacheService(database).Load("42")!;
+            Assert.Equal("2026000042", context.TicketNumber);
+            Assert.Equal("Bestehender Titel", context.TicketTitle);
+            Assert.Equal("4711", context.CostCenterValue);
+            Assert.Equal("A-1", context.OrderValue);
+            Assert.Null(context.OwnerId);
+            Assert.Null(context.ResponsibleId);
+            using var migrated = new SqliteConnection($"Data Source={legacyPath}");
+            migrated.Open();
+            using var version = migrated.CreateCommand();
+            version.CommandText = "SELECT version FROM schema_version";
+            Assert.Equal(28L, version.ExecuteScalar());
+        }
+        finally
+        {
+            SqliteConnection.ClearAllPools();
+            if (File.Exists(legacyPath)) File.Delete(legacyPath);
+        }
+    }
+
+    [Fact]
+    public void MigrationFromV27MarksExistingAssignmentMetadataIncomplete()
+    {
+        var legacyPath = Path.Combine(Path.GetTempPath(), $"plenaro-v27-{Guid.NewGuid():N}.db");
+        try
+        {
+            using (var connection = new SqliteConnection($"Data Source={legacyPath}"))
+            {
+                connection.Open();
+                using var command = connection.CreateCommand();
+                command.CommandText = @"CREATE TABLE schema_version(version INTEGER NOT NULL);
+INSERT INTO schema_version(version) VALUES(27);
+CREATE TABLE znuny_ticket_detail_cache(
+ ticket_id TEXT PRIMARY KEY, ticket_number TEXT NOT NULL DEFAULT '', title TEXT NOT NULL DEFAULT '',
+ state TEXT NOT NULL DEFAULT '', remote_changed_utc TEXT NULL, last_fetched_utc TEXT NOT NULL,
+ cost_center_value TEXT NOT NULL DEFAULT '', order_value TEXT NOT NULL DEFAULT '',
+ reply_recipient TEXT NOT NULL DEFAULT '', reply_source_article_id TEXT NOT NULL DEFAULT '',
+ metadata_complete INTEGER NOT NULL DEFAULT 0, articles_complete INTEGER NOT NULL DEFAULT 0,
+ dynamic_fields_complete INTEGER NOT NULL DEFAULT 0, fetched_article_limit INTEGER NOT NULL DEFAULT 0,
+ owner_id INTEGER NULL, owner_name TEXT NOT NULL DEFAULT '', responsible_id INTEGER NULL,
+ responsible_name TEXT NOT NULL DEFAULT '');
+INSERT INTO znuny_ticket_detail_cache(ticket_id,last_fetched_utc,metadata_complete,articles_complete,dynamic_fields_complete,fetched_article_limit)
+VALUES('42','2026-01-01T00:00:00Z',1,1,1,20);";
+                command.ExecuteNonQuery();
+            }
+
+            var database = new DatabaseService(new LoggerService(), legacyPath);
+            database.Initialize();
+            var entry = new TicketDetailCacheService(database).LoadEntry("42")!;
+            Assert.False(entry.AssignmentMetadataComplete);
+            Assert.True(entry.IsCompleteFor(20));
+            Assert.True(ZnunySyncPolicy.RequiresFullTicketGet(entry, 20));
+        }
+        finally
+        {
+            SqliteConnection.ClearAllPools();
+            if (File.Exists(legacyPath)) File.Delete(legacyPath);
+        }
     }
 
     [Theory]
@@ -252,8 +402,10 @@ public sealed class TicketDetailCacheServiceTests : IDisposable
         Assert.False(entry.IsFresh(TimeSpan.FromHours(22), DateTime.UtcNow));
     }
 
-    private static TicketBookingContext Context(string id, IReadOnlyList<TicketArticleItem> articles, string cost, string order)
-        => new(id, $"N{id}", cost, order, [], [], "", articles, articles.FirstOrDefault(), "customer@example.test", $"Ticket {id}");
+    private static TicketBookingContext Context(string id, IReadOnlyList<TicketArticleItem> articles, string cost, string order,
+        int? ownerId = null, string owner = "", int? responsibleId = null, string responsible = "")
+        => new(id, $"N{id}", cost, order, [], [], "", articles, articles.FirstOrDefault(), "customer@example.test", $"Ticket {id}",
+            ownerId, owner, responsibleId, responsible);
     private static TicketArticleItem Article(string id) => new() { ArticleId = id, Subject = id, Body = id };
     public void Dispose() { SqliteConnection.ClearAllPools(); if (File.Exists(_path)) File.Delete(_path); }
 }

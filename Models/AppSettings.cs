@@ -8,6 +8,7 @@ public class AppSettings
     // Existing non-empty InstalledVersion values remain authoritative until a successful update.
     public const string InitialInstalledVersion = "2.1.0";
     public const string DefaultTicketSystemTicketUpdateRoute = "/Ticket/{TicketID}/Update";
+    public const string DefaultTicketSystemAgentListRoute = "/Ticket/Agent/List";
     public const string LegacyTicketSystemTicketUpdateRoute = "/Ticket/Update";
     public const string DefaultTicketSystemTicketCreateRoute = "/TicketCreate";
     public const string LegacyTicketSystemTicketCreateRoute = "/Ticket";
@@ -60,6 +61,7 @@ public class AppSettings
     public string TicketSystemTicketGetMethod { get; set; } = "GET";
     public string TicketSystemTicketGetAuthMode { get; set; } = "Session";
     public string TicketSystemTicketUpdateRoute { get; set; } = DefaultTicketSystemTicketUpdateRoute;
+    public string TicketSystemAgentListRoute { get; set; } = DefaultTicketSystemAgentListRoute;
     public string TicketSystemTicketCreateRoute { get; set; } = DefaultTicketSystemTicketCreateRoute;
     public string TicketSystemTicketCreateMethod { get; set; } = "POST";
     public string TicketSystemCreateQueue { get; set; } = string.Empty;
@@ -82,6 +84,7 @@ public class AppSettings
     public bool TicketSystemIncludeOwner { get; set; } = true;
     public bool TicketSystemIncludeResponsible { get; set; } = true;
     public bool NotifyOnNewAssignedTickets { get; set; } = true;
+    public bool NotifyOnTicketChanges { get; set; } = true;
     public bool TicketSystemAutofillCredentials { get; set; } = false;
     public bool TicketSystemAutoLogin { get; set; } = false;
     public List<WikiSourceSettings> WikiSources { get; set; } = new();

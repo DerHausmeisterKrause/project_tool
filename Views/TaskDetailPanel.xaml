@@ -77,6 +77,34 @@
                                 Command="{Binding OpenTicketUrlCommand}" CommandParameter="{Binding SelectedTask.TicketUrl}"/>
                     </Grid>
 
+                    <StackPanel Margin="0,14,0,0"
+                                Visibility="{Binding HasZnunyTicket, Converter={StaticResource BooleanToVisibilityConverter}}">
+                        <TextBlock Text="Zuweisung" FontSize="14" FontWeight="SemiBold" Margin="0,0,0,5"/>
+                        <WrapPanel>
+                            <StackPanel Width="260" Margin="0,0,12,6">
+                                <TextBlock Text="Besitzer" FontSize="13" Foreground="{StaticResource MutedTextBrush}" Margin="0,0,0,2"/>
+                                <ComboBox Style="{StaticResource DarkComboBoxStyle}" Height="30"
+                                          ItemsSource="{Binding TicketAgents}" SelectedItem="{Binding SelectedOwner, Mode=TwoWay}"
+                                          DisplayMemberPath="DisplayName" IsEnabled="{Binding CanEditTicketAssignment}"/>
+                            </StackPanel>
+                            <StackPanel Width="260" Margin="0,0,0,6">
+                                <TextBlock Text="Verantwortlicher" FontSize="13" Foreground="{StaticResource MutedTextBrush}" Margin="0,0,0,2"/>
+                                <ComboBox Style="{StaticResource DarkComboBoxStyle}" Height="30"
+                                          ItemsSource="{Binding TicketAgents}" SelectedItem="{Binding SelectedResponsible, Mode=TwoWay}"
+                                          DisplayMemberPath="DisplayName" IsEnabled="{Binding CanEditTicketAssignment}"/>
+                            </StackPanel>
+                        </WrapPanel>
+                        <WrapPanel HorizontalAlignment="Right">
+                            <Button Content="Änderungen übernehmen" Style="{StaticResource SecondaryButtonStyle}"
+                                    Command="{Binding SaveTicketAssignmentCommand}" IsEnabled="{Binding CanSaveTicketAssignment}"/>
+                            <Button Content="↻" Width="36" Style="{StaticResource SecondaryButtonStyle}" ToolTip="Agenten neu laden"
+                                    Command="{Binding RefreshTicketAgentsCommand}"/>
+                        </WrapPanel>
+                        <TextBlock Text="{Binding TicketAssignmentStatus}" FontSize="12" Foreground="{StaticResource MutedTextBrush}"
+                                   TextWrapping="Wrap" Margin="0,4,0,0"
+                                   Visibility="{Binding TicketAssignmentStatus, Converter={StaticResource StringEmptyToVisibilityConverter}}"/>
+                    </StackPanel>
+
                     <WrapPanel Margin="0,8,0,0">
                         <Button Content="Speichern" Width="94" Command="{Binding SaveCommand}"
                                 Visibility="{Binding ShowLocalTaskDescription, Converter={StaticResource BooleanToVisibilityConverter}}"/>

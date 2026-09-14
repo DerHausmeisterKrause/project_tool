@@ -148,6 +148,7 @@ public class SettingsViewModel : ObservableObject
     public string TicketSystemTicketGetMethod { get => _settings.Current.TicketSystemTicketGetMethod; set { _settings.Current.TicketSystemTicketGetMethod = value; Save(); } }
     public string TicketSystemTicketGetAuthMode { get => _settings.Current.TicketSystemTicketGetAuthMode; set { _settings.Current.TicketSystemTicketGetAuthMode = value; Save(); } }
     public string TicketSystemTicketUpdateRoute { get => _settings.Current.TicketSystemTicketUpdateRoute; set { _settings.Current.TicketSystemTicketUpdateRoute = value; Save(); } }
+    public string TicketSystemAgentListRoute { get => _settings.Current.TicketSystemAgentListRoute; set { _settings.Current.TicketSystemAgentListRoute = value; Save(); } }
     public string TicketSystemTicketCreateRoute { get => _settings.Current.TicketSystemTicketCreateRoute; set { _settings.Current.TicketSystemTicketCreateRoute = value; Save(); } }
     public string TicketSystemTicketCreateMethod { get => _settings.Current.TicketSystemTicketCreateMethod; set { _settings.Current.TicketSystemTicketCreateMethod = value; Save(); } }
     public string TicketSystemCreateQueue { get => _settings.Current.TicketSystemCreateQueue; set { _settings.Current.TicketSystemCreateQueue = value; Save(); } }
@@ -170,6 +171,7 @@ public class SettingsViewModel : ObservableObject
     public bool TicketSystemIncludeOwner { get => _settings.Current.TicketSystemIncludeOwner; set { _settings.Current.TicketSystemIncludeOwner = value; Save(); } }
     public bool TicketSystemIncludeResponsible { get => _settings.Current.TicketSystemIncludeResponsible; set { _settings.Current.TicketSystemIncludeResponsible = value; Save(); } }
     public bool NotifyOnNewAssignedTickets { get => _settings.Current.NotifyOnNewAssignedTickets; set { _settings.Current.NotifyOnNewAssignedTickets = value; Save(); } }
+    public bool NotifyOnTicketChanges { get => _settings.Current.NotifyOnTicketChanges; set { _settings.Current.NotifyOnTicketChanges = value; Save(); } }
     public bool TicketSystemAutofillCredentials
     {
         get => _settings.Current.TicketSystemAutofillCredentials;
