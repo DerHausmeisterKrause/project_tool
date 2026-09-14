@@ -54,6 +54,37 @@ public sealed class TicketArticleReadStateServiceTests : IDisposable
     }
 
     [Fact]
+    public void BecameUnreadOnlyReportsTransitionFromNoUnreadArticles()
+    {
+        var service = new TicketArticleReadStateService(_database);
+        var baseline = service.ReconcileFetchedArticlesWithResult("4711", [Article("100", 0)]);
+        var firstUnread = service.ReconcileFetchedArticlesWithResult("4711", [Article("101", 1)]);
+        var secondUnread = service.ReconcileFetchedArticlesWithResult("4711", [Article("102", 2)]);
+        var repeated = service.ReconcileFetchedArticlesWithResult("4711", [Article("101", 1), Article("102", 2)]);
+
+        Assert.False(baseline.BecameUnread);
+        Assert.True(firstUnread.BecameUnread);
+        Assert.Equal((0, 1), (firstUnread.UnreadBefore, firstUnread.UnreadAfter));
+        Assert.False(secondUnread.BecameUnread);
+        Assert.Equal((1, 2), (secondUnread.UnreadBefore, secondUnread.UnreadAfter));
+        Assert.False(repeated.BecameUnread);
+        Assert.False(repeated.UnreadChanged);
+    }
+
+    [Fact]
+    public void ReadThenNewArticleBecomesUnreadAgainWithoutRestartDuplicate()
+    {
+        var first = new TicketArticleReadStateService(_database);
+        first.ReconcileFetchedArticlesWithResult("4711", [Article("100", 0)]);
+        Assert.True(first.ReconcileFetchedArticlesWithResult("4711", [Article("101", 1)]).BecameUnread);
+
+        var restarted = new TicketArticleReadStateService(_database);
+        Assert.False(restarted.ReconcileFetchedArticlesWithResult("4711", [Article("101", 1)]).BecameUnread);
+        restarted.MarkRead("4711", "101");
+        Assert.True(restarted.ReconcileFetchedArticlesWithResult("4711", [Article("102", 2)]).BecameUnread);
+    }
+
+    [Fact]
     public void ReadStateSurvivesServiceRestart()
     {
         var first = new TicketArticleReadStateService(_database);
