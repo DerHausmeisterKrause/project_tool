@@ -18,6 +18,8 @@ public class OutlookCalendarEvent
     public string Location { get; set; } = string.Empty;
     public string Organizer { get; set; } = string.Empty;
     public string BodyPreview { get; set; } = string.Empty;
+    // Kept separately because share metadata deliberately lives after the human-readable body.
+    public string FullBody { get; set; } = string.Empty;
     public string OnlineMeetingJoinUrl { get; set; } = string.Empty;
     public string Categories { get; set; } = string.Empty;
     public string MeetingStatus { get; set; } = string.Empty;

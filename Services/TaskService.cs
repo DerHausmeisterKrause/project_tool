@@ -10,6 +10,7 @@ public class TaskService
     private readonly DatabaseService _db;
     private readonly LoggerService _logger;
     private readonly OutlookInteropService _outlook;
+    private readonly SettingsService _settings;
 
     public string LastError { get; private set; } = string.Empty;
     public event Action? SegmentsChanged;
@@ -19,6 +20,7 @@ public class TaskService
         _db = db;
         _logger = logger;
         _outlook = outlook;
+        _settings = settings;
     }
 
     public List<TaskItem> GetTasksForDay(DateTime day)
@@ -70,8 +72,8 @@ public class TaskService
         using var conn = new SqliteConnection(_db.ConnectionString);
         conn.Open();
         using var cmd = conn.CreateCommand();
-        cmd.CommandText = @"INSERT INTO tasks (id,title,description,ticket_url,start_local,end_local,status,priority,tags,outlook_entry_id,ticket_minutes_booked,ticket_seconds_booked,is_pinned,is_znuny_assigned,created_utc,updated_utc,ticket_created_utc,ticket_changed_utc,local_activity_utc,ticket_state,ticket_state_type)
-VALUES ($id,$title,$desc,$url,$start,$end,$status,$priority,$tags,$entry,$ticket,$ticketSeconds,$pinned,$znunyAssigned,$created,$updated,$ticketCreated,$ticketChanged,$localActivity,$ticketState,$ticketStateType)";
+        cmd.CommandText = @"INSERT INTO tasks (id,title,description,ticket_url,start_local,end_local,status,priority,tags,outlook_entry_id,ticket_minutes_booked,ticket_seconds_booked,is_pinned,is_znuny_assigned,created_utc,updated_utc,ticket_created_utc,ticket_changed_utc,local_activity_utc,ticket_state,ticket_state_type,is_plenaro_shared,task_share_id,share_origin_client_instance_id)
+VALUES ($id,$title,$desc,$url,$start,$end,$status,$priority,$tags,$entry,$ticket,$ticketSeconds,$pinned,$znunyAssigned,$created,$updated,$ticketCreated,$ticketChanged,$localActivity,$ticketState,$ticketStateType,$shared,$taskShareId,$shareOrigin)";
         BindTask(cmd, task);
         cmd.ExecuteNonQuery();
         return task;
@@ -85,7 +87,7 @@ VALUES ($id,$title,$desc,$url,$start,$end,$status,$priority,$tags,$entry,$ticket
         using var conn = new SqliteConnection(_db.ConnectionString);
         conn.Open();
         using var cmd = conn.CreateCommand();
-        cmd.CommandText = @"UPDATE tasks SET title=$title,description=$desc,ticket_url=$url,start_local=$start,end_local=$end,status=$status,priority=$priority,tags=$tags,outlook_entry_id=$entry,ticket_minutes_booked=$ticket,ticket_seconds_booked=$ticketSeconds,is_pinned=$pinned,is_znuny_assigned=$znunyAssigned,updated_utc=$updated,ticket_created_utc=$ticketCreated,ticket_changed_utc=$ticketChanged,local_activity_utc=$localActivity,ticket_state=$ticketState,ticket_state_type=$ticketStateType WHERE id=$id";
+        cmd.CommandText = @"UPDATE tasks SET title=$title,description=$desc,ticket_url=$url,start_local=$start,end_local=$end,status=$status,priority=$priority,tags=$tags,outlook_entry_id=$entry,ticket_minutes_booked=$ticket,ticket_seconds_booked=$ticketSeconds,is_pinned=$pinned,is_znuny_assigned=$znunyAssigned,updated_utc=$updated,ticket_created_utc=$ticketCreated,ticket_changed_utc=$ticketChanged,local_activity_utc=$localActivity,ticket_state=$ticketState,ticket_state_type=$ticketStateType,is_plenaro_shared=$shared,task_share_id=$taskShareId,share_origin_client_instance_id=$shareOrigin WHERE id=$id";
         BindTask(cmd, task);
         cmd.ExecuteNonQuery();
     }
@@ -117,6 +119,10 @@ VALUES ($id,$title,$desc,$url,$start,$end,$status,$priority,$tags,$entry,$ticket
 
         using (var segCmd = conn.CreateCommand())
         {
+            segCmd.CommandText = "DELETE FROM task_segment_attendees WHERE segment_id IN (SELECT id FROM task_segments WHERE task_id=$id)";
+            segCmd.Parameters.AddWithValue("$id", task.Id.ToString());
+            segCmd.ExecuteNonQuery();
+            segCmd.Parameters.Clear();
             segCmd.CommandText = "DELETE FROM task_segments WHERE task_id=$id";
             segCmd.Parameters.AddWithValue("$id", task.Id.ToString());
             segCmd.ExecuteNonQuery();
@@ -492,7 +498,7 @@ WHERE datetime(COALESCE(start_local, created_utc)) >= datetime($from)
         using var conn = new SqliteConnection(_db.ConnectionString);
         conn.Open();
         using var cmd = conn.CreateCommand();
-        cmd.CommandText = "SELECT id,task_id,start_local,end_local,planned_minutes,note,outlook_entry_id FROM task_segments WHERE datetime(start_local)>=datetime($from) AND datetime(start_local)<datetime($to) ORDER BY start_local";
+        cmd.CommandText = "SELECT id,task_id,start_local,end_local,planned_minutes,note,outlook_entry_id,segment_share_id,is_shared_import FROM task_segments WHERE datetime(start_local)>=datetime($from) AND datetime(start_local)<datetime($to) ORDER BY start_local";
         cmd.Parameters.AddWithValue("$from", fromInclusive.ToString("s"));
         cmd.Parameters.AddWithValue("$to", toExclusive.ToString("s"));
         using var r = cmd.ExecuteReader();
@@ -510,12 +516,15 @@ WHERE datetime(COALESCE(start_local, created_utc)) >= datetime($from)
                 EndLocal = ParseRequiredDateTime(r["end_local"].ToString()),
                 PlannedMinutes = Convert.ToInt32(r["planned_minutes"]),
                 Note = r["note"]?.ToString() ?? string.Empty,
-                OutlookEntryId = r["outlook_entry_id"]?.ToString() ?? string.Empty
+                OutlookEntryId = r["outlook_entry_id"]?.ToString() ?? string.Empty,
+                SegmentShareId = r["segment_share_id"]?.ToString() ?? string.Empty,
+                IsSharedImport = Convert.ToInt32(r["is_shared_import"]) != 0
             };
 
             result.Add((task, segment));
         }
 
+        foreach (var item in result) LoadAttendees(item.Segment);
         return result;
     }
 
@@ -580,7 +589,7 @@ WHERE datetime(end_local) > datetime($now)";
         using var conn = new SqliteConnection(_db.ConnectionString);
         conn.Open();
         using var cmd = conn.CreateCommand();
-        cmd.CommandText = "SELECT id,task_id,start_local,end_local,planned_minutes,note,outlook_entry_id FROM task_segments WHERE task_id=$id ORDER BY start_local";
+        cmd.CommandText = "SELECT id,task_id,start_local,end_local,planned_minutes,note,outlook_entry_id,segment_share_id,is_shared_import FROM task_segments WHERE task_id=$id ORDER BY start_local";
         cmd.Parameters.AddWithValue("$id", taskId.ToString());
         using var r = cmd.ExecuteReader();
         while (r.Read())
@@ -593,9 +602,12 @@ WHERE datetime(end_local) > datetime($now)";
                 EndLocal = ParseRequiredDateTime(r["end_local"].ToString()),
                 PlannedMinutes = Convert.ToInt32(r["planned_minutes"]),
                 Note = r["note"]?.ToString() ?? string.Empty,
-                OutlookEntryId = r["outlook_entry_id"]?.ToString() ?? string.Empty
+                OutlookEntryId = r["outlook_entry_id"]?.ToString() ?? string.Empty,
+                SegmentShareId = r["segment_share_id"]?.ToString() ?? string.Empty,
+                IsSharedImport = Convert.ToInt32(r["is_shared_import"]) != 0
             });
         }
+        foreach (var segment in list) LoadAttendees(segment);
         return list;
     }
 
@@ -604,18 +616,21 @@ WHERE datetime(end_local) > datetime($now)";
         using var conn = new SqliteConnection(_db.ConnectionString);
         conn.Open();
         using var cmd = conn.CreateCommand();
-        cmd.CommandText = "INSERT INTO task_segments(task_id,start_local,end_local,planned_minutes,note,outlook_entry_id) VALUES ($t,$s,$e,$p,$n,$o)";
+        cmd.CommandText = "INSERT INTO task_segments(task_id,start_local,end_local,planned_minutes,note,outlook_entry_id,segment_share_id,is_shared_import) VALUES ($t,$s,$e,$p,$n,$o,$share,$import)";
         cmd.Parameters.AddWithValue("$t", segment.TaskId.ToString());
         cmd.Parameters.AddWithValue("$s", segment.StartLocal.ToString("s"));
         cmd.Parameters.AddWithValue("$e", segment.EndLocal.ToString("s"));
         cmd.Parameters.AddWithValue("$p", (int)(segment.EndLocal - segment.StartLocal).TotalMinutes);
         cmd.Parameters.AddWithValue("$n", segment.Note);
         cmd.Parameters.AddWithValue("$o", segment.OutlookEntryId);
+        cmd.Parameters.AddWithValue("$share", segment.SegmentShareId);
+        cmd.Parameters.AddWithValue("$import", segment.IsSharedImport ? 1 : 0);
         cmd.ExecuteNonQuery();
 
         using var idCmd = conn.CreateCommand();
         idCmd.CommandText = "SELECT last_insert_rowid()";
         segment.Id = Convert.ToInt64(idCmd.ExecuteScalar());
+        SaveAttendees(conn, segment);
         TouchTaskActivity(segment.TaskId);
         SegmentsChanged?.Invoke();
     }
@@ -625,14 +640,17 @@ WHERE datetime(end_local) > datetime($now)";
         using var conn = new SqliteConnection(_db.ConnectionString);
         conn.Open();
         using var cmd = conn.CreateCommand();
-        cmd.CommandText = "UPDATE task_segments SET start_local=$s,end_local=$e,planned_minutes=$p,note=$n WHERE id=$id";
+        cmd.CommandText = "UPDATE task_segments SET start_local=$s,end_local=$e,planned_minutes=$p,note=$n,segment_share_id=$share,is_shared_import=$import WHERE id=$id";
         cmd.Parameters.AddWithValue("$s", segment.StartLocal.ToString("s"));
         cmd.Parameters.AddWithValue("$e", segment.EndLocal.ToString("s"));
         cmd.Parameters.AddWithValue("$p", (int)(segment.EndLocal - segment.StartLocal).TotalMinutes);
         cmd.Parameters.AddWithValue("$n", segment.Note);
         cmd.Parameters.AddWithValue("$id", segment.Id);
+        cmd.Parameters.AddWithValue("$share", segment.SegmentShareId);
+        cmd.Parameters.AddWithValue("$import", segment.IsSharedImport ? 1 : 0);
         if (cmd.ExecuteNonQuery() > 0)
         {
+            SaveAttendees(conn, segment);
             TouchTaskActivity(segment.TaskId);
             SegmentsChanged?.Invoke();
         }
@@ -650,6 +668,7 @@ WHERE datetime(end_local) > datetime($now)";
             if (Guid.TryParse(lookup.ExecuteScalar()?.ToString(), out var parsedTaskId))
                 taskId = parsedTaskId;
         }
+        using (var attendeeCmd = conn.CreateCommand()) { attendeeCmd.CommandText = "DELETE FROM task_segment_attendees WHERE segment_id=$id"; attendeeCmd.Parameters.AddWithValue("$id", segmentId); attendeeCmd.ExecuteNonQuery(); }
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "DELETE FROM task_segments WHERE id=$id";
         cmd.Parameters.AddWithValue("$id", segmentId);
@@ -664,8 +683,21 @@ WHERE datetime(end_local) > datetime($now)";
     public bool SyncSegmentOutlook(TaskSegment segment, string title, string description, string ticketUrl)
     {
         LastError = string.Empty;
+        if (segment.IsSharedImport) return true;
+        var task = GetAllTasks().SingleOrDefault(x => x.Id == segment.TaskId);
+        if (task == null) { LastError = "Aufgabe wurde nicht gefunden."; return false; }
         var body = $"{description}\n{ticketUrl}\nTaskID: {segment.TaskId}\nSegmentID: {segment.Id}\nNotiz: {segment.Note}";
-        var result = _outlook.UpsertBlock(segment.OutlookEntryId, title, body, segment.StartLocal, segment.EndLocal);
+        if (segment.Attendees.Count > 0)
+        {
+            task.TaskShareId = EnsureGuid(task.TaskShareId);
+            task.IsPlenaroShared = true;
+            segment.SegmentShareId = EnsureGuid(segment.SegmentShareId);
+            var payload = BuildPayload(task, segment);
+            body = PlenaroShareCodec.AppendOrReplace(body, payload, out _);
+            UpdateTask(task, false);
+            UpdateSegment(segment);
+        }
+        var result = _outlook.UpsertBlock(segment.OutlookEntryId, title, body, segment.StartLocal, segment.EndLocal, segment.Attendees);
         if (!result.ok)
         {
             LastError = $"Outlook Sync Fehler: {result.error}";
@@ -771,6 +803,9 @@ WHERE datetime(end_local) > datetime($now)";
             TicketSecondsBooked = reader["ticket_seconds_booked"] == DBNull.Value ? Convert.ToInt64(reader["ticket_minutes_booked"]) * 60L : Convert.ToInt64(reader["ticket_seconds_booked"]),
             IsPinned = Convert.ToInt32(reader["is_pinned"]) != 0,
             IsZnunyAssigned = Convert.ToInt32(reader["is_znuny_assigned"]) != 0,
+            IsPlenaroShared = Convert.ToInt32(reader["is_plenaro_shared"]) != 0,
+            TaskShareId = reader["task_share_id"]?.ToString() ?? string.Empty,
+            ShareOriginClientInstanceId = reader["share_origin_client_instance_id"]?.ToString() ?? string.Empty,
             CreatedUtc = ParseRequiredDateTime(reader["created_utc"].ToString()),
             UpdatedUtc = ParseRequiredDateTime(reader["updated_utc"].ToString()),
             TicketCreatedUtc = ParseNullableDateTime(reader["ticket_created_utc"]),
@@ -780,6 +815,27 @@ WHERE datetime(end_local) > datetime($now)";
             TicketState = reader["ticket_state"]?.ToString() ?? string.Empty ,
             TicketStateType = reader["ticket_state_type"]?.ToString() ?? string.Empty
         };
+    }
+
+    private void LoadAttendees(TaskSegment segment)
+    {
+        using var conn = new SqliteConnection(_db.ConnectionString); conn.Open();
+        using var cmd = conn.CreateCommand(); cmd.CommandText = "SELECT email FROM task_segment_attendees WHERE segment_id=$id ORDER BY email COLLATE NOCASE"; cmd.Parameters.AddWithValue("$id", segment.Id);
+        using var reader = cmd.ExecuteReader(); var values = new List<string>(); while (reader.Read()) values.Add(reader.GetString(0));
+        segment.Attendees = values; segment.AttendeesText = string.Join("; ", values);
+    }
+
+    private static void SaveAttendees(SqliteConnection conn, TaskSegment segment)
+    {
+        using var delete = conn.CreateCommand(); delete.CommandText = "DELETE FROM task_segment_attendees WHERE segment_id=$id"; delete.Parameters.AddWithValue("$id", segment.Id); delete.ExecuteNonQuery();
+        foreach (var email in segment.Attendees.Distinct(StringComparer.OrdinalIgnoreCase)) { using var add = conn.CreateCommand(); add.CommandText = "INSERT OR IGNORE INTO task_segment_attendees(segment_id,email) VALUES($id,$email)"; add.Parameters.AddWithValue("$id", segment.Id); add.Parameters.AddWithValue("$email", email); add.ExecuteNonQuery(); }
+    }
+
+    private static string EnsureGuid(string value) => Guid.TryParse(value, out _) ? value : Guid.NewGuid().ToString("D");
+    private PlenaroSharePayloadV1 BuildPayload(TaskItem task, TaskSegment segment)
+    {
+        static string Tag(string tags, string name) => (tags ?? string.Empty).Split(';', StringSplitOptions.TrimEntries).FirstOrDefault(x => x.StartsWith(name + ":", StringComparison.OrdinalIgnoreCase))?.Split(':', 2)[1] ?? string.Empty;
+        return new PlenaroSharePayloadV1 { TaskShareId=task.TaskShareId, SegmentShareId=segment.SegmentShareId, OriginClientInstanceId=_settings.Current.ClientInstanceId, OriginTaskId=task.Id.ToString(), OriginSegmentId=segment.Id, TaskTitle=task.Title, TaskDescription=task.Description, TicketId=Tag(task.Tags,"ZnunyTicketID"), TicketNumber=Tag(task.Tags,"ZnunyTicketNumber"), TicketUrl=task.TicketUrl, TicketState=task.TicketState, SegmentStartLocal=segment.StartLocal, SegmentEndLocal=segment.EndLocal, SegmentNote=segment.Note, GeneratedUtc=DateTime.UtcNow };
     }
 
     private static DateTime? ParseNullableDateTime(object value)
@@ -825,5 +881,8 @@ WHERE datetime(end_local) > datetime($now)";
         cmd.Parameters.AddWithValue("$localActivity", task.LocalActivityUtc.ToString("O"));
         cmd.Parameters.AddWithValue("$ticketState", task.TicketState);
         cmd.Parameters.AddWithValue("$ticketStateType", task.TicketStateType);
+        cmd.Parameters.AddWithValue("$shared", task.IsPlenaroShared ? 1 : 0);
+        cmd.Parameters.AddWithValue("$taskShareId", task.TaskShareId);
+        cmd.Parameters.AddWithValue("$shareOrigin", task.ShareOriginClientInstanceId);
     }
 }
