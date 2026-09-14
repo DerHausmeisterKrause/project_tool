@@ -51,9 +51,9 @@ public sealed class TicketArticleReadStateService
         if (!HasBaseline(connection, transaction, ticketId))
         {
             CreateBaseline(connection, transaction, ticketId, articles, markKnownRead: true);
-            var unreadAfter = GetUnreadCount(connection, transaction, ticketId);
+            var baselineUnreadAfter = GetUnreadCount(connection, transaction, ticketId);
             transaction.Commit();
-            return new TicketArticleReconcileResult(false, unreadBefore, unreadAfter);
+            return new TicketArticleReconcileResult(false, unreadBefore, baselineUnreadAfter);
         }
 
         var (watermarkCreated, watermarkId) = LoadWatermark(connection, transaction, ticketId);
