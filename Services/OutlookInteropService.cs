@@ -31,7 +31,7 @@ public class OutlookInteropService
         _settings = settings;
     }
 
-    public (bool ok, string entryId, string error) UpsertBlock(string? existingEntryId, string title, string body, DateTime start, DateTime end)
+    public (bool ok, string entryId, string error) UpsertBlock(string? existingEntryId, string title, string body, DateTime start, DateTime end, IReadOnlyList<string>? attendees = null)
     {
         if (!_settings.Current.OutlookSyncEnabled)
             return (false, existingEntryId ?? string.Empty, "Outlook Sync ist deaktiviert.");
@@ -89,7 +89,37 @@ public class OutlookInteropService
                     itemDyn.Categories = string.IsNullOrWhiteSpace(_settings.Current.OutlookCategoryName)
                         ? "FocusBlock"
                         : _settings.Current.OutlookCategoryName;
-                    itemDyn.Save();
+                    var recipients = attendees?.Distinct(StringComparer.OrdinalIgnoreCase).ToArray() ?? Array.Empty<string>();
+                    if (recipients.Length == 0)
+                    {
+                        object? existingRecipients = null;
+                        try
+                        {
+                            existingRecipients = itemDyn.Recipients;
+                            dynamic existingDyn = existingRecipients;
+                            while (existingDyn.Count > 0) existingDyn.Remove(1);
+                            // olNonMeeting: Outlook persists the removal on the same appointment.
+                            itemDyn.MeetingStatus = 0;
+                        }
+                        finally { SafeReleaseComObject(existingRecipients); }
+                        itemDyn.Save();
+                    }
+                    else
+                    {
+                        object? recipientCollection = null;
+                        try
+                        {
+                            recipientCollection = itemDyn.Recipients;
+                            dynamic recipientsDyn = recipientCollection;
+                            while (recipientsDyn.Count > 0) recipientsDyn.Remove(1);
+                            foreach (var address in recipients) { dynamic recipient = recipientsDyn.Add(address); recipient.Type = 1; }
+                            if (!recipientsDyn.ResolveAll()) return (false, existingEntryId ?? string.Empty, "Mindestens eine Outlook-Teilnehmer-Adresse konnte nicht aufgelöst werden.");
+                            itemDyn.MeetingStatus = 1;
+                            itemDyn.Send();
+                            _logger.Info($"[PlenaroShareOutlook] action=meeting-sent attendeeCount={recipients.Length}");
+                        }
+                        finally { SafeReleaseComObject(recipientCollection); }
+                    }
 
                     var entryId = Convert.ToString(itemDyn.EntryID) ?? string.Empty;
                     return (true, entryId, string.Empty);
@@ -730,6 +760,7 @@ public class OutlookInteropService
             Location = location,
             Organizer = organizer,
             BodyPreview = body.Length > 240 ? body.Substring(0, 240) : body,
+            FullBody = body,
             OnlineMeetingJoinUrl = joinUrl,
             Categories = categories
         };

@@ -68,5 +68,9 @@ public class TaskSegment
     public string Note { get; set; } = string.Empty;
     public string OutlookEntryId { get; set; } = string.Empty;
     public string OutlookStatus { get; set; } = string.Empty;
+    public string AttendeesText { get; set; } = string.Empty;
+    public IReadOnlyList<string> Attendees { get; set; } = Array.Empty<string>();
+    public string SegmentShareId { get; set; } = string.Empty;
+    public bool IsSharedImport { get; set; }
     public int DisplayIndex { get; set; }
 }

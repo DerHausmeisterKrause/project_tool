@@ -73,10 +73,11 @@ CREATE TABLE IF NOT EXISTS schema_version (
             MigrateToV26(conn);
             MigrateToV27(conn);
             MigrateToV28(conn);
+            MigrateToV29(conn);
 
-            if (currentVersion < 28)
+            if (currentVersion < 29)
             {
-                SetVersion(conn, 28);
+                SetVersion(conn, 29);
             }
         }
         catch (Exception ex)
@@ -409,6 +410,22 @@ WHERE status = 'Succeeded'
         // V28 backfills their assignment metadata.
         EnsureColumn(conn, "znuny_ticket_detail_cache", "assignment_metadata_complete",
             "INTEGER NOT NULL DEFAULT 0");
+    }
+
+    private static void MigrateToV29(SqliteConnection conn)
+    {
+        EnsureColumn(conn, "tasks", "is_plenaro_shared", "INTEGER NOT NULL DEFAULT 0");
+        EnsureColumn(conn, "tasks", "task_share_id", "TEXT NOT NULL DEFAULT ''");
+        EnsureColumn(conn, "tasks", "share_origin_client_instance_id", "TEXT NOT NULL DEFAULT ''");
+        EnsureColumn(conn, "task_segments", "segment_share_id", "TEXT NOT NULL DEFAULT ''");
+        EnsureColumn(conn, "task_segments", "is_shared_import", "INTEGER NOT NULL DEFAULT 0");
+        Exec(conn, @"CREATE TABLE IF NOT EXISTS task_segment_attendees (
+ segment_id INTEGER NOT NULL, email TEXT NOT NULL COLLATE NOCASE,
+ PRIMARY KEY(segment_id,email), FOREIGN KEY(segment_id) REFERENCES task_segments(id) ON DELETE CASCADE);
+CREATE TABLE IF NOT EXISTS plenaro_shared_task_imports (
+ task_share_id TEXT PRIMARY KEY, local_task_id TEXT NOT NULL, origin_client_instance_id TEXT NOT NULL DEFAULT '', last_payload_hash TEXT NOT NULL DEFAULT '');
+CREATE TABLE IF NOT EXISTS plenaro_shared_segment_imports (
+ segment_share_id TEXT PRIMARY KEY, local_segment_id INTEGER NOT NULL, task_share_id TEXT NOT NULL, last_payload_hash TEXT NOT NULL DEFAULT '');");
     }
 
     private static void EnsureColumn(SqliteConnection conn, string table, string column, string definition)

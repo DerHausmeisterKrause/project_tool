@@ -16,13 +16,17 @@ public class TaskItem
     public long TicketSecondsBooked { get; set; }
     public bool IsPinned { get; set; }
     public bool IsZnunyAssigned { get; set; } = true;
+    public bool IsPlenaroShared { get; set; }
+    public string TaskShareId { get; set; } = string.Empty;
+    public string ShareOriginClientInstanceId { get; set; } = string.Empty;
     public string TicketState { get; set; } = string.Empty;
     public string TicketStateType { get; set; } = string.Empty;
     public bool IsZnunyTask => (Tags ?? string.Empty).Contains("ZnunyTicketID:", StringComparison.OrdinalIgnoreCase);
-    public bool IsOperationallyVisible => !IsZnunyTask || IsZnunyAssigned;
+    public bool IsOperationallyVisible => !IsZnunyTask || IsZnunyAssigned || IsPlenaroShared;
     // Derived presentation state; never persisted.
     public string CurrentListBadgeText { get; set; } = string.Empty;
     public bool ShowCurrentListBadge => !string.IsNullOrWhiteSpace(CurrentListBadgeText);
+    public string SharedBadgeText => IsPlenaroShared ? "Geteilt" : string.Empty;
     public bool IsCurrentListBadgePlanned => string.Equals(CurrentListBadgeText, "Geplant", StringComparison.Ordinal);
     public string CurrentListTicketNumber { get; set; } = string.Empty;
     public string CurrentListDisplayTitle { get; set; } = string.Empty;

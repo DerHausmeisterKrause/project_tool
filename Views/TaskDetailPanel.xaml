@@ -251,7 +251,10 @@
 
             <Border Style="{StaticResource CardStyle}">
                 <StackPanel>
-                    <TextBlock Text="Planung (Segmente)" FontWeight="SemiBold" Margin="0,0,0,8"/>
+                    <WrapPanel Margin="0,0,0,8">
+                        <TextBlock Text="Planung (Segmente)" FontWeight="SemiBold"/>
+                        <TextBlock Text="{Binding SelectedTask.SharedBadgeText}" Foreground="#93C5FD" FontWeight="SemiBold" Margin="10,0,0,0"/>
+                    </WrapPanel>
 
                     <Border Background="#0B1220" BorderBrush="{StaticResource BorderBrushColor}" BorderThickness="1" CornerRadius="8" Padding="8" Margin="0,0,0,8">
                         <StackPanel>
@@ -279,6 +282,9 @@
                             </Grid>
                             <TextBlock Text="Kurzbeschreibung" Foreground="{StaticResource MutedTextBrush}" Margin="0,8,0,2"/>
                             <TextBox Margin="0,0,0,0" Text="{Binding NewSegmentNote, UpdateSourceTrigger=PropertyChanged}"/>
+                            <TextBlock Text="Teilnehmer (E-Mail)" Foreground="{StaticResource MutedTextBrush}" Margin="0,8,0,2"/>
+                            <TextBox Text="{Binding NewSegmentAttendees, UpdateSourceTrigger=PropertyChanged}"/>
+                            <TextBlock Text="Mehrere Adressen mit Komma oder Semikolon trennen." FontSize="11" Foreground="{StaticResource MutedTextBrush}"/>
                             <TextBlock Text="{Binding NewSegmentValidationHint}" Foreground="#FCA5A5" Margin="0,6,0,0"/>
                             <TextBlock Text="{Binding NewSegmentConflictWarning}" Foreground="#FBBF24" Margin="0,2,0,0"
                                        Visibility="{Binding HasNewSegmentConflict, Converter={StaticResource BooleanToVisibilityConverter}}"/>
@@ -310,6 +316,9 @@
 
                                         <TextBlock Text="Kurzbeschreibung" Foreground="{StaticResource MutedTextBrush}" Margin="0,8,0,2"/>
                                         <TextBox Margin="0,0,0,0" Text="{Binding Note, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
+                                        <TextBlock Text="Teilnehmer (E-Mail)" Foreground="{StaticResource MutedTextBrush}" Margin="0,8,0,2"/>
+                                        <TextBox Text="{Binding AttendeesText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
+                                        <TextBlock Text="Mehrere Adressen mit Komma oder Semikolon trennen." FontSize="11" Foreground="{StaticResource MutedTextBrush}"/>
                                         <TextBlock Text="{Binding PlannedMinutes, StringFormat=Dauer: {0} min}" Foreground="{StaticResource MutedTextBrush}"/>
                                         <TextBlock Text="{Binding OutlookStatus, StringFormat=Outlook Status: {0}}" Foreground="{StaticResource MutedTextBrush}"/>
                                         <TextBlock Text="{Binding ValidationHint}" Foreground="#FCA5A5"/>
