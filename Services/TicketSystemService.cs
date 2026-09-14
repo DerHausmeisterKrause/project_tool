@@ -30,8 +30,10 @@ public class TicketSystemService : IDisposable
     private readonly Func<Task<string>>? _testSessionFactory;
     private readonly ZnunyRequestCoordinator _syncGate = new();
     private readonly SemaphoreSlim _dynamicFieldOptionsGate = new(1, 1);
+    private readonly SemaphoreSlim _agentListGate = new(1, 1);
     private readonly SemaphoreSlim _sessionGate = new(1, 1);
     private readonly ConcurrentDictionary<string, byte> _manualSelfAssignmentNotificationSuppressions = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, (int? OwnerId, string Owner, int? ResponsibleId, string Responsible)> _assignmentOverrides = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentQueue<ZnunyRequestEvent> _trafficEvents = new();
     private readonly System.Threading.Timer _initialSyncTimer;
     private readonly System.Threading.Timer _fullSyncTimer;
@@ -45,6 +47,12 @@ public class TicketSystemService : IDisposable
     private DateTime _dynamicFieldOptionsCacheExpiresUtc;
     private bool _dynamicFieldOptionsCacheValid;
     private string _dynamicFieldOptionsFingerprint = string.Empty;
+    private IReadOnlyList<ZnunyAgent> _agentListCache = Array.Empty<ZnunyAgent>();
+    private DateTime _agentListCacheExpiresUtc;
+    private bool _agentListCacheValid;
+    private string _agentListFingerprint = string.Empty;
+    internal Func<DateTime> UtcNow { get; set; } = () => DateTime.UtcNow;
+    internal static readonly TimeSpan AgentListCacheTtl = TimeSpan.FromHours(24);
     private string _sessionId = string.Empty;
     private DateTime _sessionExpiresUtc;
     private IReadOnlyList<ZnunyCandidateTicket> _candidateTickets = Array.Empty<ZnunyCandidateTicket>();
@@ -100,9 +108,12 @@ public class TicketSystemService : IDisposable
 
     internal TicketSystemService(HttpMessageHandler httpMessageHandler, string sessionEndpoint)
     {
-        _settings = null!; _tasks = null!; _assignmentSnapshots = null!; _candidateSnapshots = null!;
-        _candidateScanStates = null!; _detailCache = null!; _articleReadState = null!; _notifications = null!;
         _logger = new LoggerService();
+        _settings = new SettingsService(_logger, Path.Combine(Path.GetTempPath(), $"tasktool-agent-test-{Guid.NewGuid():N}.json"));
+        _settings.Current.TicketSystemApiUrl = new Uri(sessionEndpoint).GetLeftPart(UriPartial.Authority);
+        _settings.Current.TicketSystemAgentListRoute = AppSettings.DefaultTicketSystemAgentListRoute;
+        _tasks = null!; _assignmentSnapshots = null!; _candidateSnapshots = null!;
+        _candidateScanStates = null!; _detailCache = null!; _articleReadState = null!; _notifications = null!;
         _client = new HttpClient(httpMessageHandler, disposeHandler: true);
         _rateLimiter = new ZnunyClientRateLimiter();
         _initialSyncTimer = new System.Threading.Timer(_ => { }, null, Timeout.Infinite, Timeout.Infinite);
@@ -118,6 +129,17 @@ public class TicketSystemService : IDisposable
             using var document = JsonDocument.Parse(response.Body);
             return FirstString(document.RootElement, "SessionID");
         };
+        _agentListFingerprint = AgentListConfigurationFingerprint();
+    }
+
+    internal void ConfigureAgentListForHttpRegressionTest(string apiUrl, string route)
+    {
+        _settings.Current.TicketSystemApiUrl = apiUrl;
+        _settings.Current.TicketSystemAgentListRoute = route;
+        _agentListCache = Array.Empty<ZnunyAgent>();
+        _agentListCacheExpiresUtc = DateTime.MinValue;
+        _agentListCacheValid = false;
+        _agentListFingerprint = AgentListConfigurationFingerprint();
     }
 
     internal async Task SendForHttpRegressionTestAsync(HttpMethod method, string url, string stage, string? json = null)
@@ -136,6 +158,15 @@ public class TicketSystemService : IDisposable
 
     public void HandleSettingsChanged()
     {
+        var agentFingerprint = AgentListConfigurationFingerprint();
+        if (!string.Equals(agentFingerprint, _agentListFingerprint, StringComparison.Ordinal))
+        {
+            _agentListCache = Array.Empty<ZnunyAgent>();
+            _agentListCacheExpiresUtc = DateTime.MinValue;
+            _agentListCacheValid = false;
+            _agentListFingerprint = agentFingerprint;
+            _logger.Info("[ZnunyAgentList] action=configuration-changed memoryCacheInvalidated=true");
+        }
         var dynamicFingerprint = DynamicFieldConfigurationFingerprint();
         if (!string.Equals(dynamicFingerprint, _dynamicFieldOptionsFingerprint, StringComparison.Ordinal))
         {
@@ -378,6 +409,131 @@ public class TicketSystemService : IDisposable
             _syncGate.Release();
         }
     }
+
+    public async Task<IReadOnlyList<ZnunyAgent>> GetAgentsAsync(bool forceRefresh = false)
+    {
+        var fingerprint = AgentListConfigurationFingerprint();
+        var now = UtcNow();
+        if (!forceRefresh && string.Equals(fingerprint, _agentListFingerprint, StringComparison.Ordinal)
+            && _agentListCacheValid && now < _agentListCacheExpiresUtc)
+            return _agentListCache;
+
+        await _agentListGate.WaitAsync();
+        try
+        {
+            now = UtcNow();
+            fingerprint = AgentListConfigurationFingerprint();
+            if (!forceRefresh && string.Equals(fingerprint, _agentListFingerprint, StringComparison.Ordinal)
+                && _agentListCacheValid && now < _agentListCacheExpiresUtc)
+                return _agentListCache;
+
+            try
+            {
+                var sessionId = await CreateSessionAsync();
+                var route = NormalizeRouteValue(_settings.Current.TicketSystemAgentListRoute, AppSettings.DefaultTicketSystemAgentListRoute);
+                var url = Combine(_settings.Current.TicketSystemApiUrl, route)
+                    + ToQueryString(new Dictionary<string, string> { ["SessionID"] = sessionId });
+                using var request = new HttpRequestMessage(HttpMethod.Get, url);
+                var response = await SendZnunyAsync(request, "AgentList", "[ZnunyAgentListResponse]", logBody: false);
+                var agents = ParseAgentListResponse(response.Body);
+                _agentListCache = agents;
+                _agentListCacheValid = true;
+                _agentListCacheExpiresUtc = now + AgentListCacheTtl;
+                _agentListFingerprint = fingerprint;
+                return agents;
+            }
+            catch
+            {
+                if (string.Equals(fingerprint, _agentListFingerprint, StringComparison.Ordinal)
+                    && _agentListCacheValid && now < _agentListCacheExpiresUtc)
+                    return _agentListCache;
+                throw;
+            }
+        }
+        finally { _agentListGate.Release(); }
+    }
+
+    public async Task<TicketAssignmentUpdateResult> UpdateTicketAssignmentAsync(
+        string ticketId, int? ownerId, int? responsibleId)
+    {
+        if (string.IsNullOrWhiteSpace(ticketId))
+            return new(false, "Das Ticket besitzt keine gültige TicketID.");
+        if (!ownerId.HasValue && !responsibleId.HasValue)
+            return new(true, string.Empty);
+        if (!await _syncGate.WaitAsync(0))
+            return new(false, "Es läuft bereits eine Znuny-Aktion. Bitte versuchen Sie es gleich erneut.");
+        try
+        {
+            var sessionId = await CreateSessionAsync();
+            var ticket = new Dictionary<string, object?>();
+            if (ownerId.HasValue) ticket["OwnerID"] = ownerId.Value;
+            if (responsibleId.HasValue) ticket["ResponsibleID"] = responsibleId.Value;
+            var payload = new Dictionary<string, object?>
+            {
+                ["SessionID"] = sessionId,
+                ["TicketID"] = ticketId,
+                ["Ticket"] = ticket
+            };
+            using var request = new HttpRequestMessage(HttpMethod.Post,
+                Combine(_settings.Current.TicketSystemApiUrl, ResolveTicketUpdateRoute(ticketId)))
+            {
+                Content = new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json")
+            };
+            var response = await SendZnunyAsync(request, "TicketUpdateAssignment", "[ZnunyTicketUpdateResponse]", logBody: false);
+            EnsureTicketUpdateResponseIsInterpretable(response);
+            var existing = _detailCache?.Load(ticketId);
+            string AgentName(int id) => _agentListCache.FirstOrDefault(agent => agent.UserId == id)?.DisplayName ?? string.Empty;
+            _assignmentOverrides[ticketId] = (
+                ownerId ?? existing?.OwnerId,
+                ownerId.HasValue ? AgentName(ownerId.Value) : existing?.Owner ?? string.Empty,
+                responsibleId ?? existing?.ResponsibleId,
+                responsibleId.HasValue ? AgentName(responsibleId.Value) : existing?.Responsible ?? string.Empty);
+            return new(true, ownerId.HasValue && responsibleId.HasValue
+                ? "Besitzer und Verantwortlicher wurden aktualisiert."
+                : ownerId.HasValue ? "Besitzer wurde aktualisiert." : "Verantwortlicher wurde aktualisiert.");
+        }
+        catch (Exception ex)
+        {
+            _logger.Warning($"[ZnunyTicketAssignment] ticketId={ticketId} action=failed message='{LogValue(ex.Message)}'");
+            return new(false, $"Änderungen konnten nicht übernommen werden: {ex.Message}");
+        }
+        finally { _syncGate.Release(); }
+    }
+
+    internal static IReadOnlyList<ZnunyAgent> ParseAgentListResponse(string json)
+    {
+        using var document = JsonDocument.Parse(json);
+        var root = document.RootElement;
+        if (root.ValueKind != JsonValueKind.Object)
+            throw new InvalidOperationException("AgentList response is not an object.");
+        JsonElement agents;
+        if (root.TryGetProperty("Agents", out agents)) { }
+        else if (root.TryGetProperty("Data", out var data) && data.ValueKind == JsonValueKind.Object
+                 && data.TryGetProperty("Agents", out agents)) { }
+        else throw new InvalidOperationException("AgentList response contains no Agents array.");
+        if (agents.ValueKind != JsonValueKind.Array)
+            throw new InvalidOperationException("AgentList Agents value is not an array.");
+
+        return agents.EnumerateArray()
+            .Where(item => item.ValueKind == JsonValueKind.Object)
+            .Select(item => new ZnunyAgent
+            {
+                UserId = FindInteger(item, "UserID") ?? 0,
+                Login = FirstString(item, "Login"),
+                FirstName = FirstString(item, "FirstName"),
+                LastName = FirstString(item, "LastName"),
+                Name = FirstString(item, "Name")
+            })
+            .Where(agent => agent.UserId > 0)
+            .GroupBy(agent => agent.UserId)
+            .Select(group => group.First())
+            .OrderBy(agent => agent.DisplayName, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(agent => agent.UserId)
+            .ToList();
+    }
+
+    private string AgentListConfigurationFingerprint()
+        => $"{_settings.Current.TicketSystemApiUrl}|{_settings.Current.TicketSystemAgentListRoute}";
 
     private bool UpsertAssignedTicketLocally(ZnunyTicket ticket)
     {
@@ -650,7 +806,7 @@ public class TicketSystemService : IDisposable
                 catch (Exception ex) { _logger.Warning($"[ZnunyDynamicFieldOptions] action=automatic-load-deferred message='{LogValue(ex.Message)}'"); }
             }
             var fields = _dynamicFieldOptionsCache;
-            return cached with
+            var result = cached with
             {
                 CostCenterOptions = GetFieldOptions(fields,
                     _settings.Current.TicketSystemCostCenterFieldName,
@@ -659,6 +815,15 @@ public class TicketSystemService : IDisposable
                     _settings.Current.TicketSystemOrderFieldName,
                     _settings.Current.TicketSystemOrderOptions)
             };
+            if (_assignmentOverrides.TryGetValue(ticketId, out var assignment))
+                result = result with
+                {
+                    OwnerId = assignment.OwnerId,
+                    Owner = assignment.Owner,
+                    ResponsibleId = assignment.ResponsibleId,
+                    Responsible = assignment.Responsible
+                };
+            return result;
         }
         await Task.CompletedTask;
         throw new InvalidOperationException("Ticketdetails werden beim nächsten Ticket-Sync geladen.");
@@ -709,8 +874,13 @@ public class TicketSystemService : IDisposable
             articles,
             replySource,
             replyRecipient,
-            ticket.Title);
+            ticket.Title,
+            ticket.OwnerId,
+            ticket.Owner,
+            ticket.ResponsibleId,
+            ticket.Responsible);
         var unreadChanged = _articleReadState.ReconcileFetchedArticles(ticket.TicketID, articles);
+        _assignmentOverrides.TryRemove(ticket.TicketID, out _);
         _detailCache.Store(context, ticket.State, ParseZnunyUtc(ticket.Changed), TicketDetailFetchProfile.Full(EffectiveArticleLimit));
         if (unreadChanged) NotifyTasksChanged();
         return context;
@@ -1153,11 +1323,12 @@ public class TicketSystemService : IDisposable
             var ownerNew = await SearchTicketsAsync("Owner", userId, "/Ticket", "GET", sessionId, sessionHash, true, ZnunySyncPolicy.AssignedNewStateType);
             var responsibleOpen = await SearchTicketsAsync("Responsible", userId, "/Ticket", "GET", sessionId, sessionHash, true, ZnunySyncPolicy.AssignedOpenStateType);
             var responsibleNew = await SearchTicketsAsync("Responsible", userId, "/Ticket", "GET", sessionId, sessionHash, true, ZnunySyncPolicy.AssignedNewStateType);
+            var agents = await GetAgentsAsync(forceRefresh: true);
             _settings.Current.TicketSystemTicketSearchRoute = "/Ticket";
             _settings.Current.TicketSystemTicketSearchMethod = "GET";
             _settings.Current.TicketSystemTicketSearchAuthMode = "Session";
             _settings.Save();
-            return (true, $"API-Routentest erfolgreich: GET /Ticket funktioniert. Owner Open: {ownerOpen.ResultCount}, Owner New: {ownerNew.ResultCount}, Responsible Open: {responsibleOpen.ResultCount}, Responsible New: {responsibleNew.ResultCount}. Route wurde gespeichert.");
+            return (true, $"API-Routentest erfolgreich: GET /Ticket und AgentList ({agents.Count} Agenten) funktionieren. Owner Open: {ownerOpen.ResultCount}, Owner New: {ownerNew.ResultCount}, Responsible Open: {responsibleOpen.ResultCount}, Responsible New: {responsibleNew.ResultCount}. Route wurde gespeichert.");
         }
         catch (ZnunyApiException ex)
         {
@@ -2062,6 +2233,7 @@ public class TicketSystemService : IDisposable
 
     private bool StoreTicketDetails(ZnunyTicket ticket, TicketDetailFetchProfile? profile = null, bool trackUnread = false)
     {
+        _assignmentOverrides.TryRemove(ticket.TicketID, out _);
         var articles = ticket.ToArticleItems();
         var reconcileResult = trackUnread
             ? _articleReadState.ReconcileFetchedArticlesWithResult(ticket.TicketID, articles)
@@ -2071,7 +2243,8 @@ public class TicketSystemService : IDisposable
             ticket.GetDynamicFieldValue(_settings.Current.TicketSystemCostCenterFieldName),
             ticket.GetDynamicFieldValue(_settings.Current.TicketSystemOrderFieldName),
             Array.Empty<TicketFieldOption>(), Array.Empty<TicketFieldOption>(), string.Empty,
-            articles, replySource, replyRecipient, ticket.Title);
+            articles, replySource, replyRecipient, ticket.Title,
+            ticket.OwnerId, ticket.Owner, ticket.ResponsibleId, ticket.Responsible);
         _detailCache.Store(context, ticket.State, ParseZnunyUtc(ticket.Changed), profile ?? TicketDetailFetchProfile.Full(EffectiveArticleLimit));
         if (reconcileResult.UnreadChanged) NotifyTasksChanged();
         return reconcileResult.BecameUnread;
@@ -3108,6 +3281,7 @@ public class TicketSystemService : IDisposable
         _candidateSyncTimer.Dispose();
         _syncGate.Dispose();
         _dynamicFieldOptionsGate.Dispose();
+        _agentListGate.Dispose();
         _sessionGate.Dispose();
         _rateLimiter.Dispose();
         _client.Dispose();

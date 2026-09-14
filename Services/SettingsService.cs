@@ -234,6 +234,7 @@ public class SettingsService
         settings.TicketSystemTicketUpdateRoute = ticketUpdateRouteMigrated
             ? AppSettings.DefaultTicketSystemTicketUpdateRoute
             : NormalizeRoute(settings.TicketSystemTicketUpdateRoute, AppSettings.DefaultTicketSystemTicketUpdateRoute);
+        settings.TicketSystemAgentListRoute = NormalizeRoute(settings.TicketSystemAgentListRoute, AppSettings.DefaultTicketSystemAgentListRoute);
         settings.TicketSystemTicketCreateRoute = ticketCreateRouteMigrated
             ? AppSettings.DefaultTicketSystemTicketCreateRoute
             : NormalizeRoute(settings.TicketSystemTicketCreateRoute, AppSettings.DefaultTicketSystemTicketCreateRoute);
