@@ -35,8 +35,8 @@ public sealed class ZnunyAgentTests
     {
         var context = Context(42, "Alter Benutzer", 43, "Historische Verantwortliche");
         var agents = TodayViewModel.AddCurrentAgents([], context);
-        Assert.Equal("Alter Benutzer", Assert.Single(agents.Where(agent => agent.UserId == 42)).DisplayName);
-        Assert.Equal("Historische Verantwortliche", Assert.Single(agents.Where(agent => agent.UserId == 43)).DisplayName);
+        Assert.Equal("Alter Benutzer", Assert.Single(agents, agent => agent.UserId == 42).DisplayName);
+        Assert.Equal("Historische Verantwortliche", Assert.Single(agents, agent => agent.UserId == 43).DisplayName);
     }
 
     [Fact]
@@ -93,8 +93,8 @@ public sealed class ZnunyAgentTests
         Assert.Contains("\"OwnerID\":12", update.Body);
         Assert.Contains("\"ResponsibleID\":23", update.Body);
         Assert.True((await service.UpdateTicketAssignmentAsync("42", null, null)).Success);
-        Assert.Single(handler.Requests.Where(request => request.Path == "/Ticket/42/Update"));
-        Assert.Empty(handler.Requests.Where(request => request.Path == "/Ticket/42"));
+        Assert.Single(handler.Requests, request => request.Path == "/Ticket/42/Update");
+        Assert.DoesNotContain(handler.Requests, request => request.Path == "/Ticket/42");
     }
 
     private static TicketBookingContext Context(int ownerId, string owner, int responsibleId, string responsible)
@@ -112,10 +112,11 @@ public sealed class ZnunyAgentTests
             var path = request.RequestUri!.AbsolutePath;
             var body = request.Content == null ? string.Empty : await request.Content.ReadAsStringAsync(cancellationToken);
             Requests.Add((path, request.RequestUri.ToString(), body));
-            var json = path == "/Session" ? "{\"SessionID\":\"test-session\"}"
+            var isSession = path.EndsWith("/Session", StringComparison.OrdinalIgnoreCase);
+            var json = isSession ? "{\"SessionID\":\"test-session\"}"
                 : path.EndsWith("/Update", StringComparison.Ordinal) ? "{\"TicketID\":42}"
                 : "{\"Agents\":[{\"UserID\":2,\"Name\":\"Zeta\"},{\"UserID\":1,\"Name\":\"Alpha\"}]}";
-            var status = FailAgents && path != "/Session" ? HttpStatusCode.InternalServerError : HttpStatusCode.OK;
+            var status = FailAgents && !isSession ? HttpStatusCode.InternalServerError : HttpStatusCode.OK;
             return new HttpResponseMessage(status) { Content = new StringContent(json, Encoding.UTF8, "application/json") };
         }
     }

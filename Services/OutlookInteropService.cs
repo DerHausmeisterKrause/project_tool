@@ -31,7 +31,7 @@ public class OutlookInteropService
         _settings = settings;
     }
 
-    public (bool ok, string entryId, string error) UpsertBlock(string? existingEntryId, string title, string body, DateTime start, DateTime end)
+    public (bool ok, string entryId, string error) UpsertBlock(string? existingEntryId, string title, string body, DateTime start, DateTime end, IReadOnlyList<string>? attendees = null)
     {
         if (!_settings.Current.OutlookSyncEnabled)
             return (false, existingEntryId ?? string.Empty, "Outlook Sync ist deaktiviert.");
@@ -89,7 +89,68 @@ public class OutlookInteropService
                     itemDyn.Categories = string.IsNullOrWhiteSpace(_settings.Current.OutlookCategoryName)
                         ? "FocusBlock"
                         : _settings.Current.OutlookCategoryName;
-                    itemDyn.Save();
+                    var recipients = attendees?.Distinct(StringComparer.OrdinalIgnoreCase).ToArray() ?? Array.Empty<string>();
+                    if (recipients.Length == 0)
+                    {
+                        object? existingRecipients = null;
+                        try
+                        {
+                            existingRecipients = itemDyn.Recipients;
+                            dynamic existingDyn = existingRecipients;
+                            var previousMeetingStatus = Convert.ToInt32(itemDyn.MeetingStatus);
+                            var existingRecipientCount = Convert.ToInt32(existingDyn.Count);
+                            if (ShouldCancelMeeting(previousMeetingStatus, existingRecipientCount, recipients.Length))
+                            {
+                                // olMeetingCanceled. Send the cancellation from the original
+                                // meeting, then create a separate local appointment.
+                                itemDyn.MeetingStatus = 5;
+                                itemDyn.Send();
+                                SafeReleaseComObject(existingRecipients);
+                                existingRecipients = null;
+                                SafeReleaseComObject(item);
+                                item = appDyn.CreateItem(OlAppointmentItem);
+                                itemDyn = item;
+                                itemDyn.Subject = $"Fokus: {title}";
+                                itemDyn.Body = body ?? string.Empty;
+                                itemDyn.Start = start;
+                                itemDyn.End = end;
+                                itemDyn.BusyStatus = OlBusy;
+                                itemDyn.ReminderSet = false;
+                                itemDyn.Categories = string.IsNullOrWhiteSpace(_settings.Current.OutlookCategoryName)
+                                    ? "FocusBlock"
+                                    : _settings.Current.OutlookCategoryName;
+                                _logger.Info($"[PlenaroShareOutlook] action=meeting-cancelled attendeeCount={existingRecipientCount}");
+                            }
+                            else
+                            {
+                                while (existingDyn.Count > 0) existingDyn.Remove(1);
+                                itemDyn.MeetingStatus = 0;
+                            }
+                        }
+                        finally { SafeReleaseComObject(existingRecipients); }
+                        itemDyn.Save();
+                    }
+                    else
+                    {
+                        object? recipientCollection = null;
+                        try
+                        {
+                            recipientCollection = itemDyn.Recipients;
+                            dynamic recipientsDyn = recipientCollection;
+                            while (recipientsDyn.Count > 0) recipientsDyn.Remove(1);
+                            foreach (var address in recipients)
+                            {
+                                object? recipient = null;
+                                try { recipient = recipientsDyn.Add(address); ((dynamic)recipient).Type = 1; }
+                                finally { SafeReleaseComObject(recipient); }
+                            }
+                            if (!recipientsDyn.ResolveAll()) return (false, existingEntryId ?? string.Empty, "Mindestens eine Outlook-Teilnehmer-Adresse konnte nicht aufgelöst werden.");
+                            itemDyn.MeetingStatus = 1;
+                            itemDyn.Send();
+                            _logger.Info($"[PlenaroShareOutlook] action=meeting-sent attendeeCount={recipients.Length}");
+                        }
+                        finally { SafeReleaseComObject(recipientCollection); }
+                    }
 
                     var entryId = Convert.ToString(itemDyn.EntryID) ?? string.Empty;
                     return (true, entryId, string.Empty);
@@ -108,6 +169,9 @@ public class OutlookInteropService
             return (false, existingEntryId ?? string.Empty, BuildUserFacingOutlookError(ex));
         }
     }
+
+    internal static bool ShouldCancelMeeting(int previousMeetingStatus, int existingRecipientCount, int requestedRecipientCount)
+        => requestedRecipientCount == 0 && existingRecipientCount > 0 && previousMeetingStatus != 0;
 
     public (bool ok, string error) DeleteBlock(string? entryId, bool ignoreSyncDisabled = false)
     {
@@ -730,6 +794,7 @@ public class OutlookInteropService
             Location = location,
             Organizer = organizer,
             BodyPreview = body.Length > 240 ? body.Substring(0, 240) : body,
+            FullBody = body,
             OnlineMeetingJoinUrl = joinUrl,
             Categories = categories
         };

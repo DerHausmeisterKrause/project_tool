@@ -456,6 +456,9 @@ public class TodayViewModel : ObservableObject
     private string _newSegmentNote = string.Empty;
     public string NewSegmentNote { get => _newSegmentNote; set => Set(ref _newSegmentNote, value); }
 
+    private string _newSegmentAttendees = string.Empty;
+    public string NewSegmentAttendees { get => _newSegmentAttendees; set => Set(ref _newSegmentAttendees, value); }
+
     private string _newSegmentConflictWarning = string.Empty;
     public string NewSegmentConflictWarning
     {
@@ -1353,13 +1356,18 @@ public class TodayViewModel : ObservableObject
     {
         if (SelectedTask == null || !CanSaveNewSegment || NewSegmentDate == null) return;
 
+        if (!SegmentAttendeeParser.TryParse(NewSegmentAttendees, out var attendees, out var invalid))
+        { StatusMessage = $"Ungültige Teilnehmer-Adresse: {invalid}"; return; }
+
         var segment = new TaskSegment
         {
             TaskId = SelectedTask.Id,
             StartLocal = BuildSegmentDateTime(NewSegmentDate.Value, NewSegmentStartTime),
             EndLocal = BuildSegmentDateTime(NewSegmentDate.Value, NewSegmentEndTime),
             Note = NewSegmentNote,
-            OutlookEntryId = string.Empty
+            OutlookEntryId = string.Empty,
+            Attendees = attendees,
+            AttendeesText = string.Join("; ", attendees)
         };
         segment.PlannedMinutes = (int)(segment.EndLocal - segment.StartLocal).TotalMinutes;
         if (!ConfirmConflictIfRequired(segment.StartLocal, segment.EndLocal))
@@ -1367,6 +1375,7 @@ public class TodayViewModel : ObservableObject
 
         _tasks.AddSegment(segment);
         NewSegmentNote = string.Empty;
+        NewSegmentAttendees = string.Empty;
         _newSegmentEndTimeManuallyEdited = false;
         SetAutomaticNewSegmentEndTime(NewSegmentStartTime);
         var outlookStatus = SyncSegmentOutlookAutomatically(segment);
@@ -1386,6 +1395,10 @@ public class TodayViewModel : ObservableObject
             return;
         }
 
+        if (!SegmentAttendeeParser.TryParse(segment.AttendeesText, out var attendees, out var invalid))
+        { StatusMessage = $"Ungültige Teilnehmer-Adresse: {invalid}"; return; }
+        segment.Attendees = attendees;
+        segment.AttendeesText = string.Join("; ", attendees);
         segment.PlannedMinutes = (int)(segment.EndLocal - segment.StartLocal).TotalMinutes;
         if (!ConfirmConflictIfRequired(segment.StartLocal, segment.EndLocal))
             return;
@@ -1615,8 +1628,17 @@ public class TodayViewModel : ObservableObject
         {
             if (SelectedTask?.Id == task.Id)
             {
-                TicketBookingInformation = $"Ticketdaten konnten nicht geladen werden: {ex.Message}";
-                TicketConversationMessage = $"Ticket-Nachrichten konnten nicht geladen werden: {ex.Message}";
+                if (task.IsPlenaroShared && IsZnunyAccessDenied(ex))
+                {
+                    const string message = "Die Aufgabe wurde über Outlook geteilt, dein Znuny-Benutzer besitzt jedoch keinen Zugriff auf dieses Ticket.";
+                    TicketBookingInformation = message;
+                    TicketConversationMessage = message;
+                }
+                else
+                {
+                    TicketBookingInformation = $"Ticketdaten konnten nicht geladen werden: {ex.Message}";
+                    TicketConversationMessage = $"Ticket-Nachrichten konnten nicht geladen werden: {ex.Message}";
+                }
             }
         }
         finally
@@ -1625,6 +1647,12 @@ public class TodayViewModel : ObservableObject
                 IsTicketConversationLoading = false;
         }
     }
+
+    internal static bool IsZnunyAccessDenied(Exception exception)
+        => exception is ZnunyApiException apiException
+           && (apiException.StatusCode == System.Net.HttpStatusCode.Forbidden
+               || string.Equals(apiException.ErrorCode, "AccessDenied", StringComparison.OrdinalIgnoreCase)
+               || string.Equals(apiException.ErrorCode, "PermissionDenied", StringComparison.OrdinalIgnoreCase));
 
     private async Task LoadTicketAgentsAsync(TaskItem? task, bool forceRefresh, TicketBookingContext? context = null)
     {
