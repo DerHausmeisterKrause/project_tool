@@ -10,4 +10,5 @@ public sealed record AiChatMessage(AiChatRole Role, string Content, DateTime Cre
 {
     public string Author => Role == AiChatRole.User ? "Du" : "Plenaro KI";
     public bool IsUser => Role == AiChatRole.User;
+    public bool IsAssistant => Role == AiChatRole.Assistant;
 }

@@ -7,10 +7,13 @@ namespace TaskTool.Tests;
 
 public sealed class AiChatViewModelTests
 {
+    private static AiChatViewModel CreateViewModel(FakeAi ai, FakeClipboard? clipboard = null)
+        => new(ai, clipboard ?? new FakeClipboard(), () => { });
+
     [Fact]
     public void InitialState_HasTitleAndCannotSendEmptyText()
     {
-        var viewModel = new AiChatViewModel(new FakeAi(), () => { });
+        var viewModel = CreateViewModel(new FakeAi());
         Assert.Equal("KI", viewModel.Title);
         Assert.False(viewModel.CanSend);
     }
@@ -18,14 +21,16 @@ public sealed class AiChatViewModelTests
     [Fact]
     public void DisabledAi_CannotSend()
     {
-        var viewModel = new AiChatViewModel(new FakeAi { IsEnabled = false, CanChat = false }, () => { }) { InputText = "Hallo" };
+        var viewModel = CreateViewModel(new FakeAi { IsEnabled = false, CanChat = false });
+        viewModel.InputText = "Hallo";
         Assert.False(viewModel.CanSend);
     }
 
     [Fact]
     public async Task SuccessfulRequest_AddsUserAndAssistantMessages()
     {
-        var viewModel = new AiChatViewModel(new FakeAi { Answer = "Guten Tag!" }, () => { }) { InputText = "Hallo" };
+        var viewModel = CreateViewModel(new FakeAi { Answer = "Guten Tag!" });
+        viewModel.InputText = "Hallo";
         await viewModel.SendAsync();
         Assert.Collection(viewModel.Messages,
             message => Assert.Equal(AiChatRole.User, message.Role),
@@ -35,7 +40,8 @@ public sealed class AiChatViewModelTests
     [Fact]
     public async Task FailedRequest_DoesNotAddFakeAssistantMessage()
     {
-        var viewModel = new AiChatViewModel(new FakeAi { Exception = new HttpRequestException("kaputt") }, () => { }) { InputText = "Hallo" };
+        var viewModel = CreateViewModel(new FakeAi { Exception = new HttpRequestException("kaputt") });
+        viewModel.InputText = "Hallo";
         await viewModel.SendAsync();
         Assert.Single(viewModel.Messages);
         Assert.Equal(AiChatRole.User, viewModel.Messages[0].Role);
@@ -47,7 +53,8 @@ public sealed class AiChatViewModelTests
     {
         var completion = new TaskCompletionSource<string>();
         var ai = new FakeAi { PendingAnswer = completion.Task };
-        var viewModel = new AiChatViewModel(ai, () => { }) { InputText = "Erste Frage" };
+        var viewModel = CreateViewModel(ai);
+        viewModel.InputText = "Erste Frage";
         var first = viewModel.SendAsync();
         viewModel.InputText = "Zweite Frage";
         await viewModel.SendAsync();
@@ -61,7 +68,7 @@ public sealed class AiChatViewModelTests
     public async Task RequestContext_IsLimitedToTwentyMessagesPlusSystemPrompt()
     {
         var ai = new FakeAi();
-        var viewModel = new AiChatViewModel(ai, () => { });
+        var viewModel = CreateViewModel(ai);
         for (var index = 0; index < 25; index++)
         {
             viewModel.InputText = $"Frage {index}";
@@ -75,10 +82,42 @@ public sealed class AiChatViewModelTests
     [Fact]
     public async Task ClearChat_RemovesInMemoryHistory()
     {
-        var viewModel = new AiChatViewModel(new FakeAi(), () => { }) { InputText = "Hallo" };
+        var viewModel = CreateViewModel(new FakeAi());
+        viewModel.InputText = "Hallo";
         await viewModel.SendAsync();
         viewModel.ClearChat();
         Assert.Empty(viewModel.Messages);
+    }
+
+    [Fact]
+    public void CopyMessage_CopiesCompleteAssistantAnswer()
+    {
+        var clipboard = new FakeClipboard();
+        var viewModel = CreateViewModel(new FakeAi(), clipboard);
+        var message = new AiChatMessage(AiChatRole.Assistant, "Erste Zeile\nZweite Zeile", DateTime.Now);
+
+        viewModel.CopyMessageCommand.Execute(message);
+
+        Assert.Equal(message.Content, clipboard.Text);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void CopyMessage_DoesNotCopyEmptyAssistantAnswer(string content)
+    {
+        var clipboard = new FakeClipboard();
+        var viewModel = CreateViewModel(new FakeAi(), clipboard);
+
+        viewModel.CopyMessageCommand.Execute(new AiChatMessage(AiChatRole.Assistant, content, DateTime.Now));
+
+        Assert.Null(clipboard.Text);
+    }
+
+    private sealed class FakeClipboard : IClipboardService
+    {
+        public string? Text { get; private set; }
+        public void SetText(string text) => Text = text;
     }
 
     private sealed class FakeAi : IAiChatService
