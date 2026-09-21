@@ -27,6 +27,7 @@ public static class ServiceLocator
     public static WikiSearchService WikiSearch { get; private set; } = null!;
     public static WikiVocabularyIndexService WikiVocabulary { get; private set; } = null!;
     public static WebShortcutBrowserSessionManager WebShortcutBrowsers { get; private set; } = null!;
+    public static AiService Ai { get; private set; } = null!;
     public static MainViewModel MainViewModel { get; private set; } = null!;
 
     public static void Initialize()
@@ -42,6 +43,7 @@ public static class ServiceLocator
         WikiVocabulary = new WikiVocabularyIndexService(Database, Settings, Logger);
         WikiSearch = new WikiSearchService(Database, Settings, Logger, vocabulary: WikiVocabulary);
         WebShortcutBrowsers = new WebShortcutBrowserSessionManager(Settings, Logger);
+        Ai = new AiService(Settings, Logger);
         _ = WikiVocabulary.RefreshStaleAsync();
         Outlook = new OutlookInteropService(Logger, Settings);
         Tasks = new TaskService(Database, Logger, Outlook, Settings);
@@ -58,7 +60,7 @@ public static class ServiceLocator
         PlenaroShareCoordinator = new PlenaroShareImportCoordinator(OutlookCalendar, PlenaroShareImporter, Settings, Logger);
         _ = PlenaroShareCoordinator.StartAsync();
         HomeOffice = new HomeOfficeService(WorkDays, Settings, Outlook, OutlookCalendar, Logger);
-        MainViewModel = new MainViewModel(Tasks, WorkDays, Settings, Notifications, OutlookCalendar, TicketSystem, Updates, HomeOffice, GermanTime, Logger);
+        MainViewModel = new MainViewModel(Tasks, WorkDays, Settings, Notifications, OutlookCalendar, TicketSystem, Updates, HomeOffice, GermanTime, Logger, Ai);
     }
 
     private static AppLogLevel ParseLogLevel(string? value)

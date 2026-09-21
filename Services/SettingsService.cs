@@ -187,6 +187,14 @@ public class SettingsService
         settings.TicketSystemUsername = settings.TicketSystemUsername?.Trim() ?? string.Empty;
         settings.TicketSystemPasswordEncrypted ??= string.Empty;
         settings.TicketSystemPassword ??= string.Empty;
+        if (!Enum.IsDefined(settings.AiProvider)) settings.AiProvider = AiProviderType.OpenAiCompatible;
+        settings.AiApiBaseUrl = settings.AiApiBaseUrl?.Trim() ?? string.Empty;
+        settings.AiApiKeyEncrypted ??= string.Empty;
+        settings.AiModel = settings.AiModel?.Trim() ?? string.Empty;
+        settings.AiLocalServerExecutablePath = settings.AiLocalServerExecutablePath?.Trim() ?? string.Empty;
+        settings.AiLocalModelPath = settings.AiLocalModelPath?.Trim() ?? string.Empty;
+        settings.AiLocalModelDownloadUrl = settings.AiLocalModelDownloadUrl?.Trim() ?? string.Empty;
+        settings.AiLocalServerPort = Math.Clamp(settings.AiLocalServerPort, 1, 65535);
         settings.WikiSources ??= new();
         settings.WikiSources = settings.WikiSources.OfType<WikiSourceSettings>().ToList();
         foreach (var source in settings.WikiSources)
@@ -306,6 +314,12 @@ public class SettingsService
         Current.TicketSystemPasswordEncrypted = string.IsNullOrEmpty(password) ? string.Empty : Protect(password);
         Current.TicketSystemPassword = string.Empty;
     }
+
+    public string GetAiApiKey()
+        => string.IsNullOrWhiteSpace(Current.AiApiKeyEncrypted) ? string.Empty : Unprotect(Current.AiApiKeyEncrypted);
+
+    public void SetAiApiKey(string apiKey)
+        => Current.AiApiKeyEncrypted = string.IsNullOrEmpty(apiKey) ? string.Empty : Protect(apiKey);
 
     public string GetWikiSecret(WikiSourceSettings source)
         => string.IsNullOrWhiteSpace(source.SecretEncrypted) ? string.Empty : Unprotect(source.SecretEncrypted);

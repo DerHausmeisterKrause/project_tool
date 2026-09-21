@@ -26,14 +26,15 @@ public class SettingsViewModel : ObservableObject
             ["Ticketsystem"] = 4,
             ["Wiki"] = 5,
             ["Favorites"] = 6, ["Favoriten"] = 6,
-            ["Updates"] = 7
+            ["AI"] = 7, ["KI"] = 7,
+            ["Updates"] = 8
         };
 
     private int _selectedSettingsSectionIndex;
     public int SelectedSettingsSectionIndex
     {
         get => _selectedSettingsSectionIndex;
-        set => Set(ref _selectedSettingsSectionIndex, Math.Clamp(value, 0, 7));
+        set => Set(ref _selectedSettingsSectionIndex, Math.Clamp(value, 0, 8));
     }
 
     public void SelectSection(string? section)
@@ -49,8 +50,32 @@ public class SettingsViewModel : ObservableObject
     private readonly TicketSystemService _ticketSystem;
     private readonly Action? _tasksChanged;
     private readonly UpdateService _updates;
+    private readonly AiService _ai;
     private readonly DispatcherTimer _hourlyUpdateTimer;
     private const string ShortcutPasswordMask = "••••••••";
+    private const string AiApiKeyMask = "••••••••";
+    private bool _isAiOperationRunning;
+    private string _aiStatus = "Noch nicht getestet.";
+    private int _aiDownloadProgress;
+    public IReadOnlyList<AiProviderChoice> AiProviders { get; } = new[] { new AiProviderChoice(AiProviderType.OpenAiCompatible, "OpenAI-kompatible API"), new AiProviderChoice(AiProviderType.LocalLlama, "Lokale KI") };
+    public bool AiEnabled { get => _settings.Current.AiEnabled; set { _settings.Current.AiEnabled = value; if (!value) _ai.LocalServer.Stop(); Save(); RaiseAiState(); } }
+    public AiProviderType AiProvider { get => _settings.Current.AiProvider; set { if (_settings.Current.AiProvider == value) return; _ai.LocalServer.Stop(); _settings.Current.AiProvider = value; Save(); RaiseAiState(); } }
+    public bool IsOpenAiProvider => AiProvider == AiProviderType.OpenAiCompatible;
+    public bool IsLocalAiProvider => AiProvider == AiProviderType.LocalLlama;
+    public string AiApiBaseUrl { get => _settings.Current.AiApiBaseUrl; set { _settings.Current.AiApiBaseUrl = value; Save(); } }
+    public string AiApiKey { get => string.IsNullOrWhiteSpace(_settings.Current.AiApiKeyEncrypted) ? string.Empty : AiApiKeyMask; set { if (value == AiApiKeyMask) return; _settings.SetAiApiKey(value ?? string.Empty); Save(); Raise(); } }
+    public string AiModel { get => _settings.Current.AiModel; set { _settings.Current.AiModel = value; Save(); } }
+    public string AiLocalServerExecutablePath { get => _settings.Current.AiLocalServerExecutablePath; set { _settings.Current.AiLocalServerExecutablePath = value; Save(); } }
+    public string AiLocalModelPath { get => _settings.Current.AiLocalModelPath; set { _settings.Current.AiLocalModelPath = value; Save(); } }
+    public string AiLocalModelDownloadUrl { get => _settings.Current.AiLocalModelDownloadUrl; set { _settings.Current.AiLocalModelDownloadUrl = value; Save(); } }
+    public int AiLocalServerPort { get => _settings.Current.AiLocalServerPort; set { _settings.Current.AiLocalServerPort = Math.Clamp(value, 1, 65535); Save(); } }
+    public string AiStatus { get => _aiStatus; set => Set(ref _aiStatus, value); }
+    public int AiDownloadProgress { get => _aiDownloadProgress; set => Set(ref _aiDownloadProgress, value); }
+    public string AiLocalServerStatus => _ai.LocalServer.IsRunning ? "llama.cpp läuft" : "llama.cpp ist gestoppt";
+    public RelayCommand TestAiCommand { get; }
+    public RelayCommand DownloadAiModelCommand { get; }
+    public RelayCommand StartLocalAiCommand { get; }
+    public RelayCommand StopLocalAiCommand { get; }
     public ObservableCollection<WebShortcutEditorViewModel> WebShortcuts { get; }
     private WebShortcutEditorViewModel? _selectedWebShortcut; public WebShortcutEditorViewModel? SelectedWebShortcut { get=>_selectedWebShortcut; set { if (Set(ref _selectedWebShortcut,value)) RaiseWebShortcutMoveCanExecute(); } }
     private string _webShortcutStatus=""; public string WebShortcutStatus { get=>_webShortcutStatus; set=>Set(ref _webShortcutStatus,value); }
@@ -238,7 +263,7 @@ public class SettingsViewModel : ObservableObject
     public RelayCommand InstallUpdateCommand { get; }
     public RelayCommand OpenReleaseCommand { get; }
 
-    public SettingsViewModel(SettingsService settings, NotificationService notifications, OutlookCalendarService outlookCalendar, TaskService tasks, TicketSystemService ticketSystem, UpdateService updates, Action? tasksChanged = null)
+    public SettingsViewModel(SettingsService settings, NotificationService notifications, OutlookCalendarService outlookCalendar, TaskService tasks, TicketSystemService ticketSystem, UpdateService updates, AiService ai, Action? tasksChanged = null)
     {
         _settings = settings;
         _notifications = notifications;
@@ -248,6 +273,7 @@ public class SettingsViewModel : ObservableObject
         _lastFullSyncStatus = ticketSystem.LastFullSyncStatus;
         _ticketSystem.FullSyncStatusChanged += OnFullSyncStatusChanged;
         _updates = updates;
+        _ai = ai;
         _tasksChanged = tasksChanged;
         WebShortcuts = new(_settings.Current.WebShortcuts.OrderBy(x=>x.SortOrder).Select(x=>WebShortcutEditorViewModel.From(x,ShortcutPasswordMask))); SelectedWebShortcut=WebShortcuts.FirstOrDefault();
         WikiSources = new ObservableCollection<WikiSourceEditorViewModel>(_settings.Current.WikiSources.Select(x => WikiSourceEditorViewModel.FromModel(x, WikiSecretMask, x.Id == _settings.Current.DefaultWikiSourceId)));
@@ -255,6 +281,10 @@ public class SettingsViewModel : ObservableObject
         _hourlyUpdateTimer = new DispatcherTimer { Interval = TimeSpan.FromHours(1) };
         _hourlyUpdateTimer.Tick += async (_, _) => await RunHourlyUpdateCheckAsync();
         TestReminderCommand = new RelayCommand(() => _notifications.ShowTestNotification());
+        TestAiCommand = new RelayCommand(async () => await TestAiAsync(), () => AiEnabled && !_isAiOperationRunning);
+        DownloadAiModelCommand = new RelayCommand(async () => await DownloadAiModelAsync(), () => AiEnabled && IsLocalAiProvider && !_isAiOperationRunning);
+        StartLocalAiCommand = new RelayCommand(StartLocalAi, () => AiEnabled && IsLocalAiProvider && !_ai.LocalServer.IsRunning);
+        StopLocalAiCommand = new RelayCommand(StopLocalAi, () => _ai.LocalServer.IsRunning);
         RefreshOutlookCalendarCommand = new RelayCommand(async () => await _outlookCalendar.TriggerSyncAsync("manual-button"));
         TestOutlookConnectionCommand = new RelayCommand(TestOutlookConnection);
         ImportTicketSystemTasksCommand = new RelayCommand(async () => await ImportTicketSystemTasksAsync());
@@ -275,6 +305,43 @@ public class SettingsViewModel : ObservableObject
         MoveWebShortcutDownCommand = new RelayCommand(() => MoveWebShortcut(1), () => CanMoveWebShortcut(1));
         RaiseWebShortcutMoveCanExecute();
     }
+
+    private async Task TestAiAsync()
+    {
+        SetAiBusy(true); AiStatus = "Verbindung wird getestet …";
+        try
+        {
+            var result = await _ai.TestAsync();
+            AiStatus = string.Equals(result, "Test erfolgreich", StringComparison.Ordinal) ? "Test erfolgreich" : $"Verbindung hergestellt, aber unerwartete Antwort: {result}";
+        }
+        catch (Exception ex) { AiStatus = DescribeAiError(ex); }
+        finally { SetAiBusy(false); }
+    }
+
+    private async Task DownloadAiModelAsync()
+    {
+        SetAiBusy(true); AiDownloadProgress = 0; AiStatus = "Modell wird heruntergeladen …";
+        try { await _ai.LocalServer.DownloadModelAsync(new Progress<int>(value => AiDownloadProgress = value)); AiStatus = "Modell erfolgreich heruntergeladen."; }
+        catch (Exception ex) { AiStatus = DescribeAiError(ex); }
+        finally { SetAiBusy(false); }
+    }
+
+    private void StartLocalAi() { try { _ai.LocalServer.Start(); AiStatus = "Lokaler llama.cpp-Server wurde gestartet."; } catch (Exception ex) { AiStatus = DescribeAiError(ex); } RaiseAiState(); }
+    private void StopLocalAi() { try { _ai.LocalServer.Stop(); AiStatus = "Lokaler llama.cpp-Server wurde gestoppt."; } catch (Exception ex) { AiStatus = DescribeAiError(ex); } RaiseAiState(); }
+    private void SetAiBusy(bool value) { _isAiOperationRunning = value; RaiseAiState(); }
+    private void RaiseAiState()
+    {
+        Raise(nameof(IsOpenAiProvider)); Raise(nameof(IsLocalAiProvider)); Raise(nameof(AiLocalServerStatus));
+        TestAiCommand?.RaiseCanExecuteChanged(); DownloadAiModelCommand?.RaiseCanExecuteChanged(); StartLocalAiCommand?.RaiseCanExecuteChanged(); StopLocalAiCommand?.RaiseCanExecuteChanged();
+    }
+    private static string DescribeAiError(Exception ex) => ex switch
+    {
+        TaskCanceledException => "Zeitüberschreitung beim KI-Request.",
+        HttpRequestException http when http.StatusCode.HasValue => $"KI-Request fehlgeschlagen (HTTP {(int)http.StatusCode.Value}).",
+        HttpRequestException => "Der KI-Server ist nicht erreichbar.",
+        UriFormatException => "Die konfigurierte URL ist ungültig.",
+        _ => ex.Message
+    };
 
     private void OnFullSyncStatusChanged(ZnunySyncStatusSnapshot snapshot)
     {

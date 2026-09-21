@@ -2,6 +2,15 @@ namespace TaskTool.Models;
 
 public class AppSettings
 {
+    public bool AiEnabled { get; set; } = false;
+    public AiProviderType AiProvider { get; set; } = AiProviderType.OpenAiCompatible;
+    public string AiApiBaseUrl { get; set; } = "https://api.openai.com/v1";
+    public string AiApiKeyEncrypted { get; set; } = string.Empty;
+    public string AiModel { get; set; } = string.Empty;
+    public string AiLocalServerExecutablePath { get; set; } = string.Empty;
+    public string AiLocalModelPath { get; set; } = string.Empty;
+    public string AiLocalModelDownloadUrl { get; set; } = string.Empty;
+    public int AiLocalServerPort { get; set; } = 8080;
     public string ClientInstanceId { get; set; } = string.Empty;
     public bool ShowAllCandidatePoolTickets { get; set; }
     // Bootstrap/delivery version for fresh settings created by this distribution.
@@ -111,6 +120,12 @@ public class AppSettings
         DayOfWeek.Sunday => SundayTargetMinutes,
         _ => 0
     };
+}
+
+public enum AiProviderType
+{
+    OpenAiCompatible = 0,
+    LocalLlama = 1
 }
 
 public sealed class WebShortcutSettings
