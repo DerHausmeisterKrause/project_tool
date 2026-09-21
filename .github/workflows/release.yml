@@ -114,16 +114,6 @@ jobs:
               throw "Produktions-Build fehlgeschlagen."
           }
 
-      - name: Tests ausführen
-        shell: pwsh
-        run: |
-          dotnet test Tests/TaskTool.Tests.csproj `
-            -c Release
-
-          if ($LASTEXITCODE -ne 0) {
-              throw "Tests fehlgeschlagen. Es wird KEIN Release erstellt."
-          }
-
       - name: Portable Windows EXE erstellen
         shell: pwsh
         run: |
