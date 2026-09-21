@@ -24,6 +24,7 @@
             <TabItem Header="Ticketsystem" Content="{Binding}"><TabItem.ContentTemplate><DataTemplate><settings:TicketSystemSettingsView/></DataTemplate></TabItem.ContentTemplate></TabItem>
             <TabItem Header="Wiki" Content="{Binding}"><TabItem.ContentTemplate><DataTemplate><settings:WikiSettingsView/></DataTemplate></TabItem.ContentTemplate></TabItem>
             <TabItem Header="Favoriten" Content="{Binding}"><TabItem.ContentTemplate><DataTemplate><settings:FavoritesSettingsView/></DataTemplate></TabItem.ContentTemplate></TabItem>
+            <TabItem Header="KI" Content="{Binding}"><TabItem.ContentTemplate><DataTemplate><settings:AiSettingsView/></DataTemplate></TabItem.ContentTemplate></TabItem>
             <TabItem Header="Updates" Content="{Binding}"><TabItem.ContentTemplate><DataTemplate><settings:UpdateSettingsView/></DataTemplate></TabItem.ContentTemplate></TabItem>
         </TabControl>
     </Grid>

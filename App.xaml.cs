@@ -26,6 +26,11 @@ public partial class App : Application
             MainWindow = mainWindow;
             ServiceLocator.Notifications.AttachMainWindow(mainWindow);
             mainWindow.Show();
+            if (ServiceLocator.Settings.Current.AiEnabled && ServiceLocator.Settings.Current.AiProvider == Models.AiProviderType.LocalLlama)
+            {
+                try { ServiceLocator.Ai.LocalServer.Start(); }
+                catch (Exception ex) { ServiceLocator.Logger.Warning($"[AI] Local server autostart failed: {ex.Message}"); }
+            }
             ServiceLocator.TicketSystem.StartScheduledSync();
             var postUpdateVersion = GetPostUpdateVersion(e.Args);
             if (postUpdateVersion != null)
@@ -83,6 +88,7 @@ public partial class App : Application
                 ServiceLocator.Updates.Dispose();
             if (ServiceLocator.WebShortcutBrowsers != null)
                 ServiceLocator.WebShortcutBrowsers.Dispose();
+            ServiceLocator.Ai?.Dispose();
         }
         catch
         {
