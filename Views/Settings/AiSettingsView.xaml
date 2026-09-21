@@ -24,28 +24,25 @@
                         </StackPanel>
 
                         <StackPanel Visibility="{Binding IsLocalAiProvider, Converter={StaticResource BooleanToVisibilityConverter}}">
-                            <TextBlock Text="llama.cpp Serverdatei" Style="{StaticResource SettingsLabelStyle}"/>
-                            <TextBox Text="{Binding AiLocalServerExecutablePath, UpdateSourceTrigger=LostFocus}" Style="{StaticResource SettingsTextBoxStyle}"/>
-                            <TextBlock Text="Pfad zu llama-server.exe." Style="{StaticResource SettingsHelpStyle}"/>
-                            <TextBlock Text="GGUF-Modelldatei" Style="{StaticResource SettingsLabelStyle}"/>
-                            <TextBox Text="{Binding AiLocalModelPath, UpdateSourceTrigger=LostFocus}" Style="{StaticResource SettingsTextBoxStyle}"/>
-                            <TextBlock Text="Modell-Download-URL" Style="{StaticResource SettingsLabelStyle}"/>
-                            <TextBox Text="{Binding AiLocalModelDownloadUrl, UpdateSourceTrigger=LostFocus}" Style="{StaticResource SettingsTextBoxStyle}"/>
-                            <TextBlock Text="Port" Style="{StaticResource SettingsLabelStyle}"/>
-                            <TextBox Text="{Binding AiLocalServerPort, UpdateSourceTrigger=LostFocus}" Style="{StaticResource SettingsTextBoxStyle}" Width="140" HorizontalAlignment="Left"/>
+                            <TextBlock Text="Modell" Style="{StaticResource SettingsLabelStyle}"/>
+                            <ComboBox ItemsSource="{Binding AiLocalModels}" DisplayMemberPath="DisplayName" SelectedValuePath="Id" SelectedValue="{Binding AiLocalPreset}" Style="{StaticResource SettingsComboStyle}"/>
+                            <TextBlock Text="{Binding AiLocalLicense, StringFormat=Lizenz: {0}}" Style="{StaticResource SettingsHelpStyle}"/>
                             <ProgressBar Minimum="0" Maximum="100" Value="{Binding AiDownloadProgress}" Height="8" Margin="0,8,0,6"/>
                             <TextBlock Text="{Binding AiLocalServerStatus}" Style="{StaticResource SettingsHelpStyle}"/>
                             <WrapPanel>
-                                <Button Content="Modell herunterladen" Command="{Binding DownloadAiModelCommand}"/>
-                                <Button Content="Server starten" Command="{Binding StartLocalAiCommand}"/>
+                                <Button Content="Einrichten" Command="{Binding DownloadAiModelCommand}"/>
+                                <Button Content="Lokale KI starten" Command="{Binding StartLocalAiCommand}"/>
                                 <Button Content="Server stoppen" Command="{Binding StopLocalAiCommand}" Style="{StaticResource SecondaryButtonStyle}"/>
                             </WrapPanel>
                         </StackPanel>
 
-                        <TextBlock Text="Modell" Style="{StaticResource SettingsLabelStyle}"/>
-                        <TextBox Text="{Binding AiModel, UpdateSourceTrigger=LostFocus}" Style="{StaticResource SettingsTextBoxStyle}"/>
-                        <TextBlock Text="Freier Modellname, den der konfigurierte Server erwartet." Style="{StaticResource SettingsHelpStyle}"/>
-                        <Button Content="Verbindung testen" Command="{Binding TestAiCommand}" Width="170" HorizontalAlignment="Left" Margin="0,8,0,8"/>
+                        <StackPanel Visibility="{Binding IsOpenAiProvider, Converter={StaticResource BooleanToVisibilityConverter}}">
+                            <TextBlock Text="Modell" Style="{StaticResource SettingsLabelStyle}"/>
+                            <TextBox Text="{Binding AiModel, UpdateSourceTrigger=LostFocus}" Style="{StaticResource SettingsTextBoxStyle}"/>
+                            <TextBlock Text="Freier Modellname, den der konfigurierte Server erwartet." Style="{StaticResource SettingsHelpStyle}"/>
+                        </StackPanel>
+                        <Button Content="Verbindung testen" Command="{Binding TestAiCommand}" Width="170" HorizontalAlignment="Left" Margin="0,8,0,8" Visibility="{Binding IsOpenAiProvider, Converter={StaticResource BooleanToVisibilityConverter}}"/>
+                        <Button Content="Lokale KI testen" Command="{Binding TestAiCommand}" Width="170" HorizontalAlignment="Left" Margin="0,8,0,8" Visibility="{Binding IsLocalAiProvider, Converter={StaticResource BooleanToVisibilityConverter}}"/>
                         <TextBlock Text="{Binding AiStatus}" TextWrapping="Wrap" Foreground="#FBBF24" FontWeight="SemiBold"/>
                     </StackPanel>
                 </StackPanel>
