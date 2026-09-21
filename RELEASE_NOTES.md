@@ -96,6 +96,7 @@
 - Die Einrichtung lokaler KI bereitet Runtime und Modell jetzt gemeinsam vor und verwirft unvollständige oder fehlerhaft geprüfte Downloads zuverlässig
 - Automatische Erkennung und Installation der offiziellen llama.cpp-Windows-x64-Runtime korrigiert
 - llama.cpp-Prerelease-Builds werden bei der automatischen Windows-x64-Runtime-Ermittlung jetzt korrekt berücksichtigt
+- Die lokale llama.cpp-Runtime wird als getestete, fest freigegebene Version verwaltet, sodass neue Upstream-Builds Plenaro nicht unbeabsichtigt verändern
 - Diagnose und Logging bei Fehlern der lokalen KI-Einrichtung verbessert
 - Aktivierte lokale Modelle werden beim Programmstart im Hintergrund vorgeladen
 - Lokale und externe KI können über einen echten Testrequest geprüft werden
