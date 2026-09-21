@@ -9,43 +9,70 @@ namespace TaskTool.Tests;
 
 public sealed class AiServiceTests
 {
-    [Theory]
-    [InlineData("llama-bin-win-cpu-x64.zip")]
-    [InlineData("LLAMA-BIN-WIN-CPU-X64.ZIP")]
-    public void RuntimeAssetSelection_AcceptsOfficialCpuX64AssetCaseInsensitively(string assetName)
+    [Fact]
+    public void RuntimeReleaseSelection_SkipsNightlyMetadataAndSelectsPrerelease()
     {
-        Assert.Equal(assetName, LocalLlamaServerManager.SelectWindowsX64CpuAsset(new[] { assetName }));
+        var releases = new[]
+        {
+            Release("nightly", draft: false, prerelease: false, "nightly-tag.txt"),
+            Release("b10938", draft: false, prerelease: true, "llama-bin-win-cpu-x64.zip")
+        };
+
+        var selected = LocalLlamaServerManager.SelectLatestWindowsX64CpuRelease(releases);
+
+        Assert.Equal("b10938", selected!.ReleaseTag);
+        Assert.Equal("llama-bin-win-cpu-x64.zip", selected.Name);
     }
 
     [Fact]
-    public void RuntimeAssetSelection_DoesNotSelectOtherWindowsBackendsOrArchitectures()
+    public void RuntimeReleaseSelection_SkipsReleaseContainingOnlyCudaAndVulkan()
     {
-        var otherAssets = new[]
+        var releases = new[]
         {
-            "llama-bin-win-cpu-arm64.zip",
-            "llama-bin-win-vulkan-x64.zip",
-            "llama-bin-win-cuda-12.4-x64.zip",
-            "llama-bin-win-sycl-x64.zip",
-            "llama-bin-win-openvino-2026-x64.zip"
+            Release("b10939", false, true, "llama-bin-win-cuda-12.4-x64.zip", "llama-bin-win-vulkan-x64.zip"),
+            Release("b10938", false, true, "llama-bin-win-cpu-x64.zip")
         };
 
-        var exception = Assert.Throws<InvalidDataException>(() => LocalLlamaServerManager.SelectWindowsX64CpuAsset(otherAssets));
-        Assert.Equal("Kein offizielles Windows-x64-CPU-Asset gefunden.", exception.Message);
+        Assert.Equal("b10938", LocalLlamaServerManager.SelectLatestWindowsX64CpuRelease(releases)!.ReleaseTag);
     }
 
     [Fact]
-    public void RuntimeAssetSelection_SelectsOnlyCpuX64FromMixedReleaseAssets()
+    public void RuntimeReleaseSelection_SkipsDraftContainingCpuAsset()
     {
-        var assets = new[]
+        var releases = new[]
         {
-            "llama-bin-win-cuda-12.4-x64.zip",
-            "llama-bin-win-cpu-arm64.zip",
-            "llama-bin-win-cpu-x64.zip",
-            "llama-bin-win-vulkan-x64.zip"
+            Release("draft", true, false, "llama-bin-win-cpu-x64.zip"),
+            Release("published", false, false, "LLAMA-BIN-WIN-CPU-X64.ZIP")
         };
 
-        Assert.Equal("llama-bin-win-cpu-x64.zip", LocalLlamaServerManager.SelectWindowsX64CpuAsset(assets));
+        Assert.Equal("published", LocalLlamaServerManager.SelectLatestWindowsX64CpuRelease(releases)!.ReleaseTag);
     }
+
+    [Fact]
+    public void RuntimeReleaseSelection_AcceptsPrereleaseContainingCpuAsset()
+    {
+        var selected = LocalLlamaServerManager.SelectLatestWindowsX64CpuRelease(new[]
+        {
+            Release("b10938", false, true, "llama-bin-win-cpu-x64.zip")
+        });
+
+        Assert.Equal("b10938", selected!.ReleaseTag);
+    }
+
+    [Fact]
+    public void RuntimeReleaseSelection_ReturnsNoMatchWhenCpuAssetIsAbsent()
+    {
+        var releases = new[]
+        {
+            Release("nightly", false, false, "nightly-tag.txt"),
+            Release("gpu", false, true, "llama-bin-win-cpu-arm64.zip", "llama-bin-win-vulkan-x64.zip", "llama-bin-win-sycl-x64.zip", "llama-bin-win-openvino-2026-x64.zip", "llama-bin-win-rocm-x64.zip")
+        };
+
+        Assert.Null(LocalLlamaServerManager.SelectLatestWindowsX64CpuRelease(releases));
+    }
+
+    private static LlamaRelease Release(string tag, bool draft, bool prerelease, params string[] assetNames)
+        => new(tag, draft, prerelease, assetNames.Select(name => new LlamaReleaseAsset(name)).ToArray());
 
     [Fact]
     public void Settings_HaveSafeAiDefaults()

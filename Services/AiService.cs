@@ -38,6 +38,10 @@ public sealed class OpenAiCompatibleAiProvider : IAiService
 
 public enum LocalAiStatus { NotInstalled, DownloadingRuntime, DownloadingModel, VerifyingSha256, Installed, LoadingModel, Ready, Error }
 
+internal sealed record LlamaRelease(string TagName, bool Draft, bool Prerelease, IReadOnlyList<LlamaReleaseAsset> Assets);
+internal sealed record LlamaReleaseAsset(string Name, string? DownloadUrl = null, string? Digest = null);
+internal sealed record LlamaRuntimeAsset(string ReleaseTag, string Name, string? DownloadUrl, string? Digest);
+
 public sealed class AiService : IDisposable
 {
     public const string TestSystemPrompt = "Folge der Benutzeranweisung exakt. Gib keine zusätzlichen Erklärungen aus.";
@@ -66,7 +70,10 @@ public sealed class AiService : IDisposable
 public sealed class LocalLlamaServerManager : IDisposable
 {
     public const string Host = "127.0.0.1";
-    private const string ReleasesApi = "https://api.github.com/repos/ggml-org/llama.cpp/releases/latest";
+    private const string ReleasesApi = "https://api.github.com/repos/ggml-org/llama.cpp/releases";
+    private const int ReleasesPerPage = 30;
+    private const int MaxReleasePages = 3;
+    internal const string WindowsX64CpuAssetName = "llama-bin-win-cpu-x64.zip";
     private readonly SettingsService _settings; private readonly LoggerService _logger; private readonly HttpClient _httpClient; private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly Queue<string> _diagnostics = new(); private Process? _process; private int _port; private string _setupStage = "initialization";
     public LocalLlamaServerManager(SettingsService settings, LoggerService logger, HttpClient httpClient) { _settings = settings; _logger = logger; _httpClient = httpClient; }
@@ -166,44 +173,71 @@ public sealed class LocalLlamaServerManager : IDisposable
     {
         _setupStage = "runtime-metadata";
         SetStatus(LocalAiStatus.DownloadingRuntime);
-        Log("Fetching llama.cpp release metadata");
-        using var request = new HttpRequestMessage(HttpMethod.Get, ReleasesApi); request.Headers.UserAgent.ParseAdd("Plenaro/1.0");
-        using var response = await _httpClient.SendAsync(request, token);
-        if (!response.IsSuccessStatusCode) throw new HttpRequestException($"llama.cpp-Release-Metadaten konnten nicht geladen werden (HTTP {(int)response.StatusCode}).", null, response.StatusCode);
-        await using var responseStream = await response.Content.ReadAsStreamAsync(token);
-        using var json = await JsonDocument.ParseAsync(responseStream, cancellationToken: token);
-        if (!json.RootElement.TryGetProperty("assets", out var assetsElement) || assetsElement.ValueKind != JsonValueKind.Array)
-            throw new InvalidDataException("Die llama.cpp-Release-Antwort enthält keine gültige Assetliste.");
-        var assets = assetsElement.EnumerateArray()
-            .Where(item => item.ValueKind == JsonValueKind.Object)
-            .Select(item => new { Json = item, Name = item.TryGetProperty("name", out var name) && name.ValueKind == JsonValueKind.String ? name.GetString() : null })
-            .ToList();
-        string selectedName;
-        try { selectedName = SelectWindowsX64CpuAsset(assets.Select(item => item.Name)); }
-        catch (InvalidDataException)
+        LlamaRuntimeAsset? selection = null;
+        for (var page = 1; page <= MaxReleasePages && selection == null; page++)
         {
-            var available = assets.Select(item => item.Name).Where(name => !string.IsNullOrWhiteSpace(name));
-            _logger.Error($"[AI] llama.cpp Windows x64 CPU runtime asset not found. Available assets: {string.Join(", ", available)}");
-            throw;
+            Log($"Fetching llama.cpp release list page={page}");
+            using var request = new HttpRequestMessage(HttpMethod.Get, $"{ReleasesApi}?per_page={ReleasesPerPage}&page={page}");
+            request.Headers.UserAgent.ParseAdd("Plenaro/1.0");
+            using var response = await _httpClient.SendAsync(request, token);
+            if (!response.IsSuccessStatusCode) throw new HttpRequestException($"llama.cpp-Release-Metadaten konnten nicht geladen werden (HTTP {(int)response.StatusCode}).", null, response.StatusCode);
+            await using var responseStream = await response.Content.ReadAsStreamAsync(token);
+            using var json = await JsonDocument.ParseAsync(responseStream, cancellationToken: token);
+            var releases = ParseReleases(json.RootElement);
+            selection = SelectLatestWindowsX64CpuRelease(releases);
+            if (releases.Count < ReleasesPerPage) break;
         }
-        var asset = assets.First(item => string.Equals(item.Name, selectedName, StringComparison.OrdinalIgnoreCase)).Json;
-        Log($"Selected runtime asset={selectedName}");
-        if (!asset.TryGetProperty("browser_download_url", out var urlElement) || urlElement.ValueKind != JsonValueKind.String ||
-            !Uri.TryCreate(urlElement.GetString(), UriKind.Absolute, out var url) || url.Scheme != Uri.UriSchemeHttps ||
+        if (selection == null)
+        {
+            _logger.Error($"[AI] No published llama.cpp release containing {WindowsX64CpuAssetName} found in first {ReleasesPerPage * MaxReleasePages} releases.");
+            throw new InvalidDataException("Kein veröffentlichter llama.cpp-Release mit Windows-x64-CPU-Runtime gefunden.");
+        }
+        Log($"Selected llama.cpp release={selection.ReleaseTag}");
+        Log($"Selected runtime asset={selection.Name}");
+        if (!Uri.TryCreate(selection.DownloadUrl, UriKind.Absolute, out var url) || url.Scheme != Uri.UriSchemeHttps ||
             !string.Equals(url.Host, "github.com", StringComparison.OrdinalIgnoreCase) ||
             !url.AbsolutePath.StartsWith("/ggml-org/llama.cpp/releases/download/", StringComparison.OrdinalIgnoreCase))
             throw new InvalidDataException("Das Runtime-Asset verweist nicht auf die erwartete HTTPS-GitHub-Quelle.");
         _setupStage = "runtime-download";
         Directory.CreateDirectory(RootDirectory); var part = Path.Combine(RootDirectory, "llama-runtime.zip.part");
-        try { Log("Downloading llama.cpp runtime"); await DownloadAsync(url, part, progress, token); Log("Runtime download completed"); if (asset.TryGetProperty("digest", out var digest) && digest.ValueKind == JsonValueKind.String && digest.GetString() is { } value && value.StartsWith("sha256:", StringComparison.OrdinalIgnoreCase)) { if (!await HasSha256Async(part, value[7..], token)) throw new InvalidDataException("Die SHA256-Prüfsumme der Runtime stimmt nicht überein."); Log("Runtime SHA256 verified"); } ExtractZipSafely(part, RuntimeDirectory); NormalizeRuntimeLayout(); if (!File.Exists(RuntimeExecutable)) throw new InvalidDataException("llama-server.exe fehlt im Runtime-Archiv."); Log("Runtime extracted"); }
+        try { Log("Downloading llama.cpp runtime"); await DownloadAsync(url, part, progress, token); Log("Runtime download completed"); if (selection.Digest is { } value && value.StartsWith("sha256:", StringComparison.OrdinalIgnoreCase)) { if (!await HasSha256Async(part, value[7..], token)) throw new InvalidDataException("Die SHA256-Prüfsumme der Runtime stimmt nicht überein."); Log("Runtime SHA256 verified"); } ExtractZipSafely(part, RuntimeDirectory); NormalizeRuntimeLayout(); if (!File.Exists(RuntimeExecutable)) throw new InvalidDataException("llama-server.exe fehlt im Runtime-Archiv."); Log("Runtime extracted"); }
         finally { if (File.Exists(part)) File.Delete(part); }
     }
 
-    internal static string SelectWindowsX64CpuAsset(IEnumerable<string?> assetNames)
+    internal static LlamaRuntimeAsset? SelectLatestWindowsX64CpuRelease(IEnumerable<LlamaRelease> releases)
     {
-        const string officialAssetName = "llama-bin-win-cpu-x64.zip";
-        var match = assetNames.FirstOrDefault(name => string.Equals(name, officialAssetName, StringComparison.OrdinalIgnoreCase));
-        return match ?? throw new InvalidDataException("Kein offizielles Windows-x64-CPU-Asset gefunden.");
+        foreach (var release in releases)
+        {
+            if (release.Draft) continue;
+            var asset = release.Assets.FirstOrDefault(item => string.Equals(item.Name, WindowsX64CpuAssetName, StringComparison.OrdinalIgnoreCase));
+            if (asset != null) return new LlamaRuntimeAsset(release.TagName, asset.Name, asset.DownloadUrl, asset.Digest);
+        }
+        return null;
+    }
+
+    private static IReadOnlyList<LlamaRelease> ParseReleases(JsonElement root)
+    {
+        if (root.ValueKind != JsonValueKind.Array) throw new InvalidDataException("Die llama.cpp-Release-Antwort enthält keine gültige Releaseliste.");
+        var releases = new List<LlamaRelease>();
+        foreach (var item in root.EnumerateArray().Where(item => item.ValueKind == JsonValueKind.Object))
+        {
+            var tag = item.TryGetProperty("tag_name", out var tagElement) && tagElement.ValueKind == JsonValueKind.String ? tagElement.GetString() ?? string.Empty : string.Empty;
+            var draft = item.TryGetProperty("draft", out var draftElement) && draftElement.ValueKind == JsonValueKind.True;
+            var prerelease = item.TryGetProperty("prerelease", out var prereleaseElement) && prereleaseElement.ValueKind == JsonValueKind.True;
+            var assets = new List<LlamaReleaseAsset>();
+            if (item.TryGetProperty("assets", out var assetsElement) && assetsElement.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var asset in assetsElement.EnumerateArray().Where(asset => asset.ValueKind == JsonValueKind.Object))
+                {
+                    var name = asset.TryGetProperty("name", out var nameElement) && nameElement.ValueKind == JsonValueKind.String ? nameElement.GetString() ?? string.Empty : string.Empty;
+                    var downloadUrl = asset.TryGetProperty("browser_download_url", out var urlElement) && urlElement.ValueKind == JsonValueKind.String ? urlElement.GetString() : null;
+                    var digest = asset.TryGetProperty("digest", out var digestElement) && digestElement.ValueKind == JsonValueKind.String ? digestElement.GetString() : null;
+                    assets.Add(new LlamaReleaseAsset(name, downloadUrl, digest));
+                }
+            }
+            releases.Add(new LlamaRelease(tag, draft, prerelease, assets));
+        }
+        return releases;
     }
 
     private void Log(string message) => _logger.OperationalInfo($"[AI] {message}");
