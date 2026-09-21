@@ -21,7 +21,7 @@ permissions:
 
 jobs:
   release:
-    name: Build, test and release Plenaro
+    name: Build and release Plenaro
     runs-on: windows-latest
 
     env:
