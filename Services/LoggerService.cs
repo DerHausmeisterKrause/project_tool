@@ -27,12 +27,13 @@ public class LoggerService
         => Interlocked.Exchange(ref _minimumLevel, (int)minimumLevel);
 
     public void Info(string message) => Write(AppLogLevel.Info, message);
+    public void OperationalInfo(string message) => Write(AppLogLevel.Info, message, ignoreMinimumLevel: true);
     public void Warning(string message) => Write(AppLogLevel.Warning, message);
     public void Error(string message) => Write(AppLogLevel.Error, message);
 
-    private void Write(AppLogLevel level, string message)
+    private void Write(AppLogLevel level, string message, bool ignoreMinimumLevel = false)
     {
-        if (level < MinimumLevel)
+        if (!ignoreMinimumLevel && level < MinimumLevel)
             return;
 
         lock (_sync)
