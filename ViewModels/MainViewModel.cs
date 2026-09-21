@@ -101,7 +101,7 @@ public class MainViewModel : ObservableObject
         SelectedView = SettingsViewModel;
     }
 
-    public MainViewModel(TaskService taskService, WorkDayService workDayService, SettingsService settingsService, NotificationService notifications, OutlookCalendarService outlookCalendar, TicketSystemService ticketSystem, UpdateService updates, HomeOfficeService homeOffice, GermanTimeService germanTime, LoggerService logger, AiService aiService)
+    public MainViewModel(TaskService taskService, WorkDayService workDayService, SettingsService settingsService, NotificationService notifications, OutlookCalendarService outlookCalendar, TicketSystemService ticketSystem, UpdateService updates, HomeOfficeService homeOffice, GermanTimeService germanTime, LoggerService logger, AiService aiService, AiKnowledgeService aiKnowledge)
     {
         _logger = logger;
         TodayViewModel = new TodayViewModel(taskService, workDayService, settingsService, outlookCalendar, ticketSystem, homeOffice);
@@ -111,9 +111,9 @@ public class MainViewModel : ObservableObject
         _ticketSystemViewModel = new TicketSystemViewModel(settingsService);
         WikiBrowserViewModel = new WikiBrowserViewModel(settingsService);
         _reportsViewModel = new ReportsViewModel(taskService, workDayService, settingsService, germanTime, logger);
-        SettingsViewModel = new SettingsViewModel(settingsService, notifications, outlookCalendar, taskService, ticketSystem, updates, aiService);
+        SettingsViewModel = new SettingsViewModel(settingsService, notifications, outlookCalendar, taskService, ticketSystem, updates, aiService, aiKnowledge);
         NavigateToSettingsCommand = new RelayCommand<string>(NavigateToSettings);
-        AiChatViewModel = new AiChatViewModel(aiService, new ClipboardService(), () => NavigateToSettings("KI"));
+        AiChatViewModel = new AiChatViewModel(aiService, new ClipboardService(), () => NavigateToSettings("KI"), aiKnowledge);
 
         NavigationItems = new ObservableCollection<object> { TodayViewModel, _weekViewModel, _ticketSystemViewModel, _reportsViewModel, AiChatViewModel, SettingsViewModel };
         settingsService.SettingsChanged += RefreshDynamicNavigation;

@@ -104,3 +104,6 @@
 - KI-Unterhaltungen berücksichtigen bis zu 20 Nachrichten des aktuellen Sitzungsverlaufs und bleiben vollständig optional und flüchtig
 - KI-Chatoberfläche verbessert: Antworten können jetzt markiert und vollständig kopiert werden, der Nachrichtenverlauf scrollt zuverlässig und die Eingabe bleibt auch bei längeren Chats sichtbar
 - Verbindungstest und lokale Qwen3-Nutzung durch flexible Antwortprüfung und deaktiviertes Thinking zuverlässiger gestaltet
+- KI-Antworten werden im Chat mit formatierten Überschriften, Listen, Hervorhebungen und Codeblöcken dargestellt
+- Optionaler lokaler Wissensordner für TXT-, Markdown- und PDF-Dokumente ergänzt
+- Lokales Wissen wird im Hintergrund inkrementell indexiert und bei passenden KI-Fragen per lokaler FTS5-Suche als begrenzter Kontext berücksichtigt

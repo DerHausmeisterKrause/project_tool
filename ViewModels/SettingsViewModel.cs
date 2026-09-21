@@ -51,6 +51,7 @@ public class SettingsViewModel : ObservableObject
     private readonly Action? _tasksChanged;
     private readonly UpdateService _updates;
     private readonly AiService _ai;
+    private readonly AiKnowledgeService _aiKnowledge;
     private readonly DispatcherTimer _hourlyUpdateTimer;
     private const string ShortcutPasswordMask = "••••••••";
     private const string AiApiKeyMask = "••••••••";
@@ -75,6 +76,11 @@ public class SettingsViewModel : ObservableObject
     public RelayCommand DownloadAiModelCommand { get; }
     public RelayCommand StartLocalAiCommand { get; }
     public RelayCommand StopLocalAiCommand { get; }
+    public RelayCommand OpenKnowledgeFolderCommand { get; }
+    public RelayCommand ReindexKnowledgeCommand { get; }
+    public bool AiKnowledgeEnabled { get => _settings.Current.AiKnowledgeEnabled; set { if (_settings.Current.AiKnowledgeEnabled == value) return; _settings.Current.AiKnowledgeEnabled = value; Save(); _aiKnowledge.SetEnabled(value); Raise(); Raise(nameof(AiKnowledgeStatus)); } }
+    public string AiKnowledgePath => _aiKnowledge.Index.KnowledgePath;
+    public string AiKnowledgeStatus { get { var s = _aiKnowledge.Status; return s.Error != null ? $"Fehler: {s.Error}" : $"{s.DocumentCount} Dateien · {s.ChunkCount} Textabschnitte · Zuletzt indexiert: {(s.LastIndexedUtc?.ToLocalTime().ToString("dd.MM.yyyy HH:mm") ?? "noch nie")}"; } }
     public ObservableCollection<WebShortcutEditorViewModel> WebShortcuts { get; }
     private WebShortcutEditorViewModel? _selectedWebShortcut; public WebShortcutEditorViewModel? SelectedWebShortcut { get=>_selectedWebShortcut; set { if (Set(ref _selectedWebShortcut,value)) RaiseWebShortcutMoveCanExecute(); } }
     private string _webShortcutStatus=""; public string WebShortcutStatus { get=>_webShortcutStatus; set=>Set(ref _webShortcutStatus,value); }
@@ -262,7 +268,7 @@ public class SettingsViewModel : ObservableObject
     public RelayCommand InstallUpdateCommand { get; }
     public RelayCommand OpenReleaseCommand { get; }
 
-    public SettingsViewModel(SettingsService settings, NotificationService notifications, OutlookCalendarService outlookCalendar, TaskService tasks, TicketSystemService ticketSystem, UpdateService updates, AiService ai, Action? tasksChanged = null)
+    public SettingsViewModel(SettingsService settings, NotificationService notifications, OutlookCalendarService outlookCalendar, TaskService tasks, TicketSystemService ticketSystem, UpdateService updates, AiService ai, AiKnowledgeService aiKnowledge, Action? tasksChanged = null)
     {
         _settings = settings;
         _notifications = notifications;
@@ -273,6 +279,8 @@ public class SettingsViewModel : ObservableObject
         _ticketSystem.FullSyncStatusChanged += OnFullSyncStatusChanged;
         _updates = updates;
         _ai = ai;
+        _aiKnowledge = aiKnowledge;
+        _aiKnowledge.StatusChanged += (_, _) => Application.Current?.Dispatcher.BeginInvoke(new Action(() => Raise(nameof(AiKnowledgeStatus))));
         _ai.LocalServer.StateChanged += (_, _) => Application.Current?.Dispatcher.BeginInvoke(new Action(RaiseAiState));
         _tasksChanged = tasksChanged;
         WebShortcuts = new(_settings.Current.WebShortcuts.OrderBy(x=>x.SortOrder).Select(x=>WebShortcutEditorViewModel.From(x,ShortcutPasswordMask))); SelectedWebShortcut=WebShortcuts.FirstOrDefault();
@@ -285,6 +293,8 @@ public class SettingsViewModel : ObservableObject
         DownloadAiModelCommand = new RelayCommand(async () => await DownloadAiModelAsync(), () => AiEnabled && IsLocalAiProvider && !_isAiOperationRunning);
         StartLocalAiCommand = new RelayCommand(async () => await StartLocalAiAsync(), () => AiEnabled && IsLocalAiProvider && !_isAiOperationRunning && !_ai.LocalServer.IsReady);
         StopLocalAiCommand = new RelayCommand(StopLocalAi, () => _ai.LocalServer.IsRunning);
+        OpenKnowledgeFolderCommand = new RelayCommand(() => { _aiKnowledge.Index.EnsureKnowledgeDirectory(); Process.Start(new ProcessStartInfo("explorer.exe", _aiKnowledge.Index.KnowledgePath) { UseShellExecute = true }); });
+        ReindexKnowledgeCommand = new RelayCommand(async () => { AiStatus = "Wissen wird indexiert …"; await _aiKnowledge.RebuildAsync(); AiStatus = _aiKnowledge.Status.Error == null ? "Wissen wurde neu indexiert." : $"Indexierung fehlgeschlagen: {_aiKnowledge.Status.Error}"; Raise(nameof(AiKnowledgeStatus)); });
         RefreshOutlookCalendarCommand = new RelayCommand(async () => await _outlookCalendar.TriggerSyncAsync("manual-button"));
         TestOutlookConnectionCommand = new RelayCommand(TestOutlookConnection);
         ImportTicketSystemTasksCommand = new RelayCommand(async () => await ImportTicketSystemTasksAsync());
