@@ -1,5 +1,17 @@
 # Third-Party Notices
 
+## Markdig
+
+- Source: `xoofx/markdig`
+- License: BSD-2-Clause
+- Used to parse assistant Markdown for native WPF rendering.
+
+## PdfPig
+
+- Source: `UglyToad/PdfPig`
+- License: Apache-2.0
+- Used locally to extract text from PDF knowledge documents.
+
 The following optional components are downloaded at runtime and are not distributed
 in this repository.
 

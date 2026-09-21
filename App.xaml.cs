@@ -91,6 +91,7 @@ public partial class App : Application
             if (ServiceLocator.WebShortcutBrowsers != null)
                 ServiceLocator.WebShortcutBrowsers.Dispose();
             ServiceLocator.Ai?.Dispose();
+            ServiceLocator.AiKnowledge?.Dispose();
         }
         catch
         {

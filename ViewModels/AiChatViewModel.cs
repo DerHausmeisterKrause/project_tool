@@ -20,15 +20,17 @@ public sealed class AiChatViewModel : ObservableObject
     private readonly IAiChatService _ai;
     private readonly IClipboardService _clipboard;
     private readonly Action _openAiSettings;
+    private readonly AiKnowledgeService? _knowledge;
     private string _inputText = string.Empty;
     private string _errorMessage = string.Empty;
     private bool _isSending;
 
-    public AiChatViewModel(IAiChatService ai, IClipboardService clipboard, Action openAiSettings)
+    public AiChatViewModel(IAiChatService ai, IClipboardService clipboard, Action openAiSettings, AiKnowledgeService? knowledge = null)
     {
         _ai = ai;
         _clipboard = clipboard;
         _openAiSettings = openAiSettings;
+        _knowledge = knowledge;
         SendCommand = new RelayCommand(async () => await SendAsync(), () => CanSend);
         ClearCommand = new RelayCommand(Clear, () => Messages.Count > 0 && !IsSending);
         CopyMessageCommand = new RelayCommand<AiChatMessage>(CopyMessage, CanCopyMessage);
@@ -86,8 +88,15 @@ public sealed class AiChatViewModel : ObservableObject
         IsSending = true;
         try
         {
-            var answer = await _ai.ChatAsync(BuildRequestMessages(), new AiRequestOptions(0.3, 1024), cancellationToken);
-            Messages.Add(new AiChatMessage(AiChatRole.Assistant, answer, DateTime.Now));
+            IReadOnlyList<AiKnowledgeMatch> matches = Array.Empty<AiKnowledgeMatch>();
+            try { if (_knowledge != null) matches = await _knowledge.SearchAsync(text, cancellationToken); }
+            catch (Exception exception) { ServiceLocator.Logger?.Warning($"[AI Knowledge] Search unavailable error='{exception.Message}'"); }
+            var request = BuildRequestMessages().ToList();
+            var knowledgeContext = AiKnowledgeContextBuilder.Build(matches);
+            if (knowledgeContext.Length > 0) request.Insert(1, new AiChatRequestMessage(AiChatRole.System, knowledgeContext));
+            var answer = await _ai.ChatAsync(request, new AiRequestOptions(0.3, 1024), cancellationToken);
+            var sources = matches.Select(x => new AiKnowledgeSource(x.RelativePath, x.PageNumber)).Distinct().ToArray();
+            Messages.Add(new AiChatMessage(AiChatRole.Assistant, answer, DateTime.Now, sources));
         }
         catch (Exception exception)
         {
