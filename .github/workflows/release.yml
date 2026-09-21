@@ -1,0 +1,212 @@
+name: Create Plenaro Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      channel:
+        description: "Release-Kanal"
+        required: true
+        type: choice
+        options:
+          - dev
+          - prod
+
+      version:
+        description: "Version ohne V, z.B. 3.3.1 oder 3.3.1-dev"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build and release Plenaro
+    runs-on: windows-latest
+
+    env:
+      CHANNEL: ${{ inputs.channel }}
+      VERSION_INPUT: ${{ inputs.version }}
+
+    steps:
+      - name: Repository auschecken
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Branch und Version prüfen
+        shell: pwsh
+        run: |
+          $version = $env:VERSION_INPUT.Trim()
+          $channel = $env:CHANNEL
+          $branch = "${{ github.ref_name }}"
+
+          Write-Host "Branch:  $branch"
+          Write-Host "Channel: $channel"
+          Write-Host "Version: $version"
+
+          if ($channel -eq "prod") {
+              if ($branch -ne "main") {
+                  throw "PROD-Releases duerfen nur vom Branch 'main' erstellt werden."
+              }
+
+              if ($version -notmatch '^\d+\.\d+\.\d+$') {
+                  throw "PROD-Version muss z.B. '3.3.1' sein."
+              }
+          }
+          elseif ($channel -eq "dev") {
+              if ($branch -ne "dev") {
+                  throw "DEV-Releases duerfen nur vom Branch 'dev' erstellt werden."
+              }
+
+              if ($version -notmatch '^\d+\.\d+\.\d+-dev$') {
+                  throw "DEV-Version muss z.B. '3.3.1-dev' sein."
+              }
+          }
+          else {
+              throw "Unbekannter Release-Kanal."
+          }
+
+          $numericVersion = $version -replace '-.*$', ''
+          $fileVersion = "$numericVersion.0"
+          $tag = "V$version"
+
+          "RELEASE_VERSION=$version" >> $env:GITHUB_ENV
+          "FILE_VERSION=$fileVersion" >> $env:GITHUB_ENV
+          "RELEASE_TAG=$tag" >> $env:GITHUB_ENV
+
+          Write-Host "Release Tag: $tag"
+          Write-Host "File Version: $fileVersion"
+
+      - name: Prüfen ob Tag bereits existiert
+        shell: pwsh
+        run: |
+          git fetch --tags --force
+
+          $existing = git tag --list $env:RELEASE_TAG
+
+          if ($existing) {
+              throw "Tag '$env:RELEASE_TAG' existiert bereits. Release wird abgebrochen."
+          }
+
+      - name: .NET 8 installieren
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Restore
+        shell: pwsh
+        run: |
+          dotnet restore TaskTool.Wpf.csproj
+
+          if ($LASTEXITCODE -ne 0) {
+              throw "dotnet restore fehlgeschlagen."
+          }
+
+      - name: Produktionscode bauen
+        shell: pwsh
+        run: |
+          dotnet build TaskTool.Wpf.csproj `
+            -c Release `
+            --no-restore
+
+          if ($LASTEXITCODE -ne 0) {
+              throw "Produktions-Build fehlgeschlagen."
+          }
+
+      - name: Portable Windows EXE erstellen
+        shell: pwsh
+        run: |
+          $output = "artifacts/publish/win-x64"
+
+          Remove-Item $output -Recurse -Force -ErrorAction SilentlyContinue
+
+          dotnet publish TaskTool.Wpf.csproj `
+            -c Release `
+            -r win-x64 `
+            --self-contained true `
+            -p:PublishSingleFile=true `
+            -p:PublishTrimmed=false `
+            -p:IncludeNativeLibrariesForSelfExtract=true `
+            -p:EnableCompileTimeAppIcon=true `
+            -p:Version="$env:RELEASE_VERSION" `
+            -p:InformationalVersion="$env:RELEASE_VERSION" `
+            -p:AssemblyVersion="$env:FILE_VERSION" `
+            -p:FileVersion="$env:FILE_VERSION" `
+            -o "$output"
+
+          if ($LASTEXITCODE -ne 0) {
+              throw "dotnet publish fehlgeschlagen."
+          }
+
+          $exe = Join-Path $output "TaskTool.exe"
+
+          if (-not (Test-Path $exe)) {
+              throw "TaskTool.exe wurde nach dem Publish nicht gefunden."
+          }
+
+          $size = [Math]::Round((Get-Item $exe).Length / 1MB, 2)
+
+          Write-Host ""
+          Write-Host "TaskTool.exe erfolgreich gebaut."
+          Write-Host "Version: $env:RELEASE_VERSION"
+          Write-Host "Groesse: $size MB"
+
+      - name: SHA256 Prüfsumme erstellen
+        shell: pwsh
+        run: |
+          $exe = "artifacts/publish/win-x64/TaskTool.exe"
+          $hashFile = "$exe.sha256"
+
+          $hash = (Get-FileHash $exe -Algorithm SHA256).Hash.ToLowerInvariant()
+
+          "$hash  TaskTool.exe" |
+            Set-Content $hashFile -Encoding ascii
+
+          Write-Host "SHA256: $hash"
+
+      - name: Release Notes prüfen
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "RELEASE_NOTES.md")) {
+              throw "RELEASE_NOTES.md fehlt."
+          }
+
+      - name: GitHub Release erstellen
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $exe = "artifacts/publish/win-x64/TaskTool.exe"
+          $hash = "artifacts/publish/win-x64/TaskTool.exe.sha256"
+
+          $arguments = @(
+              "release",
+              "create",
+              $env:RELEASE_TAG,
+              $exe,
+              $hash,
+              "--target",
+              "${{ github.sha }}",
+              "--title",
+              "Plenaro $env:RELEASE_TAG",
+              "--notes-file",
+              "RELEASE_NOTES.md"
+          )
+
+          if ($env:CHANNEL -eq "dev") {
+              $arguments += "--prerelease"
+          }
+          else {
+              $arguments += "--latest"
+          }
+
+          gh @arguments
+
+          if ($LASTEXITCODE -ne 0) {
+              throw "GitHub Release konnte nicht erstellt werden."
+          }
+
+          Write-Host ""
+          Write-Host "Release erfolgreich:"
+          Write-Host "$env:RELEASE_TAG"
