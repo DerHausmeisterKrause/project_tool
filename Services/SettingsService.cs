@@ -191,10 +191,7 @@ public class SettingsService
         settings.AiApiBaseUrl = settings.AiApiBaseUrl?.Trim() ?? string.Empty;
         settings.AiApiKeyEncrypted ??= string.Empty;
         settings.AiModel = settings.AiModel?.Trim() ?? string.Empty;
-        settings.AiLocalServerExecutablePath = settings.AiLocalServerExecutablePath?.Trim() ?? string.Empty;
-        settings.AiLocalModelPath = settings.AiLocalModelPath?.Trim() ?? string.Empty;
-        settings.AiLocalModelDownloadUrl = settings.AiLocalModelDownloadUrl?.Trim() ?? string.Empty;
-        settings.AiLocalServerPort = Math.Clamp(settings.AiLocalServerPort, 1, 65535);
+        if (!Enum.IsDefined(settings.AiLocalPreset)) settings.AiLocalPreset = LocalAiPreset.Light;
         settings.WikiSources ??= new();
         settings.WikiSources = settings.WikiSources.OfType<WikiSourceSettings>().ToList();
         foreach (var source in settings.WikiSources)

@@ -65,13 +65,12 @@ public class SettingsViewModel : ObservableObject
     public string AiApiBaseUrl { get => _settings.Current.AiApiBaseUrl; set { _settings.Current.AiApiBaseUrl = value; Save(); } }
     public string AiApiKey { get => string.IsNullOrWhiteSpace(_settings.Current.AiApiKeyEncrypted) ? string.Empty : AiApiKeyMask; set { if (value == AiApiKeyMask) return; _settings.SetAiApiKey(value ?? string.Empty); Save(); Raise(); } }
     public string AiModel { get => _settings.Current.AiModel; set { _settings.Current.AiModel = value; Save(); } }
-    public string AiLocalServerExecutablePath { get => _settings.Current.AiLocalServerExecutablePath; set { _settings.Current.AiLocalServerExecutablePath = value; Save(); } }
-    public string AiLocalModelPath { get => _settings.Current.AiLocalModelPath; set { _settings.Current.AiLocalModelPath = value; Save(); } }
-    public string AiLocalModelDownloadUrl { get => _settings.Current.AiLocalModelDownloadUrl; set { _settings.Current.AiLocalModelDownloadUrl = value; Save(); } }
-    public int AiLocalServerPort { get => _settings.Current.AiLocalServerPort; set { _settings.Current.AiLocalServerPort = Math.Clamp(value, 1, 65535); Save(); } }
+    public IReadOnlyList<LocalAiModelDefinition> AiLocalModels => LocalAiModelCatalog.All;
+    public LocalAiPreset AiLocalPreset { get => _settings.Current.AiLocalPreset; set { if (_settings.Current.AiLocalPreset == value) return; _ai.LocalServer.Stop(); _settings.Current.AiLocalPreset = value; Save(); RaiseAiState(); if (AiEnabled && IsLocalAiProvider) _ = StartLocalAiAsync(); } }
+    public string AiLocalLicense => LocalAiModelCatalog.Get(AiLocalPreset).License;
     public string AiStatus { get => _aiStatus; set => Set(ref _aiStatus, value); }
     public int AiDownloadProgress { get => _aiDownloadProgress; set => Set(ref _aiDownloadProgress, value); }
-    public string AiLocalServerStatus => _ai.LocalServer.IsRunning ? "llama.cpp läuft" : "llama.cpp ist gestoppt";
+    public string AiLocalServerStatus => _ai.LocalServer.Status switch { LocalAiStatus.NotInstalled => "Nicht installiert", LocalAiStatus.DownloadingRuntime => "Runtime wird heruntergeladen", LocalAiStatus.DownloadingModel => $"Modell wird heruntergeladen – Download {_ai.LocalServer.Progress} %", LocalAiStatus.VerifyingSha256 => "SHA256 wird geprüft", LocalAiStatus.Installed => "Installiert", LocalAiStatus.LoadingModel => "Modell wird geladen …", LocalAiStatus.Ready => "Bereit", _ => "Fehler" };
     public RelayCommand TestAiCommand { get; }
     public RelayCommand DownloadAiModelCommand { get; }
     public RelayCommand StartLocalAiCommand { get; }
@@ -274,6 +273,7 @@ public class SettingsViewModel : ObservableObject
         _ticketSystem.FullSyncStatusChanged += OnFullSyncStatusChanged;
         _updates = updates;
         _ai = ai;
+        _ai.LocalServer.StateChanged += (_, _) => Application.Current?.Dispatcher.BeginInvoke(new Action(RaiseAiState));
         _tasksChanged = tasksChanged;
         WebShortcuts = new(_settings.Current.WebShortcuts.OrderBy(x=>x.SortOrder).Select(x=>WebShortcutEditorViewModel.From(x,ShortcutPasswordMask))); SelectedWebShortcut=WebShortcuts.FirstOrDefault();
         WikiSources = new ObservableCollection<WikiSourceEditorViewModel>(_settings.Current.WikiSources.Select(x => WikiSourceEditorViewModel.FromModel(x, WikiSecretMask, x.Id == _settings.Current.DefaultWikiSourceId)));
@@ -281,9 +281,9 @@ public class SettingsViewModel : ObservableObject
         _hourlyUpdateTimer = new DispatcherTimer { Interval = TimeSpan.FromHours(1) };
         _hourlyUpdateTimer.Tick += async (_, _) => await RunHourlyUpdateCheckAsync();
         TestReminderCommand = new RelayCommand(() => _notifications.ShowTestNotification());
-        TestAiCommand = new RelayCommand(async () => await TestAiAsync(), () => AiEnabled && !_isAiOperationRunning);
+        TestAiCommand = new RelayCommand(async () => await TestAiAsync(), () => AiEnabled && !_isAiOperationRunning && (!IsLocalAiProvider || _ai.LocalServer.IsReady));
         DownloadAiModelCommand = new RelayCommand(async () => await DownloadAiModelAsync(), () => AiEnabled && IsLocalAiProvider && !_isAiOperationRunning);
-        StartLocalAiCommand = new RelayCommand(StartLocalAi, () => AiEnabled && IsLocalAiProvider && !_ai.LocalServer.IsRunning);
+        StartLocalAiCommand = new RelayCommand(async () => await StartLocalAiAsync(), () => AiEnabled && IsLocalAiProvider && !_isAiOperationRunning && !_ai.LocalServer.IsReady);
         StopLocalAiCommand = new RelayCommand(StopLocalAi, () => _ai.LocalServer.IsRunning);
         RefreshOutlookCalendarCommand = new RelayCommand(async () => await _outlookCalendar.TriggerSyncAsync("manual-button"));
         TestOutlookConnectionCommand = new RelayCommand(TestOutlookConnection);
@@ -321,17 +321,17 @@ public class SettingsViewModel : ObservableObject
     private async Task DownloadAiModelAsync()
     {
         SetAiBusy(true); AiDownloadProgress = 0; AiStatus = "Modell wird heruntergeladen …";
-        try { await _ai.LocalServer.DownloadModelAsync(new Progress<int>(value => AiDownloadProgress = value)); AiStatus = "Modell erfolgreich heruntergeladen."; }
+        try { await _ai.LocalServer.DownloadModelAsync(AiLocalPreset, new Progress<int>(value => { AiDownloadProgress = value; Raise(nameof(AiLocalServerStatus)); })); AiStatus = "Modell erfolgreich heruntergeladen und geprüft."; }
         catch (Exception ex) { AiStatus = DescribeAiError(ex); }
         finally { SetAiBusy(false); }
     }
 
-    private void StartLocalAi() { try { _ai.LocalServer.Start(); AiStatus = "Lokaler llama.cpp-Server wurde gestartet."; } catch (Exception ex) { AiStatus = DescribeAiError(ex); } RaiseAiState(); }
+    private async Task StartLocalAiAsync() { SetAiBusy(true); try { await _ai.LocalServer.InstallAndStartAsync(new Progress<int>(value => { AiDownloadProgress = value; Raise(nameof(AiLocalServerStatus)); })); AiStatus = "Bereit"; } catch (Exception ex) { AiStatus = DescribeAiError(ex); } finally { SetAiBusy(false); RaiseAiState(); } }
     private void StopLocalAi() { try { _ai.LocalServer.Stop(); AiStatus = "Lokaler llama.cpp-Server wurde gestoppt."; } catch (Exception ex) { AiStatus = DescribeAiError(ex); } RaiseAiState(); }
     private void SetAiBusy(bool value) { _isAiOperationRunning = value; RaiseAiState(); }
     private void RaiseAiState()
     {
-        Raise(nameof(IsOpenAiProvider)); Raise(nameof(IsLocalAiProvider)); Raise(nameof(AiLocalServerStatus));
+        Raise(nameof(IsOpenAiProvider)); Raise(nameof(IsLocalAiProvider)); Raise(nameof(AiLocalServerStatus)); Raise(nameof(AiLocalLicense)); Raise(nameof(AiLocalPreset));
         TestAiCommand?.RaiseCanExecuteChanged(); DownloadAiModelCommand?.RaiseCanExecuteChanged(); StartLocalAiCommand?.RaiseCanExecuteChanged(); StopLocalAiCommand?.RaiseCanExecuteChanged();
     }
     private static string DescribeAiError(Exception ex) => ex switch

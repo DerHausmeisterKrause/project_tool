@@ -7,10 +7,7 @@ public class AppSettings
     public string AiApiBaseUrl { get; set; } = "https://api.openai.com/v1";
     public string AiApiKeyEncrypted { get; set; } = string.Empty;
     public string AiModel { get; set; } = string.Empty;
-    public string AiLocalServerExecutablePath { get; set; } = string.Empty;
-    public string AiLocalModelPath { get; set; } = string.Empty;
-    public string AiLocalModelDownloadUrl { get; set; } = string.Empty;
-    public int AiLocalServerPort { get; set; } = 8080;
+    public LocalAiPreset AiLocalPreset { get; set; } = LocalAiPreset.Light;
     public string ClientInstanceId { get; set; } = string.Empty;
     public bool ShowAllCandidatePoolTickets { get; set; }
     // Bootstrap/delivery version for fresh settings created by this distribution.
@@ -126,6 +123,13 @@ public enum AiProviderType
 {
     OpenAiCompatible = 0,
     LocalLlama = 1
+}
+
+public enum LocalAiPreset
+{
+    Light = 0,
+    Middle = 1,
+    High = 2
 }
 
 public sealed class WebShortcutSettings
