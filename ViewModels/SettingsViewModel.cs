@@ -320,8 +320,8 @@ public class SettingsViewModel : ObservableObject
 
     private async Task DownloadAiModelAsync()
     {
-        SetAiBusy(true); AiDownloadProgress = 0; AiStatus = "Modell wird heruntergeladen …";
-        try { await _ai.LocalServer.DownloadModelAsync(AiLocalPreset, new Progress<int>(value => { AiDownloadProgress = value; Raise(nameof(AiLocalServerStatus)); })); AiStatus = "Modell erfolgreich heruntergeladen und geprüft."; }
+        SetAiBusy(true); AiDownloadProgress = 0; AiStatus = "Lokale KI wird eingerichtet …";
+        try { await _ai.LocalServer.InstallAsync(new Progress<int>(value => { AiDownloadProgress = value; Raise(nameof(AiLocalServerStatus)); })); AiStatus = "Lokale KI ist installiert."; }
         catch (Exception ex) { AiStatus = DescribeAiError(ex); }
         finally { SetAiBusy(false); }
     }

@@ -29,16 +29,40 @@ public sealed class AiServiceTests
     }
 
     [Fact]
-    public async Task HashValidation_RejectsMismatchAndPartIsNotAValidModel()
+    public async Task ModelValidation_RejectsPartFileAndHashMismatch()
     {
-        var file = Path.GetTempFileName();
+        var directory = Directory.CreateTempSubdirectory();
+        var file = Path.Combine(directory.FullName, "model.gguf");
         try
         {
-            await File.WriteAllTextAsync(file, "not a model");
-            Assert.False(await LocalLlamaServerManager.HasSha256Async(file, new string('0', 64)));
-            Assert.EndsWith(".part", file + ".part", StringComparison.Ordinal);
+            await File.WriteAllTextAsync(file, "valid model bytes");
+            var expectedHash = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(await File.ReadAllBytesAsync(file)));
+            await File.WriteAllTextAsync(file + ".part", "incomplete download");
+
+            Assert.False(await LocalLlamaServerManager.IsModelFileValidAsync(file, expectedHash));
+
+            File.Delete(file + ".part");
+            Assert.False(await LocalLlamaServerManager.IsModelFileValidAsync(file, new string('0', 64)));
         }
-        finally { File.Delete(file); }
+        finally { directory.Delete(true); }
+    }
+
+    [Fact]
+    public async Task DownloadPromotion_DeletesPartFileAfterHashMismatch()
+    {
+        var directory = Directory.CreateTempSubdirectory();
+        var part = Path.Combine(directory.FullName, "model.gguf.part");
+        var destination = Path.Combine(directory.FullName, "model.gguf");
+        try
+        {
+            await File.WriteAllTextAsync(part, "corrupt download");
+
+            await Assert.ThrowsAsync<InvalidDataException>(() => LocalLlamaServerManager.PromoteVerifiedDownloadAsync(part, destination, new string('0', 64)));
+
+            Assert.False(File.Exists(part));
+            Assert.False(File.Exists(destination));
+        }
+        finally { directory.Delete(true); }
     }
 
     [Fact]

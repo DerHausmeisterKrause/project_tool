@@ -93,5 +93,6 @@
 - Lokale KI kann über automatisch verwaltetes llama.cpp betrieben werden
 - Drei lokale Modellgrößen Light, Middle und High stehen zur Auswahl
 - Benötigte Runtime- und Modelldateien werden bei Bedarf automatisch heruntergeladen und geprüft
+- Die Einrichtung lokaler KI bereitet Runtime und Modell jetzt gemeinsam vor und verwirft unvollständige oder fehlerhaft geprüfte Downloads zuverlässig
 - Aktivierte lokale Modelle werden beim Programmstart im Hintergrund vorgeladen
 - Lokale und externe KI können über einen echten Testrequest geprüft werden
