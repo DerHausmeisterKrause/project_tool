@@ -7,6 +7,7 @@ in this repository.
 
 - Source: `ggml-org/llama.cpp`
 - License: MIT
+- Plenaro-approved runtime version: `b11081`
 
 ## Qwen3 1.7B
 

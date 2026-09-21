@@ -10,69 +10,78 @@ namespace TaskTool.Tests;
 public sealed class AiServiceTests
 {
     [Fact]
-    public void RuntimeReleaseSelection_SkipsNightlyMetadataAndSelectsPrerelease()
+    public void RuntimeCatalog_ContainsPinnedApprovedBuild()
     {
-        var releases = new[]
-        {
-            Release("nightly", draft: false, prerelease: false, "nightly-tag.txt"),
-            Release("b10938", draft: false, prerelease: true, "llama-bin-win-cpu-x64.zip")
-        };
-
-        var selected = LocalLlamaServerManager.SelectLatestWindowsX64CpuRelease(releases);
-
-        Assert.Equal("b10938", selected!.ReleaseTag);
-        Assert.Equal("llama-bin-win-cpu-x64.zip", selected.Name);
+        var runtime = LocalAiRuntimeCatalog.Current;
+        Assert.Equal("b11081", runtime.Version);
+        Assert.Equal("llama-b11081-bin-win-cpu-x64.zip", runtime.FileName);
+        Assert.Equal("https://github.com/ggml-org/llama.cpp/releases/download/b11081/llama-b11081-bin-win-cpu-x64.zip", runtime.DownloadUrl);
+        Assert.Equal(Uri.UriSchemeHttps, new Uri(runtime.DownloadUrl).Scheme);
+        Assert.Matches("^[0-9a-f]{64}$", runtime.Sha256);
+        Assert.Equal("48f13c153946cca8543fd3ab915709ec5f340bfe1f38c687121b3d58f848b7b2", runtime.Sha256);
+        Assert.Equal("win-cpu-x64", runtime.Platform);
+        Assert.Equal("MIT", runtime.License);
     }
 
     [Fact]
-    public void RuntimeReleaseSelection_SkipsReleaseContainingOnlyCudaAndVulkan()
+    public async Task RuntimeValidation_AcceptsMatchingMetadata()
     {
-        var releases = new[]
+        var directory = Directory.CreateTempSubdirectory();
+        try
         {
-            Release("b10939", false, true, "llama-bin-win-cuda-12.4-x64.zip", "llama-bin-win-vulkan-x64.zip"),
-            Release("b10938", false, true, "llama-bin-win-cpu-x64.zip")
-        };
+            var executable = Path.Combine(directory.FullName, "llama-server.exe");
+            var metadata = Path.Combine(directory.FullName, "runtime.json");
+            await File.WriteAllTextAsync(executable, "test");
+            await File.WriteAllTextAsync(metadata, """
+                {"provider":"llama.cpp","version":"b11081","platform":"win-cpu-x64","archiveSha256":"48f13c153946cca8543fd3ab915709ec5f340bfe1f38c687121b3d58f848b7b2"}
+                """);
 
-        Assert.Equal("b10938", LocalLlamaServerManager.SelectLatestWindowsX64CpuRelease(releases)!.ReleaseTag);
+            Assert.True(LocalLlamaServerManager.IsRuntimeInstalled(executable, metadata, LocalAiRuntimeCatalog.Current));
+        }
+        finally { directory.Delete(true); }
     }
 
     [Fact]
-    public void RuntimeReleaseSelection_SkipsDraftContainingCpuAsset()
+    public async Task RuntimeValidation_RejectsMissingMetadataAndOtherVersion()
     {
-        var releases = new[]
+        var directory = Directory.CreateTempSubdirectory();
+        try
         {
-            Release("draft", true, false, "llama-bin-win-cpu-x64.zip"),
-            Release("published", false, false, "LLAMA-BIN-WIN-CPU-X64.ZIP")
-        };
+            var executable = Path.Combine(directory.FullName, "llama-server.exe");
+            var metadata = Path.Combine(directory.FullName, "runtime.json");
+            await File.WriteAllTextAsync(executable, "test");
 
-        Assert.Equal("published", LocalLlamaServerManager.SelectLatestWindowsX64CpuRelease(releases)!.ReleaseTag);
+            Assert.False(LocalLlamaServerManager.IsRuntimeInstalled(executable, metadata, LocalAiRuntimeCatalog.Current));
+
+            await File.WriteAllTextAsync(metadata, """
+                {"provider":"llama.cpp","version":"b10938","platform":"win-cpu-x64","archiveSha256":"48f13c153946cca8543fd3ab915709ec5f340bfe1f38c687121b3d58f848b7b2"}
+                """);
+            Assert.False(LocalLlamaServerManager.IsRuntimeInstalled(executable, metadata, LocalAiRuntimeCatalog.Current));
+        }
+        finally { directory.Delete(true); }
     }
 
     [Fact]
-    public void RuntimeReleaseSelection_AcceptsPrereleaseContainingCpuAsset()
+    public async Task RuntimeArchiveHashMismatch_IsRejectedAndPartIsDeleted()
     {
-        var selected = LocalLlamaServerManager.SelectLatestWindowsX64CpuRelease(new[]
+        var directory = Directory.CreateTempSubdirectory();
+        var part = Path.Combine(directory.FullName, "runtime.zip.part");
+        var runtime = Path.Combine(directory.FullName, "llama.cpp");
+        try
         {
-            Release("b10938", false, true, "llama-bin-win-cpu-x64.zip")
-        });
+            Directory.CreateDirectory(runtime);
+            var existingExecutable = Path.Combine(runtime, "llama-server.exe");
+            await File.WriteAllTextAsync(existingExecutable, "existing working runtime");
+            await File.WriteAllTextAsync(part, "not the approved archive");
 
-        Assert.Equal("b10938", selected!.ReleaseTag);
+            var exception = await Assert.ThrowsAsync<InvalidDataException>(() =>
+                LocalLlamaServerManager.InstallRuntimeArchiveAsync(part, runtime, LocalAiRuntimeCatalog.Current, () => { }));
+            Assert.Equal("Die heruntergeladene llama.cpp-Runtime konnte nicht verifiziert werden.", exception.Message);
+            Assert.False(File.Exists(part));
+            Assert.True(File.Exists(existingExecutable));
+        }
+        finally { directory.Delete(true); }
     }
-
-    [Fact]
-    public void RuntimeReleaseSelection_ReturnsNoMatchWhenCpuAssetIsAbsent()
-    {
-        var releases = new[]
-        {
-            Release("nightly", false, false, "nightly-tag.txt"),
-            Release("gpu", false, true, "llama-bin-win-cpu-arm64.zip", "llama-bin-win-vulkan-x64.zip", "llama-bin-win-sycl-x64.zip", "llama-bin-win-openvino-2026-x64.zip", "llama-bin-win-rocm-x64.zip")
-        };
-
-        Assert.Null(LocalLlamaServerManager.SelectLatestWindowsX64CpuRelease(releases));
-    }
-
-    private static LlamaRelease Release(string tag, bool draft, bool prerelease, params string[] assetNames)
-        => new(tag, draft, prerelease, assetNames.Select(name => new LlamaReleaseAsset(name)).ToArray());
 
     [Fact]
     public void Settings_HaveSafeAiDefaults()

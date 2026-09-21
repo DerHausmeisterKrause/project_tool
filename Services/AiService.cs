@@ -38,10 +38,6 @@ public sealed class OpenAiCompatibleAiProvider : IAiService
 
 public enum LocalAiStatus { NotInstalled, DownloadingRuntime, DownloadingModel, VerifyingSha256, Installed, LoadingModel, Ready, Error }
 
-internal sealed record LlamaRelease(string TagName, bool Draft, bool Prerelease, IReadOnlyList<LlamaReleaseAsset> Assets);
-internal sealed record LlamaReleaseAsset(string Name, string? DownloadUrl = null, string? Digest = null);
-internal sealed record LlamaRuntimeAsset(string ReleaseTag, string Name, string? DownloadUrl, string? Digest);
-
 public sealed class AiService : IDisposable
 {
     public const string TestSystemPrompt = "Folge der Benutzeranweisung exakt. Gib keine zusätzlichen Erklärungen aus.";
@@ -70,16 +66,14 @@ public sealed class AiService : IDisposable
 public sealed class LocalLlamaServerManager : IDisposable
 {
     public const string Host = "127.0.0.1";
-    private const string ReleasesApi = "https://api.github.com/repos/ggml-org/llama.cpp/releases";
-    private const int ReleasesPerPage = 30;
-    private const int MaxReleasePages = 3;
-    internal const string WindowsX64CpuAssetName = "llama-bin-win-cpu-x64.zip";
+    private static readonly JsonSerializerOptions RuntimeJsonOptions = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase, PropertyNameCaseInsensitive = true, WriteIndented = true };
     private readonly SettingsService _settings; private readonly LoggerService _logger; private readonly HttpClient _httpClient; private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly Queue<string> _diagnostics = new(); private Process? _process; private int _port; private string _setupStage = "initialization";
     public LocalLlamaServerManager(SettingsService settings, LoggerService logger, HttpClient httpClient) { _settings = settings; _logger = logger; _httpClient = httpClient; }
     public string RootDirectory { get; } = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Plenaro", "AI");
     public string RuntimeDirectory => Path.Combine(RootDirectory, "runtime", "llama.cpp");
     public string RuntimeExecutable => Path.Combine(RuntimeDirectory, "llama-server.exe");
+    public string RuntimeMetadataPath => Path.Combine(RuntimeDirectory, "runtime.json");
     public string ModelPath(LocalAiPreset preset) => Path.Combine(RootDirectory, "models", preset.ToString().ToLowerInvariant(), LocalAiModelCatalog.Get(preset).FileName);
     public bool IsRunning => _process is { HasExited: false }; public bool IsReady { get; private set; }
     public string? ApiBaseUrl => _port == 0 ? null : $"http://{Host}:{_port}/v1";
@@ -127,7 +121,21 @@ public sealed class LocalLlamaServerManager : IDisposable
         var preset = _settings.Current.AiLocalPreset;
         _setupStage = "runtime-check";
         Log("Checking llama.cpp runtime");
-        if (!File.Exists(RuntimeExecutable)) await DownloadRuntimeAsync(progress, token);
+        var runtime = LocalAiRuntimeCatalog.Current;
+        Log($"Required llama.cpp runtime={runtime.Version}");
+        var installedMetadata = ReadRuntimeMetadata(RuntimeMetadataPath);
+        if (IsRuntimeInstalled(RuntimeExecutable, RuntimeMetadataPath, runtime))
+        {
+            Log($"Installed llama.cpp runtime={installedMetadata!.Version}");
+            Log("Runtime already installed");
+        }
+        else
+        {
+            if (installedMetadata != null && (!string.Equals(installedMetadata.Version, runtime.Version, StringComparison.Ordinal) ||
+                !string.Equals(installedMetadata.ArchiveSha256, runtime.Sha256, StringComparison.OrdinalIgnoreCase)))
+                Log($"Runtime update required installed={installedMetadata.Version} required={runtime.Version}");
+            await DownloadRuntimeAsync(progress, token);
+        }
         _setupStage = "model-check";
         Log($"Checking model preset={preset}");
         if (!await IsModelValidAsync(preset, token))
@@ -171,73 +179,25 @@ public sealed class LocalLlamaServerManager : IDisposable
 
     private async Task DownloadRuntimeAsync(IProgress<int>? progress, CancellationToken token)
     {
-        _setupStage = "runtime-metadata";
+        var runtime = LocalAiRuntimeCatalog.Current;
+        if (!Uri.TryCreate(runtime.DownloadUrl, UriKind.Absolute, out var url) || url.Scheme != Uri.UriSchemeHttps)
+            throw new InvalidOperationException("Die Runtime darf nur über HTTPS geladen werden.");
         SetStatus(LocalAiStatus.DownloadingRuntime);
-        LlamaRuntimeAsset? selection = null;
-        for (var page = 1; page <= MaxReleasePages && selection == null; page++)
-        {
-            Log($"Fetching llama.cpp release list page={page}");
-            using var request = new HttpRequestMessage(HttpMethod.Get, $"{ReleasesApi}?per_page={ReleasesPerPage}&page={page}");
-            request.Headers.UserAgent.ParseAdd("Plenaro/1.0");
-            using var response = await _httpClient.SendAsync(request, token);
-            if (!response.IsSuccessStatusCode) throw new HttpRequestException($"llama.cpp-Release-Metadaten konnten nicht geladen werden (HTTP {(int)response.StatusCode}).", null, response.StatusCode);
-            await using var responseStream = await response.Content.ReadAsStreamAsync(token);
-            using var json = await JsonDocument.ParseAsync(responseStream, cancellationToken: token);
-            var releases = ParseReleases(json.RootElement);
-            selection = SelectLatestWindowsX64CpuRelease(releases);
-            if (releases.Count < ReleasesPerPage) break;
-        }
-        if (selection == null)
-        {
-            _logger.Error($"[AI] No published llama.cpp release containing {WindowsX64CpuAssetName} found in first {ReleasesPerPage * MaxReleasePages} releases.");
-            throw new InvalidDataException("Kein veröffentlichter llama.cpp-Release mit Windows-x64-CPU-Runtime gefunden.");
-        }
-        Log($"Selected llama.cpp release={selection.ReleaseTag}");
-        Log($"Selected runtime asset={selection.Name}");
-        if (!Uri.TryCreate(selection.DownloadUrl, UriKind.Absolute, out var url) || url.Scheme != Uri.UriSchemeHttps ||
-            !string.Equals(url.Host, "github.com", StringComparison.OrdinalIgnoreCase) ||
-            !url.AbsolutePath.StartsWith("/ggml-org/llama.cpp/releases/download/", StringComparison.OrdinalIgnoreCase))
-            throw new InvalidDataException("Das Runtime-Asset verweist nicht auf die erwartete HTTPS-GitHub-Quelle.");
         _setupStage = "runtime-download";
         Directory.CreateDirectory(RootDirectory); var part = Path.Combine(RootDirectory, "llama-runtime.zip.part");
-        try { Log("Downloading llama.cpp runtime"); await DownloadAsync(url, part, progress, token); Log("Runtime download completed"); if (selection.Digest is { } value && value.StartsWith("sha256:", StringComparison.OrdinalIgnoreCase)) { if (!await HasSha256Async(part, value[7..], token)) throw new InvalidDataException("Die SHA256-Prüfsumme der Runtime stimmt nicht überein."); Log("Runtime SHA256 verified"); } ExtractZipSafely(part, RuntimeDirectory); NormalizeRuntimeLayout(); if (!File.Exists(RuntimeExecutable)) throw new InvalidDataException("llama-server.exe fehlt im Runtime-Archiv."); Log("Runtime extracted"); }
+        try
+        {
+            Log($"Installing llama.cpp runtime={runtime.Version}");
+            Log($"Downloading runtime asset={runtime.FileName}");
+            await DownloadAsync(url, part, progress, token);
+            if (!await HasSha256Async(part, runtime.Sha256, token))
+                throw new InvalidDataException("Die heruntergeladene llama.cpp-Runtime konnte nicht verifiziert werden.");
+            Log("Runtime SHA256 verified");
+            await InstallRuntimeArchiveAsync(part, RuntimeDirectory, runtime, Stop, token);
+            Log("Runtime extracted");
+            Log($"Runtime installation completed version={runtime.Version}");
+        }
         finally { if (File.Exists(part)) File.Delete(part); }
-    }
-
-    internal static LlamaRuntimeAsset? SelectLatestWindowsX64CpuRelease(IEnumerable<LlamaRelease> releases)
-    {
-        foreach (var release in releases)
-        {
-            if (release.Draft) continue;
-            var asset = release.Assets.FirstOrDefault(item => string.Equals(item.Name, WindowsX64CpuAssetName, StringComparison.OrdinalIgnoreCase));
-            if (asset != null) return new LlamaRuntimeAsset(release.TagName, asset.Name, asset.DownloadUrl, asset.Digest);
-        }
-        return null;
-    }
-
-    private static IReadOnlyList<LlamaRelease> ParseReleases(JsonElement root)
-    {
-        if (root.ValueKind != JsonValueKind.Array) throw new InvalidDataException("Die llama.cpp-Release-Antwort enthält keine gültige Releaseliste.");
-        var releases = new List<LlamaRelease>();
-        foreach (var item in root.EnumerateArray().Where(item => item.ValueKind == JsonValueKind.Object))
-        {
-            var tag = item.TryGetProperty("tag_name", out var tagElement) && tagElement.ValueKind == JsonValueKind.String ? tagElement.GetString() ?? string.Empty : string.Empty;
-            var draft = item.TryGetProperty("draft", out var draftElement) && draftElement.ValueKind == JsonValueKind.True;
-            var prerelease = item.TryGetProperty("prerelease", out var prereleaseElement) && prereleaseElement.ValueKind == JsonValueKind.True;
-            var assets = new List<LlamaReleaseAsset>();
-            if (item.TryGetProperty("assets", out var assetsElement) && assetsElement.ValueKind == JsonValueKind.Array)
-            {
-                foreach (var asset in assetsElement.EnumerateArray().Where(asset => asset.ValueKind == JsonValueKind.Object))
-                {
-                    var name = asset.TryGetProperty("name", out var nameElement) && nameElement.ValueKind == JsonValueKind.String ? nameElement.GetString() ?? string.Empty : string.Empty;
-                    var downloadUrl = asset.TryGetProperty("browser_download_url", out var urlElement) && urlElement.ValueKind == JsonValueKind.String ? urlElement.GetString() : null;
-                    var digest = asset.TryGetProperty("digest", out var digestElement) && digestElement.ValueKind == JsonValueKind.String ? digestElement.GetString() : null;
-                    assets.Add(new LlamaReleaseAsset(name, downloadUrl, digest));
-                }
-            }
-            releases.Add(new LlamaRelease(tag, draft, prerelease, assets));
-        }
-        return releases;
     }
 
     private void Log(string message) => _logger.OperationalInfo($"[AI] {message}");
@@ -258,13 +218,74 @@ public sealed class LocalLlamaServerManager : IDisposable
         Directory.CreateDirectory(destination); var root = Path.GetFullPath(destination) + Path.DirectorySeparatorChar; using var zip = ZipFile.OpenRead(archive);
         foreach (var entry in zip.Entries) { var path = Path.GetFullPath(Path.Combine(destination, entry.FullName)); if (!path.StartsWith(root, StringComparison.OrdinalIgnoreCase)) throw new InvalidDataException("Unsicherer Pfad im Runtime-Archiv."); if (string.IsNullOrEmpty(entry.Name)) Directory.CreateDirectory(path); else { Directory.CreateDirectory(Path.GetDirectoryName(path)!); entry.ExtractToFile(path, true); } }
     }
-    private void NormalizeRuntimeLayout()
+
+    internal static bool IsRuntimeInstalled(string executablePath, string metadataPath, LocalAiRuntimeDefinition required)
     {
-        if (File.Exists(RuntimeExecutable)) return;
-        var executable = Directory.EnumerateFiles(RuntimeDirectory, "llama-server.exe", SearchOption.AllDirectories).FirstOrDefault();
+        var metadata = ReadRuntimeMetadata(metadataPath);
+        return File.Exists(executablePath) && metadata != null &&
+            string.Equals(metadata.Provider, "llama.cpp", StringComparison.Ordinal) &&
+            string.Equals(metadata.Version, required.Version, StringComparison.Ordinal) &&
+            string.Equals(metadata.Platform, required.Platform, StringComparison.Ordinal) &&
+            string.Equals(metadata.ArchiveSha256, required.Sha256, StringComparison.OrdinalIgnoreCase);
+    }
+
+    internal static LocalAiRuntimeMetadata? ReadRuntimeMetadata(string metadataPath)
+    {
+        if (!File.Exists(metadataPath)) return null;
+        try
+        {
+            return JsonSerializer.Deserialize<LocalAiRuntimeMetadata>(File.ReadAllText(metadataPath), RuntimeJsonOptions);
+        }
+        catch (JsonException) { return null; }
+        catch (IOException) { return null; }
+        catch (UnauthorizedAccessException) { return null; }
+    }
+
+    internal static async Task InstallRuntimeArchiveAsync(string partPath, string runtimeDirectory, LocalAiRuntimeDefinition runtime, Action stopRunningRuntime, CancellationToken token = default)
+    {
+        var parent = Path.GetDirectoryName(runtimeDirectory) ?? throw new InvalidOperationException("Das Runtime-Verzeichnis besitzt kein übergeordnetes Verzeichnis.");
+        Directory.CreateDirectory(parent);
+        var staging = Path.Combine(parent, $"llama.cpp.install-{Guid.NewGuid():N}");
+        var backup = Path.Combine(parent, $"llama.cpp.backup-{Guid.NewGuid():N}");
+        try
+        {
+            if (!await HasSha256Async(partPath, runtime.Sha256, token))
+                throw new InvalidDataException("Die heruntergeladene llama.cpp-Runtime konnte nicht verifiziert werden.");
+            ExtractZipSafely(partPath, staging);
+            NormalizeRuntimeLayout(staging);
+            if (!File.Exists(Path.Combine(staging, "llama-server.exe")))
+                throw new InvalidDataException("llama-server.exe fehlt im Runtime-Archiv.");
+            var metadata = new LocalAiRuntimeMetadata("llama.cpp", runtime.Version, runtime.Platform, runtime.Sha256);
+            await File.WriteAllTextAsync(Path.Combine(staging, "runtime.json"), JsonSerializer.Serialize(metadata, RuntimeJsonOptions), token);
+
+            stopRunningRuntime();
+            if (Directory.Exists(runtimeDirectory)) Directory.Move(runtimeDirectory, backup);
+            try
+            {
+                Directory.Move(staging, runtimeDirectory);
+            }
+            catch
+            {
+                if (Directory.Exists(backup) && !Directory.Exists(runtimeDirectory)) Directory.Move(backup, runtimeDirectory);
+                throw;
+            }
+            if (Directory.Exists(backup)) Directory.Delete(backup, true);
+        }
+        finally
+        {
+            if (Directory.Exists(staging)) Directory.Delete(staging, true);
+            if (File.Exists(partPath)) File.Delete(partPath);
+        }
+    }
+
+    private static void NormalizeRuntimeLayout(string runtimeDirectory)
+    {
+        var runtimeExecutable = Path.Combine(runtimeDirectory, "llama-server.exe");
+        if (File.Exists(runtimeExecutable)) return;
+        var executable = Directory.EnumerateFiles(runtimeDirectory, "llama-server.exe", SearchOption.AllDirectories).FirstOrDefault();
         if (executable == null) return;
         var source = Path.GetDirectoryName(executable)!;
-        foreach (var file in Directory.EnumerateFiles(source)) File.Move(file, Path.Combine(RuntimeDirectory, Path.GetFileName(file)), true);
+        foreach (var file in Directory.EnumerateFiles(source)) File.Move(file, Path.Combine(runtimeDirectory, Path.GetFileName(file)), true);
     }
     internal static async Task<bool> HasSha256Async(string path, string expected, CancellationToken token = default) { await using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 131072, true); var hash = await SHA256.HashDataAsync(stream, token); return Convert.ToHexString(hash).Equals(expected, StringComparison.OrdinalIgnoreCase); }
 
@@ -280,6 +301,6 @@ public sealed class LocalLlamaServerManager : IDisposable
     }
     private void CaptureDiagnostic(object sender, DataReceivedEventArgs e) { if (string.IsNullOrWhiteSpace(e.Data)) return; lock (_diagnostics) { _diagnostics.Enqueue(e.Data); while (_diagnostics.Count > 30) _diagnostics.Dequeue(); } }
     internal static int GetFreePort() { var listener = new TcpListener(IPAddress.Loopback, 0); listener.Start(); var port = ((IPEndPoint)listener.LocalEndpoint).Port; listener.Stop(); return port; }
-    public void Stop() { IsReady = false; if (_process is { HasExited: false }) { _process.Kill(entireProcessTree: true); } _process?.Dispose(); _process = null; _port = 0; StateChanged?.Invoke(this, EventArgs.Empty); }
+    public void Stop() { IsReady = false; if (_process is { HasExited: false }) { _process.Kill(entireProcessTree: true); _process.WaitForExit(5000); } _process?.Dispose(); _process = null; _port = 0; StateChanged?.Invoke(this, EventArgs.Empty); }
     public void Dispose() { Stop(); _gate.Dispose(); }
 }
