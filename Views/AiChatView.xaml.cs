@@ -1,6 +1,8 @@
 using System.Collections.Specialized;
 using System.Windows.Controls;
 using System.Windows.Input;
+using System.Windows.Threading;
+using TaskTool.Models;
 using TaskTool.ViewModels;
 
 namespace TaskTool.Views;
@@ -19,7 +21,13 @@ public partial class AiChatView : UserControl
 
     private void MessagesOnCollectionChanged(object? sender, NotifyCollectionChangedEventArgs args)
     {
-        if (MessageList.Items.Count > 0) MessageList.ScrollIntoView(MessageList.Items[^1]);
+        Dispatcher.BeginInvoke(() =>
+        {
+            if (!IsLoaded) return;
+            MessageScrollViewer.ScrollToEnd();
+            if (args.NewItems?.OfType<AiChatMessage>().Any(message => message.IsUser) == true)
+                InputTextBox.Focus();
+        }, DispatcherPriority.Loaded);
     }
 
     private void InputTextBox_OnKeyDown(object sender, KeyEventArgs args)

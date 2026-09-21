@@ -18,17 +18,20 @@ public sealed class AiChatViewModel : ObservableObject
         """;
 
     private readonly IAiChatService _ai;
+    private readonly IClipboardService _clipboard;
     private readonly Action _openAiSettings;
     private string _inputText = string.Empty;
     private string _errorMessage = string.Empty;
     private bool _isSending;
 
-    public AiChatViewModel(IAiChatService ai, Action openAiSettings)
+    public AiChatViewModel(IAiChatService ai, IClipboardService clipboard, Action openAiSettings)
     {
         _ai = ai;
+        _clipboard = clipboard;
         _openAiSettings = openAiSettings;
         SendCommand = new RelayCommand(async () => await SendAsync(), () => CanSend);
         ClearCommand = new RelayCommand(Clear, () => Messages.Count > 0 && !IsSending);
+        CopyMessageCommand = new RelayCommand<AiChatMessage>(CopyMessage, CanCopyMessage);
         OpenAiSettingsCommand = new RelayCommand(_openAiSettings);
         _ai.StateChanged += (_, _) => RefreshState();
     }
@@ -37,6 +40,7 @@ public sealed class AiChatViewModel : ObservableObject
     public ObservableCollection<AiChatMessage> Messages { get; } = new();
     public RelayCommand SendCommand { get; }
     public RelayCommand ClearCommand { get; }
+    public RelayCommand<AiChatMessage> CopyMessageCommand { get; }
     public RelayCommand OpenAiSettingsCommand { get; }
     public bool IsEnabled => _ai.IsEnabled;
     public bool IsDisabled => !IsEnabled;
@@ -44,6 +48,7 @@ public sealed class AiChatViewModel : ObservableObject
     public string ProviderDescription => _ai.ProviderDescription;
     public string AvailabilityMessage => _ai.AvailabilityMessage;
     public string SendingStatus => IsSending ? "KI antwortet …" : string.Empty;
+    public bool HasMessages => Messages.Count > 0;
 
     public string InputText
     {
@@ -75,6 +80,7 @@ public sealed class AiChatViewModel : ObservableObject
         if (!CanSend) return;
         var text = InputText.Trim();
         Messages.Add(new AiChatMessage(AiChatRole.User, text, DateTime.Now));
+        Raise(nameof(HasMessages));
         InputText = string.Empty;
         ErrorMessage = string.Empty;
         IsSending = true;
@@ -104,11 +110,20 @@ public sealed class AiChatViewModel : ObservableObject
     private void Clear()
     {
         Messages.Clear();
+        Raise(nameof(HasMessages));
         ErrorMessage = string.Empty;
         ClearCommand.RaiseCanExecuteChanged();
     }
 
     public void ClearChat() => Clear();
+
+    private bool CanCopyMessage(AiChatMessage? message)
+        => message?.IsAssistant == true && !string.IsNullOrWhiteSpace(message.Content);
+
+    private void CopyMessage(AiChatMessage? message)
+    {
+        if (CanCopyMessage(message)) _clipboard.SetText(message!.Content);
+    }
 
     private void RefreshState()
     {
