@@ -17,6 +17,7 @@ public class MainViewModel : ObservableObject
     private readonly List<WebShortcutViewModel> _webShortcutViews = new();
     private readonly LoggerService _logger;
     public SettingsViewModel SettingsViewModel { get; }
+    public AiChatViewModel AiChatViewModel { get; }
     public string InstalledVersion => ServiceLocator.AppVersion.InstalledVersionText;
     public RelayCommand<string> NavigateToSettingsCommand { get; }
 
@@ -112,8 +113,9 @@ public class MainViewModel : ObservableObject
         _reportsViewModel = new ReportsViewModel(taskService, workDayService, settingsService, germanTime, logger);
         SettingsViewModel = new SettingsViewModel(settingsService, notifications, outlookCalendar, taskService, ticketSystem, updates, aiService);
         NavigateToSettingsCommand = new RelayCommand<string>(NavigateToSettings);
+        AiChatViewModel = new AiChatViewModel(aiService, () => NavigateToSettings("KI"));
 
-        NavigationItems = new ObservableCollection<object> { TodayViewModel, _weekViewModel, _ticketSystemViewModel, _reportsViewModel, SettingsViewModel };
+        NavigationItems = new ObservableCollection<object> { TodayViewModel, _weekViewModel, _ticketSystemViewModel, _reportsViewModel, AiChatViewModel, SettingsViewModel };
         settingsService.SettingsChanged += RefreshDynamicNavigation;
         RefreshDynamicNavigation();
         _selectedView = TodayViewModel;

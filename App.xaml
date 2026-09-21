@@ -260,6 +260,9 @@
                 <views:WikiBrowserView />
             </DataTemplate>
             <DataTemplate DataType="{x:Type vm:WebShortcutViewModel}"><views:WebShortcutView /></DataTemplate>
+            <DataTemplate DataType="{x:Type vm:AiChatViewModel}">
+                <views:AiChatView />
+            </DataTemplate>
             <DataTemplate DataType="{x:Type vm:SettingsViewModel}">
                 <views:SettingsView />
             </DataTemplate>

@@ -13,7 +13,21 @@ using TaskTool.Models;
 
 namespace TaskTool.Services;
 
-public interface IAiService { Task<string> SendAsync(string systemPrompt, string userPrompt, CancellationToken cancellationToken = default); }
+public interface IAiService
+{
+    Task<string> ChatAsync(IReadOnlyList<AiChatRequestMessage> messages, AiRequestOptions options, CancellationToken cancellationToken = default);
+    Task<string> SendAsync(string systemPrompt, string userPrompt, CancellationToken cancellationToken = default);
+}
+
+public interface IAiChatService
+{
+    bool IsEnabled { get; }
+    bool CanChat { get; }
+    string ProviderDescription { get; }
+    string AvailabilityMessage { get; }
+    event EventHandler? StateChanged;
+    Task<string> ChatAsync(IReadOnlyList<AiChatRequestMessage> messages, AiRequestOptions options, CancellationToken cancellationToken = default);
+}
 
 public sealed class OpenAiCompatibleAiProvider : IAiService
 {
@@ -21,13 +35,24 @@ public sealed class OpenAiCompatibleAiProvider : IAiService
     public OpenAiCompatibleAiProvider(HttpClient httpClient, string baseUrl, string model, string apiKey = "")
     { _httpClient = httpClient; _endpoint = BuildEndpoint(baseUrl); _model = string.IsNullOrWhiteSpace(model) ? throw new ArgumentException("Ein Modellname ist erforderlich.", nameof(model)) : model.Trim(); _apiKey = apiKey; }
     public async Task<string> SendAsync(string systemPrompt, string userPrompt, CancellationToken cancellationToken = default)
+        => await ChatAsync(
+            [new(AiChatRole.System, systemPrompt), new(AiChatRole.User, userPrompt)],
+            new AiRequestOptions(0, 32), cancellationToken);
+
+    public async Task<string> ChatAsync(IReadOnlyList<AiChatRequestMessage> messages, AiRequestOptions options, CancellationToken cancellationToken = default)
     {
-        using var request = new HttpRequestMessage(HttpMethod.Post, _endpoint) { Content = JsonContent.Create(new { model = _model, messages = new[] { new { role = "system", content = systemPrompt }, new { role = "user", content = userPrompt } }, temperature = 0, max_tokens = 32 }) };
+        ArgumentNullException.ThrowIfNull(messages);
+        if (messages.Count == 0) throw new ArgumentException("Mindestens eine Chat-Nachricht ist erforderlich.", nameof(messages));
+        if (options.MaxTokens <= 0) throw new ArgumentOutOfRangeException(nameof(options));
+        var requestMessages = messages.Select(message => new { role = message.Role.ToString().ToLowerInvariant(), content = message.Content }).ToArray();
+        using var request = new HttpRequestMessage(HttpMethod.Post, _endpoint) { Content = JsonContent.Create(new { model = _model, messages = requestMessages, temperature = options.Temperature, max_tokens = options.MaxTokens }) };
         if (!string.IsNullOrWhiteSpace(_apiKey)) request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _apiKey);
         using var response = await _httpClient.SendAsync(request, cancellationToken); response.EnsureSuccessStatusCode();
         await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken); using var document = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken);
         if (!document.RootElement.TryGetProperty("choices", out var choices) || choices.GetArrayLength() == 0 || !choices[0].TryGetProperty("message", out var message) || !message.TryGetProperty("content", out var content)) throw new InvalidDataException("Die KI-Antwort enthält keinen Text im erwarteten Chat-Completions-Format.");
-        return content.GetString()?.Trim() ?? string.Empty;
+        var answer = content.GetString()?.Trim() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(answer)) throw new InvalidDataException("Die KI-Antwort ist leer.");
+        return answer;
     }
     internal static Uri BuildEndpoint(string baseUrl)
     {
@@ -38,13 +63,25 @@ public sealed class OpenAiCompatibleAiProvider : IAiService
 
 public enum LocalAiStatus { NotInstalled, DownloadingRuntime, DownloadingModel, VerifyingSha256, Installed, LoadingModel, Ready, Error }
 
-public sealed class AiService : IDisposable
+public sealed class AiService : IAiChatService, IDisposable
 {
     public const string TestSystemPrompt = "Folge der Benutzeranweisung exakt. Gib keine zusätzlichen Erklärungen aus.";
     public const string TestUserPrompt = "Antworte ausschließlich mit exakt: Test erfolgreich";
-    private readonly SettingsService _settings; private readonly HttpClient _httpClient;
-    public AiService(SettingsService settings, LoggerService logger, HttpClient? httpClient = null) { _settings = settings; _httpClient = httpClient ?? new HttpClient { Timeout = TimeSpan.FromMinutes(10) }; LocalServer = new LocalLlamaServerManager(settings, logger, _httpClient); }
+    private readonly SettingsService _settings; private readonly HttpClient _httpClient; private readonly LoggerService _logger;
+    public AiService(SettingsService settings, LoggerService logger, HttpClient? httpClient = null) { _settings = settings; _logger = logger; _httpClient = httpClient ?? new HttpClient { Timeout = TimeSpan.FromMinutes(10) }; LocalServer = new LocalLlamaServerManager(settings, logger, _httpClient); LocalServer.StateChanged += OnStateChanged; _settings.SettingsChanged += OnSettingsChanged; }
     public LocalLlamaServerManager LocalServer { get; }
+    public bool IsEnabled => _settings.Current.AiEnabled;
+    public bool CanChat => IsEnabled && (_settings.Current.AiProvider != AiProviderType.LocalLlama || LocalServer.IsReady);
+    public string ProviderDescription => _settings.Current.AiProvider == AiProviderType.LocalLlama
+        ? $"Lokale KI · {_settings.Current.AiLocalPreset} · {LocalAiModelCatalog.Get(_settings.Current.AiLocalPreset).DisplayName.Split('–')[1].Trim()}"
+        : $"OpenAI-kompatible API · {_settings.Current.AiModel}";
+    public string AvailabilityMessage => !IsEnabled ? "KI ist deaktiviert.\nAktiviere und konfiguriere die KI in den Einstellungen."
+        : _settings.Current.AiProvider != AiProviderType.LocalLlama ? string.Empty
+        : LocalServer.Status == LocalAiStatus.Error ? $"Lokale KI ist nicht verfügbar. {LocalServer.LastError}".Trim()
+        : LocalServer.IsReady ? string.Empty : "Lokale KI wird geladen …";
+    public event EventHandler? StateChanged;
+    private void OnStateChanged(object? sender, EventArgs args) => StateChanged?.Invoke(this, EventArgs.Empty);
+    private void OnSettingsChanged() => StateChanged?.Invoke(this, EventArgs.Empty);
     public IAiService CreateProvider() => _settings.Current.AiProvider switch
     {
         AiProviderType.OpenAiCompatible => new OpenAiCompatibleAiProvider(_httpClient, _settings.Current.AiApiBaseUrl, _settings.Current.AiModel, _settings.GetAiApiKey()),
@@ -58,9 +95,29 @@ public sealed class AiService : IDisposable
         var answer = await CreateProvider().SendAsync(TestSystemPrompt, TestUserPrompt, cancellationToken);
         return Regex.Replace(answer, @"<think>[\s\S]*?</think>", "", RegexOptions.IgnoreCase).Trim();
     }
+    public async Task<string> ChatAsync(IReadOnlyList<AiChatRequestMessage> messages, AiRequestOptions options, CancellationToken cancellationToken = default)
+    {
+        if (!IsEnabled) throw new InvalidOperationException("KI ist deaktiviert.");
+        var providerName = _settings.Current.AiProvider.ToString();
+        var stopwatch = Stopwatch.StartNew();
+        _logger.OperationalInfo($"[AI] Chat request started provider={providerName}");
+        try
+        {
+            var answer = await CreateProvider().ChatAsync(messages, options, cancellationToken);
+            answer = Regex.Replace(answer, @"<think>[\s\S]*?</think>", "", RegexOptions.IgnoreCase).Trim();
+            if (string.IsNullOrWhiteSpace(answer)) throw new InvalidDataException("Die KI-Antwort ist leer.");
+            _logger.OperationalInfo($"[AI] Chat request completed provider={providerName} durationMs={stopwatch.ElapsedMilliseconds}");
+            return answer;
+        }
+        catch (Exception exception)
+        {
+            _logger.Error($"[AI] Chat request failed provider={providerName} type={exception.GetType().Name} message={exception.Message}");
+            throw;
+        }
+    }
     public async Task InitializeLocalInBackgroundAsync(CancellationToken token = default)
     { if (_settings.Current.AiEnabled && _settings.Current.AiProvider == AiProviderType.LocalLlama) await LocalServer.InstallAndStartAsync(null, token); }
-    public void Dispose() { LocalServer.Dispose(); _httpClient.Dispose(); }
+    public void Dispose() { LocalServer.StateChanged -= OnStateChanged; _settings.SettingsChanged -= OnSettingsChanged; LocalServer.Dispose(); _httpClient.Dispose(); }
 }
 
 public sealed class LocalLlamaServerManager : IDisposable
@@ -292,13 +349,16 @@ public sealed class LocalLlamaServerManager : IDisposable
     private async Task StartAndWaitForReadyAsync(LocalAiPreset preset, CancellationToken token)
     {
         _port = GetFreePort(); var info = new ProcessStartInfo(RuntimeExecutable) { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true };
-        foreach (var arg in new[] { "-m", ModelPath(preset), "--host", Host, "--port", _port.ToString(), "--ctx-size", "4096", "--parallel", "1", "--alias", LocalAiModelCatalog.Get(preset).LlamaAlias }) info.ArgumentList.Add(arg);
+        foreach (var arg in BuildServerArguments(ModelPath(preset), _port, LocalAiModelCatalog.Get(preset).LlamaAlias)) info.ArgumentList.Add(arg);
         _process = new Process { StartInfo = info, EnableRaisingEvents = true }; _process.OutputDataReceived += CaptureDiagnostic; _process.ErrorDataReceived += CaptureDiagnostic;
         if (!_process.Start()) throw new InvalidOperationException("llama.cpp konnte nicht gestartet werden."); _process.BeginOutputReadLine(); _process.BeginErrorReadLine(); SetStatus(LocalAiStatus.LoadingModel); _logger.Info($"[AI] Local llama.cpp server started host={Host} port={_port}.");
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(token); timeout.CancelAfter(TimeSpan.FromMinutes(3));
         while (!timeout.IsCancellationRequested) { if (_process.HasExited) throw new InvalidOperationException("llama.cpp wurde während des Ladens beendet. " + string.Join(" | ", _diagnostics)); try { using var response = await _httpClient.GetAsync($"http://{Host}:{_port}/health", timeout.Token); if (response.IsSuccessStatusCode) { IsReady = true; SetStatus(LocalAiStatus.Ready, 100); return; } } catch (HttpRequestException) { } await Task.Delay(500, timeout.Token); }
         throw new TimeoutException("llama.cpp wurde nicht innerhalb von drei Minuten bereit.");
     }
+
+    internal static IReadOnlyList<string> BuildServerArguments(string modelPath, int port, string alias) =>
+        ["-m", modelPath, "--host", Host, "--port", port.ToString(), "--ctx-size", "4096", "--parallel", "1", "--alias", alias, "--reasoning", "off"];
     private void CaptureDiagnostic(object sender, DataReceivedEventArgs e) { if (string.IsNullOrWhiteSpace(e.Data)) return; lock (_diagnostics) { _diagnostics.Enqueue(e.Data); while (_diagnostics.Count > 30) _diagnostics.Dequeue(); } }
     internal static int GetFreePort() { var listener = new TcpListener(IPAddress.Loopback, 0); listener.Start(); var port = ((IPEndPoint)listener.LocalEndpoint).Port; listener.Stop(); return port; }
     public void Stop() { IsReady = false; if (_process is { HasExited: false }) { _process.Kill(entireProcessTree: true); _process.WaitForExit(5000); } _process?.Dispose(); _process = null; _port = 0; StateChanged?.Invoke(this, EventArgs.Empty); }

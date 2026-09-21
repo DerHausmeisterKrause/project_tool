@@ -188,6 +188,57 @@ public sealed class AiServiceTests
         Assert.Null(captured.Headers.Authorization);
     }
 
+    [Fact]
+    public async Task OpenAiProvider_ChatUsesMessagesAndRequestOptions()
+    {
+        using var client = new HttpClient(new StubHandler(async request =>
+        {
+            var body = await request.Content!.ReadAsStringAsync();
+            using var json = JsonDocument.Parse(body);
+            Assert.Equal(0.3, json.RootElement.GetProperty("temperature").GetDouble(), 3);
+            Assert.Equal(1024, json.RootElement.GetProperty("max_tokens").GetInt32());
+            Assert.Equal("assistant", json.RootElement.GetProperty("messages")[1].GetProperty("role").GetString());
+            return Json(HttpStatusCode.OK, "{\"choices\":[{\"message\":{\"content\":\"beliebige gültige Antwort\"}}]}");
+        }));
+        var provider = new OpenAiCompatibleAiProvider(client, "http://localhost:1234", "model");
+
+        var answer = await provider.ChatAsync(
+            [new(AiChatRole.User, "Frage"), new(AiChatRole.Assistant, "Kontext")],
+            new AiRequestOptions());
+
+        Assert.Equal("beliebige gültige Antwort", answer);
+    }
+
+    [Fact]
+    public void LocalServerArguments_DisableReasoning()
+    {
+        var arguments = LocalLlamaServerManager.BuildServerArguments("model.gguf", 1234, "plenaro-local");
+        Assert.Contains("--reasoning", arguments);
+        var reasoningIndex = arguments.ToList().IndexOf("--reasoning");
+        Assert.Equal("off", arguments[reasoningIndex + 1]);
+    }
+
+    [Fact]
+    public async Task ConnectionTest_AcceptsAnyNonEmptyValidAssistantAnswer()
+    {
+        var directory = Directory.CreateTempSubdirectory();
+        try
+        {
+            var logger = new LoggerService();
+            var settings = new SettingsService(logger, Path.Combine(directory.FullName, "settings.json"));
+            settings.Current.AiEnabled = true;
+            settings.Current.AiProvider = AiProviderType.OpenAiCompatible;
+            settings.Current.AiApiBaseUrl = "http://localhost:1234";
+            settings.Current.AiModel = "model";
+            using var client = new HttpClient(new StubHandler(_ => Task.FromResult(
+                Json(HttpStatusCode.OK, "{\"choices\":[{\"message\":{\"content\":\"Verbindung steht.\"}}]}"))));
+            using var service = new AiService(settings, logger, client);
+
+            Assert.Equal("Verbindung steht.", await service.TestAsync());
+        }
+        finally { directory.Delete(true); }
+    }
+
     private static HttpResponseMessage Json(HttpStatusCode status, string body)
         => new(status) { Content = new StringContent(body, Encoding.UTF8, "application/json") };
 

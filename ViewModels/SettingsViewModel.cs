@@ -312,7 +312,7 @@ public class SettingsViewModel : ObservableObject
         try
         {
             var result = await _ai.TestAsync();
-            AiStatus = string.Equals(result, "Test erfolgreich", StringComparison.Ordinal) ? "Test erfolgreich" : $"Verbindung hergestellt, aber unerwartete Antwort: {result}";
+            AiStatus = string.IsNullOrWhiteSpace(result) ? "Die KI hat leer geantwortet." : "Test erfolgreich";
         }
         catch (Exception ex) { AiStatus = DescribeAiError(ex); }
         finally { SetAiBusy(false); }
