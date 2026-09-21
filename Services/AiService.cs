@@ -68,7 +68,7 @@ public sealed class LocalLlamaServerManager : IDisposable
     public const string Host = "127.0.0.1";
     private const string ReleasesApi = "https://api.github.com/repos/ggml-org/llama.cpp/releases/latest";
     private readonly SettingsService _settings; private readonly LoggerService _logger; private readonly HttpClient _httpClient; private readonly SemaphoreSlim _gate = new(1, 1);
-    private readonly Queue<string> _diagnostics = new(); private Process? _process; private int _port;
+    private readonly Queue<string> _diagnostics = new(); private Process? _process; private int _port; private string _setupStage = "initialization";
     public LocalLlamaServerManager(SettingsService settings, LoggerService logger, HttpClient httpClient) { _settings = settings; _logger = logger; _httpClient = httpClient; }
     public string RootDirectory { get; } = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Plenaro", "AI");
     public string RuntimeDirectory => Path.Combine(RootDirectory, "runtime", "llama.cpp");
@@ -77,6 +77,7 @@ public sealed class LocalLlamaServerManager : IDisposable
     public bool IsRunning => _process is { HasExited: false }; public bool IsReady { get; private set; }
     public string? ApiBaseUrl => _port == 0 ? null : $"http://{Host}:{_port}/v1";
     public LocalAiStatus Status { get; private set; } = LocalAiStatus.NotInstalled; public int Progress { get; private set; }
+    public string? LastError { get; private set; }
     public event EventHandler? StateChanged;
     private void SetStatus(LocalAiStatus status, int progress = 0) { Status = status; Progress = progress; StateChanged?.Invoke(this, EventArgs.Empty); }
 
@@ -86,11 +87,16 @@ public sealed class LocalLlamaServerManager : IDisposable
         try
         {
             if (!_settings.Current.AiEnabled || _settings.Current.AiProvider != AiProviderType.LocalLlama) return;
+            LastError = null;
+            var preset = _settings.Current.AiLocalPreset;
+            Log($"Local AI setup started preset={preset}");
             Stop();
-            var preset = await EnsureInstalledAsync(progress, token);
+            preset = await EnsureInstalledAsync(progress, token);
+            _setupStage = "server-start";
             await StartAndWaitForReadyAsync(preset, token);
+            Log("Local AI setup completed");
         }
-        catch { SetStatus(LocalAiStatus.Error); throw; }
+        catch (Exception exception) { HandleSetupFailure(exception); throw; }
         finally { _gate.Release(); }
     }
 
@@ -100,28 +106,38 @@ public sealed class LocalLlamaServerManager : IDisposable
         try
         {
             if (!_settings.Current.AiEnabled || _settings.Current.AiProvider != AiProviderType.LocalLlama) return;
+            LastError = null;
+            Log($"Local AI setup started preset={_settings.Current.AiLocalPreset}");
             await EnsureInstalledAsync(progress, token);
+            Log("Local AI setup completed");
         }
-        catch { SetStatus(LocalAiStatus.Error); throw; }
+        catch (Exception exception) { HandleSetupFailure(exception); throw; }
         finally { _gate.Release(); }
     }
 
     private async Task<LocalAiPreset> EnsureInstalledAsync(IProgress<int>? progress, CancellationToken token)
     {
         var preset = _settings.Current.AiLocalPreset;
+        _setupStage = "runtime-check";
+        Log("Checking llama.cpp runtime");
         if (!File.Exists(RuntimeExecutable)) await DownloadRuntimeAsync(progress, token);
+        _setupStage = "model-check";
+        Log($"Checking model preset={preset}");
         if (!await IsModelValidAsync(preset, token))
         {
+            Log("Model download started");
             var invalidModel = ModelPath(preset);
             if (File.Exists(invalidModel)) File.Delete(invalidModel);
             await DownloadModelAsync(preset, progress, token);
         }
+        else Log("Model already installed");
         SetStatus(LocalAiStatus.Installed, 100);
         return preset;
     }
 
     public async Task DownloadModelAsync(LocalAiPreset preset, IProgress<int>? progress = null, CancellationToken token = default)
     {
+        _setupStage = "model-download";
         var model = LocalAiModelCatalog.Get(preset); var uri = new Uri(model.DownloadUrl);
         if (uri.Scheme != Uri.UriSchemeHttps) throw new InvalidOperationException("Modelle dürfen nur über HTTPS geladen werden.");
         var destination = ModelPath(preset); var part = destination + ".part"; Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
@@ -129,6 +145,7 @@ public sealed class LocalLlamaServerManager : IDisposable
         {
             SetStatus(LocalAiStatus.DownloadingModel); await DownloadAsync(uri, part, progress, token); SetStatus(LocalAiStatus.VerifyingSha256);
             await PromoteVerifiedDownloadAsync(part, destination, model.Sha256, token);
+            Log("Model SHA256 verified");
         }
         finally { if (File.Exists(part)) File.Delete(part); }
     }
@@ -147,14 +164,54 @@ public sealed class LocalLlamaServerManager : IDisposable
 
     private async Task DownloadRuntimeAsync(IProgress<int>? progress, CancellationToken token)
     {
-        SetStatus(LocalAiStatus.DownloadingRuntime); using var request = new HttpRequestMessage(HttpMethod.Get, ReleasesApi); request.Headers.UserAgent.ParseAdd("Plenaro/1.0");
-        using var response = await _httpClient.SendAsync(request, token); response.EnsureSuccessStatusCode(); using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync(token));
-        var asset = json.RootElement.GetProperty("assets").EnumerateArray().FirstOrDefault(a => Regex.IsMatch(a.GetProperty("name").GetString() ?? "", @"^llama-.*-bin-win-cpu-x64\.zip$", RegexOptions.IgnoreCase));
-        if (asset.ValueKind == JsonValueKind.Undefined) throw new InvalidDataException("Kein offizielles Windows-x64-CPU-Asset gefunden.");
-        var url = new Uri(asset.GetProperty("browser_download_url").GetString()!); if (url.Scheme != Uri.UriSchemeHttps || url.Host != "github.com") throw new InvalidDataException("Ungültige Runtime-Quelle.");
+        _setupStage = "runtime-metadata";
+        SetStatus(LocalAiStatus.DownloadingRuntime);
+        Log("Fetching llama.cpp release metadata");
+        using var request = new HttpRequestMessage(HttpMethod.Get, ReleasesApi); request.Headers.UserAgent.ParseAdd("Plenaro/1.0");
+        using var response = await _httpClient.SendAsync(request, token);
+        if (!response.IsSuccessStatusCode) throw new HttpRequestException($"llama.cpp-Release-Metadaten konnten nicht geladen werden (HTTP {(int)response.StatusCode}).", null, response.StatusCode);
+        await using var responseStream = await response.Content.ReadAsStreamAsync(token);
+        using var json = await JsonDocument.ParseAsync(responseStream, cancellationToken: token);
+        if (!json.RootElement.TryGetProperty("assets", out var assetsElement) || assetsElement.ValueKind != JsonValueKind.Array)
+            throw new InvalidDataException("Die llama.cpp-Release-Antwort enthält keine gültige Assetliste.");
+        var assets = assetsElement.EnumerateArray()
+            .Where(item => item.ValueKind == JsonValueKind.Object)
+            .Select(item => new { Json = item, Name = item.TryGetProperty("name", out var name) && name.ValueKind == JsonValueKind.String ? name.GetString() : null })
+            .ToList();
+        string selectedName;
+        try { selectedName = SelectWindowsX64CpuAsset(assets.Select(item => item.Name)); }
+        catch (InvalidDataException)
+        {
+            var available = assets.Select(item => item.Name).Where(name => !string.IsNullOrWhiteSpace(name));
+            _logger.Error($"[AI] llama.cpp Windows x64 CPU runtime asset not found. Available assets: {string.Join(", ", available)}");
+            throw;
+        }
+        var asset = assets.First(item => string.Equals(item.Name, selectedName, StringComparison.OrdinalIgnoreCase)).Json;
+        Log($"Selected runtime asset={selectedName}");
+        if (!asset.TryGetProperty("browser_download_url", out var urlElement) || urlElement.ValueKind != JsonValueKind.String ||
+            !Uri.TryCreate(urlElement.GetString(), UriKind.Absolute, out var url) || url.Scheme != Uri.UriSchemeHttps ||
+            !string.Equals(url.Host, "github.com", StringComparison.OrdinalIgnoreCase) ||
+            !url.AbsolutePath.StartsWith("/ggml-org/llama.cpp/releases/download/", StringComparison.OrdinalIgnoreCase))
+            throw new InvalidDataException("Das Runtime-Asset verweist nicht auf die erwartete HTTPS-GitHub-Quelle.");
+        _setupStage = "runtime-download";
         Directory.CreateDirectory(RootDirectory); var part = Path.Combine(RootDirectory, "llama-runtime.zip.part");
-        try { await DownloadAsync(url, part, progress, token); if (asset.TryGetProperty("digest", out var digest) && digest.GetString() is { } value && value.StartsWith("sha256:", StringComparison.OrdinalIgnoreCase) && !await HasSha256Async(part, value[7..], token)) throw new InvalidDataException("Die SHA256-Prüfsumme der Runtime stimmt nicht überein."); ExtractZipSafely(part, RuntimeDirectory); NormalizeRuntimeLayout(); if (!File.Exists(RuntimeExecutable)) throw new InvalidDataException("llama-server.exe fehlt im Runtime-Archiv."); }
+        try { Log("Downloading llama.cpp runtime"); await DownloadAsync(url, part, progress, token); Log("Runtime download completed"); if (asset.TryGetProperty("digest", out var digest) && digest.ValueKind == JsonValueKind.String && digest.GetString() is { } value && value.StartsWith("sha256:", StringComparison.OrdinalIgnoreCase)) { if (!await HasSha256Async(part, value[7..], token)) throw new InvalidDataException("Die SHA256-Prüfsumme der Runtime stimmt nicht überein."); Log("Runtime SHA256 verified"); } ExtractZipSafely(part, RuntimeDirectory); NormalizeRuntimeLayout(); if (!File.Exists(RuntimeExecutable)) throw new InvalidDataException("llama-server.exe fehlt im Runtime-Archiv."); Log("Runtime extracted"); }
         finally { if (File.Exists(part)) File.Delete(part); }
+    }
+
+    internal static string SelectWindowsX64CpuAsset(IEnumerable<string?> assetNames)
+    {
+        const string officialAssetName = "llama-bin-win-cpu-x64.zip";
+        var match = assetNames.FirstOrDefault(name => string.Equals(name, officialAssetName, StringComparison.OrdinalIgnoreCase));
+        return match ?? throw new InvalidDataException("Kein offizielles Windows-x64-CPU-Asset gefunden.");
+    }
+
+    private void Log(string message) => _logger.OperationalInfo($"[AI] {message}");
+    private void HandleSetupFailure(Exception exception)
+    {
+        LastError = exception.Message;
+        SetStatus(LocalAiStatus.Error);
+        _logger.Error($"[AI] Local AI setup failed stage={_setupStage}: {exception.GetType().Name}: {exception.Message}");
     }
     private async Task DownloadAsync(Uri uri, string target, IProgress<int>? progress, CancellationToken token)
     {

@@ -9,6 +9,44 @@ namespace TaskTool.Tests;
 
 public sealed class AiServiceTests
 {
+    [Theory]
+    [InlineData("llama-bin-win-cpu-x64.zip")]
+    [InlineData("LLAMA-BIN-WIN-CPU-X64.ZIP")]
+    public void RuntimeAssetSelection_AcceptsOfficialCpuX64AssetCaseInsensitively(string assetName)
+    {
+        Assert.Equal(assetName, LocalLlamaServerManager.SelectWindowsX64CpuAsset(new[] { assetName }));
+    }
+
+    [Fact]
+    public void RuntimeAssetSelection_DoesNotSelectOtherWindowsBackendsOrArchitectures()
+    {
+        var otherAssets = new[]
+        {
+            "llama-bin-win-cpu-arm64.zip",
+            "llama-bin-win-vulkan-x64.zip",
+            "llama-bin-win-cuda-12.4-x64.zip",
+            "llama-bin-win-sycl-x64.zip",
+            "llama-bin-win-openvino-2026-x64.zip"
+        };
+
+        var exception = Assert.Throws<InvalidDataException>(() => LocalLlamaServerManager.SelectWindowsX64CpuAsset(otherAssets));
+        Assert.Equal("Kein offizielles Windows-x64-CPU-Asset gefunden.", exception.Message);
+    }
+
+    [Fact]
+    public void RuntimeAssetSelection_SelectsOnlyCpuX64FromMixedReleaseAssets()
+    {
+        var assets = new[]
+        {
+            "llama-bin-win-cuda-12.4-x64.zip",
+            "llama-bin-win-cpu-arm64.zip",
+            "llama-bin-win-cpu-x64.zip",
+            "llama-bin-win-vulkan-x64.zip"
+        };
+
+        Assert.Equal("llama-bin-win-cpu-x64.zip", LocalLlamaServerManager.SelectWindowsX64CpuAsset(assets));
+    }
+
     [Fact]
     public void Settings_HaveSafeAiDefaults()
     {
