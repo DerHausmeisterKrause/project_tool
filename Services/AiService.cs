@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.IO;
 using System.IO.Compression;
 using System.Net;
 using System.Net.Http;
@@ -85,18 +86,38 @@ public sealed class LocalLlamaServerManager : IDisposable
         try
         {
             if (!_settings.Current.AiEnabled || _settings.Current.AiProvider != AiProviderType.LocalLlama) return;
-            var preset = _settings.Current.AiLocalPreset; Stop();
-            if (!File.Exists(RuntimeExecutable)) await DownloadRuntimeAsync(progress, token);
-            if (!await IsModelValidAsync(preset, token))
-            {
-                var invalidModel = ModelPath(preset);
-                if (File.Exists(invalidModel)) File.Delete(invalidModel);
-                await DownloadModelAsync(preset, progress, token);
-            }
-            SetStatus(LocalAiStatus.Installed); await StartAndWaitForReadyAsync(preset, token);
+            Stop();
+            var preset = await EnsureInstalledAsync(progress, token);
+            await StartAndWaitForReadyAsync(preset, token);
         }
         catch { SetStatus(LocalAiStatus.Error); throw; }
         finally { _gate.Release(); }
+    }
+
+    public async Task InstallAsync(IProgress<int>? progress, CancellationToken token = default)
+    {
+        await _gate.WaitAsync(token);
+        try
+        {
+            if (!_settings.Current.AiEnabled || _settings.Current.AiProvider != AiProviderType.LocalLlama) return;
+            await EnsureInstalledAsync(progress, token);
+        }
+        catch { SetStatus(LocalAiStatus.Error); throw; }
+        finally { _gate.Release(); }
+    }
+
+    private async Task<LocalAiPreset> EnsureInstalledAsync(IProgress<int>? progress, CancellationToken token)
+    {
+        var preset = _settings.Current.AiLocalPreset;
+        if (!File.Exists(RuntimeExecutable)) await DownloadRuntimeAsync(progress, token);
+        if (!await IsModelValidAsync(preset, token))
+        {
+            var invalidModel = ModelPath(preset);
+            if (File.Exists(invalidModel)) File.Delete(invalidModel);
+            await DownloadModelAsync(preset, progress, token);
+        }
+        SetStatus(LocalAiStatus.Installed, 100);
+        return preset;
     }
 
     public async Task DownloadModelAsync(LocalAiPreset preset, IProgress<int>? progress = null, CancellationToken token = default)
@@ -104,10 +125,25 @@ public sealed class LocalLlamaServerManager : IDisposable
         var model = LocalAiModelCatalog.Get(preset); var uri = new Uri(model.DownloadUrl);
         if (uri.Scheme != Uri.UriSchemeHttps) throw new InvalidOperationException("Modelle dürfen nur über HTTPS geladen werden.");
         var destination = ModelPath(preset); var part = destination + ".part"; Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
-        try { SetStatus(LocalAiStatus.DownloadingModel); await DownloadAsync(uri, part, progress, token); SetStatus(LocalAiStatus.VerifyingSha256); if (!await HasSha256Async(part, model.Sha256, token)) throw new InvalidDataException("Die SHA256-Prüfsumme des Modells stimmt nicht überein."); File.Move(part, destination, true); }
+        try
+        {
+            SetStatus(LocalAiStatus.DownloadingModel); await DownloadAsync(uri, part, progress, token); SetStatus(LocalAiStatus.VerifyingSha256);
+            await PromoteVerifiedDownloadAsync(part, destination, model.Sha256, token);
+        }
         finally { if (File.Exists(part)) File.Delete(part); }
     }
-    public async Task<bool> IsModelValidAsync(LocalAiPreset preset, CancellationToken token = default) { var path = ModelPath(preset); return File.Exists(path) && !File.Exists(path + ".part") && await HasSha256Async(path, LocalAiModelCatalog.Get(preset).Sha256, token); }
+    public Task<bool> IsModelValidAsync(LocalAiPreset preset, CancellationToken token = default) => IsModelFileValidAsync(ModelPath(preset), LocalAiModelCatalog.Get(preset).Sha256, token);
+    internal static async Task<bool> IsModelFileValidAsync(string path, string expectedSha256, CancellationToken token = default) => File.Exists(path) && !File.Exists(path + ".part") && await HasSha256Async(path, expectedSha256, token);
+
+    internal static async Task PromoteVerifiedDownloadAsync(string partPath, string destination, string expectedSha256, CancellationToken token = default)
+    {
+        try
+        {
+            if (!await HasSha256Async(partPath, expectedSha256, token)) throw new InvalidDataException("Die SHA256-Prüfsumme des Modells stimmt nicht überein.");
+            File.Move(partPath, destination, true);
+        }
+        finally { if (File.Exists(partPath)) File.Delete(partPath); }
+    }
 
     private async Task DownloadRuntimeAsync(IProgress<int>? progress, CancellationToken token)
     {
