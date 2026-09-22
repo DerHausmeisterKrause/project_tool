@@ -87,6 +87,11 @@
 
 ## KI
 
+- KI-Chat optisch überarbeitet: Benutzer-Nachrichten erscheinen jetzt als kompakte orange Chat-Bubbles
+- Schreibanzeige „Plenaro schreibt …“ als temporäre Assistant-Bubble direkt im Chat ergänzt
+- KI-Antworten bleiben direkt markierbar und kopierbar; der separate Kopieren-Button wurde entfernt
+- Option „Use Plenaro knowledge base“ unter dem Eingabefeld ergänzt, um lokale Wissenssuche und Quellen pro Chat ein- oder auszuschalten
+- Fließtext und Inline-Code in KI-Antworten werden ohne schwarzen Texthintergrund dargestellt; nur echte Codeblöcke bleiben dunkel hervorgehoben
 - Runtimefehler beim Anzeigen des lokalen KI-Wissensordners in den Einstellungen behoben
 - Buildprobleme der neuen lokalen Wissensbasis und Markdown-Darstellung einschließlich der Übergabe des Abbruch-Tokens an die Wissenssuche behoben
 - Neue optionale KI-Integration als technisches Grundgerüst ergänzt

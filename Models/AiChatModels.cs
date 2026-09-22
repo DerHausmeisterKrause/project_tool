@@ -8,7 +8,7 @@ public sealed record AiRequestOptions(double Temperature = 0.3, int MaxTokens = 
 
 public sealed record AiKnowledgeSource(string RelativePath, int? PageNumber = null);
 
-public sealed record AiChatMessage(AiChatRole Role, string Content, DateTime CreatedAt, IReadOnlyList<AiKnowledgeSource>? KnowledgeSources = null)
+public sealed record AiChatMessage(AiChatRole Role, string Content, DateTime CreatedAt, IReadOnlyList<AiKnowledgeSource>? KnowledgeSources = null, bool IsTyping = false)
 {
     public string Author => Role == AiChatRole.User ? "Du" : "Plenaro KI";
     public bool IsUser => Role == AiChatRole.User;
