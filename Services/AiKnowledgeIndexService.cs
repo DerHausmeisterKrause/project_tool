@@ -1,4 +1,6 @@
+using System.IO;
 using System.Security.Cryptography;
+using System.Threading;
 using Microsoft.Data.Sqlite;
 
 namespace TaskTool.Services;
