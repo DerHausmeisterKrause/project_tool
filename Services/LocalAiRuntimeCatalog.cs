@@ -27,7 +27,7 @@ public static class LocalAiRuntimeCatalog
         Backend: "vulkan",
         FileName: "llama-b11081-bin-win-vulkan-x64.zip",
         DownloadUrl: "https://github.com/ggml-org/llama.cpp/releases/download/b11081/llama-b11081-bin-win-vulkan-x64.zip",
-        Sha256: "9777f86ab85d86b5cefc67d6503f539a3c87a017e14e9353f14b2d9ddc6a95f4",
+        Sha256: "4259a1dda3ef3fcfd8b007a16329d5bdcef07da8f5f95fddd85ff2954263f01a",
         License: "MIT",
         Platform: "win-vulkan-x64");
 

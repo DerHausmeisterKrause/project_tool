@@ -29,9 +29,12 @@ public sealed class AiServiceTests
         var cpu = LocalAiRuntimeCatalog.Get(LocalAiComputeMode.Cpu);
         var gpu = LocalAiRuntimeCatalog.Get(LocalAiComputeMode.Gpu);
         Assert.Equal(cpu.Version, gpu.Version);
-        Assert.Equal("cpu", cpu.Backend); Assert.Equal("vulkan", gpu.Backend);
+        Assert.Equal("cpu", cpu.Backend);
+        Assert.Equal("b11081", gpu.Version);
+        Assert.Equal("vulkan", gpu.Backend);
         Assert.Equal("llama-b11081-bin-win-vulkan-x64.zip", gpu.FileName);
-        Assert.Matches("^[0-9a-f]{64}$", gpu.Sha256);
+        Assert.Equal("4259a1dda3ef3fcfd8b007a16329d5bdcef07da8f5f95fddd85ff2954263f01a", gpu.Sha256);
+        Assert.Equal("win-vulkan-x64", gpu.Platform);
         Assert.Equal(Uri.UriSchemeHttps, new Uri(gpu.DownloadUrl).Scheme);
     }
 
