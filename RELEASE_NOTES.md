@@ -87,6 +87,7 @@
 
 ## KI
 
+- KI-Antwortqualität und lokale Wissenssuche verbessert: irrelevante Knowledge-Treffer werden gefiltert und konkrete Benutzeranweisungen zuverlässiger berücksichtigt
 - KI-Chat optisch überarbeitet: Benutzer-Nachrichten erscheinen jetzt als kompakte orange Chat-Bubbles
 - Schreibanzeige „Plenaro schreibt …“ als temporäre Assistant-Bubble direkt im Chat ergänzt
 - KI-Antworten bleiben direkt markierbar und kopierbar; der separate Kopieren-Button wurde entfernt

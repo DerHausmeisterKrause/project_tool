@@ -68,6 +68,57 @@ public sealed class AiKnowledgeTests : IDisposable
         Assert.Equal(4, AiKnowledgeSearchService.DefaultTopN);
     }
 
+    [Theory]
+    [InlineData("test")]
+    [InlineData("Antworte nur mit test")]
+    [InlineData("Hallo")]
+    [InlineData("Danke")]
+    public async Task Search_SkipsPromptsWithoutMeaningfulTerms(string question)
+    {
+        var search = await CreateSearchAsync(("Allgemein/Ports.md", "Server Port Test und weitere Informationen"));
+        Assert.Empty(await search.SearchAsync(question));
+    }
+
+    [Fact]
+    public async Task Search_AcceptsSpecificLinuxTokenWithoutFillingTopN()
+    {
+        var search = await CreateSearchAsync(
+            ("Linux/Fehler/address_already_in_use.md", "EADDRINUSE Address already in use ss -tulpn lsof -i"),
+            ("VMware/vCenter/host_disconnected.md", "VMware vCenter Server ist nicht erreichbar"));
+
+        var result = await search.SearchAsync("Mein Linux Dienst meldet EADDRINUSE auf Port 3000.");
+
+        var match = Assert.Single(result);
+        Assert.Equal("Linux\\Fehler\\address_already_in_use.md", match.RelativePath);
+    }
+
+    [Fact]
+    public async Task Search_ReturnsOnlyDocumentMatchingWindowsErrorCode()
+    {
+        var search = await CreateSearchAsync(
+            ("Windows/Fehler/netzwerkpfad.md", "0x80070035 Netzwerkpfad nicht gefunden Windows SMB"),
+            ("VMware/vCenter/host_disconnected.md", "Windows Server VMware vCenter Fehler"),
+            ("Webserver/NGINX/start.md", "Windows Server nginx Problem"));
+
+        var result = await search.SearchAsync("Was bedeutet 0x80070035?");
+
+        var match = Assert.Single(result);
+        Assert.Equal("Windows\\Fehler\\netzwerkpfad.md", match.RelativePath);
+    }
+
+    private async Task<AiKnowledgeSearchService> CreateSearchAsync(params (string Path, string Content)[] documents)
+    {
+        var index = new AiKnowledgeIndexService(_logger, localAppData: _root);
+        foreach (var document in documents)
+        {
+            var path = Path.Combine(index.KnowledgePath, document.Path.Replace('/', Path.DirectorySeparatorChar));
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            await File.WriteAllTextAsync(path, document.Content);
+        }
+        await index.IndexAsync();
+        return new AiKnowledgeSearchService(index.IndexPath, _logger);
+    }
+
     private static async Task<string> IndexedUtc(string path) { await using var db = new SqliteConnection($"Data Source={path}"); await db.OpenAsync(); await using var cmd = db.CreateCommand(); cmd.CommandText = "SELECT indexed_utc FROM knowledge_documents LIMIT 1"; return (string)(await cmd.ExecuteScalarAsync())!; }
     private static byte[] CreateTinyPdf(string text)
     {
