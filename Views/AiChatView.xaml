@@ -103,8 +103,10 @@
         <Grid Grid.Row="4">
             <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
             <StackPanel>
-                <CheckBox Content="Use Plenaro knowledge base" IsChecked="{Binding UseKnowledgeBase}"
-                          VerticalAlignment="Center" Margin="2,0,0,4"/>
+                <StackPanel Orientation="Horizontal">
+                    <CheckBox Content="Use Plenaro knowledge base" IsChecked="{Binding UseKnowledgeBase}" VerticalAlignment="Center" Margin="2,0,18,4"/>
+                    <CheckBox Content="Use Wiki" IsChecked="{Binding UseWiki}" IsEnabled="{Binding UseWikiAvailable}" ToolTip="{Binding UseWikiToolTip}" VerticalAlignment="Center" Margin="2,0,0,4"/>
+                </StackPanel>
                 <TextBlock Text="{Binding ErrorMessage}" Foreground="#F87171" TextWrapping="Wrap"/>
             </StackPanel>
             <StackPanel Grid.Column="1" Orientation="Horizontal">

@@ -29,6 +29,7 @@ public static class ServiceLocator
     public static WebShortcutBrowserSessionManager WebShortcutBrowsers { get; private set; } = null!;
     public static AiService Ai { get; private set; } = null!;
     public static AiKnowledgeService AiKnowledge { get; private set; } = null!;
+    public static WikiAiKnowledgeService WikiAiKnowledge { get; private set; } = null!;
     public static MainViewModel MainViewModel { get; private set; } = null!;
 
     public static void Initialize()
@@ -46,6 +47,8 @@ public static class ServiceLocator
         WebShortcutBrowsers = new WebShortcutBrowserSessionManager(Settings, Logger);
         Ai = new AiService(Settings, Logger);
         AiKnowledge = new AiKnowledgeService(Settings, Logger);
+        WikiAiKnowledge = new WikiAiKnowledgeService(Settings, Logger);
+        _ = WikiAiKnowledge.SyncStaleAsync();
         _ = WikiVocabulary.RefreshStaleAsync();
         Outlook = new OutlookInteropService(Logger, Settings);
         Tasks = new TaskService(Database, Logger, Outlook, Settings);
@@ -62,7 +65,7 @@ public static class ServiceLocator
         PlenaroShareCoordinator = new PlenaroShareImportCoordinator(OutlookCalendar, PlenaroShareImporter, Settings, Logger);
         _ = PlenaroShareCoordinator.StartAsync();
         HomeOffice = new HomeOfficeService(WorkDays, Settings, Outlook, OutlookCalendar, Logger);
-        MainViewModel = new MainViewModel(Tasks, WorkDays, Settings, Notifications, OutlookCalendar, TicketSystem, Updates, HomeOffice, GermanTime, Logger, Ai, AiKnowledge);
+        MainViewModel = new MainViewModel(Tasks, WorkDays, Settings, Notifications, OutlookCalendar, TicketSystem, Updates, HomeOffice, GermanTime, Logger, Ai, AiKnowledge, WikiAiKnowledge);
     }
 
     private static AppLogLevel ParseLogLevel(string? value)

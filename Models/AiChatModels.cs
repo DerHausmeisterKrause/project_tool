@@ -6,7 +6,7 @@ public sealed record AiChatRequestMessage(AiChatRole Role, string Content);
 
 public sealed record AiRequestOptions(double Temperature = 0.3, int MaxTokens = 1024);
 
-public sealed record AiKnowledgeSource(string RelativePath, int? PageNumber = null);
+public sealed record AiKnowledgeSource(string RelativePath, int? PageNumber = null, string SourceType = "Plenaro Knowledge", string? Url = null);
 
 public sealed record AiChatMessage(AiChatRole Role, string Content, DateTime CreatedAt, IReadOnlyList<AiKnowledgeSource>? KnowledgeSources = null, bool IsTyping = false)
 {
@@ -15,9 +15,9 @@ public sealed record AiChatMessage(AiChatRole Role, string Content, DateTime Cre
     public bool IsAssistant => Role == AiChatRole.Assistant;
     public bool HasKnowledgeSources => KnowledgeSources?.Count > 0;
     public string KnowledgeHeading => HasKnowledgeSources
-        ? $"Lokales Wissen: {KnowledgeSources!.Count} Quelle{(KnowledgeSources.Count == 1 ? string.Empty : "n")}" : string.Empty;
+        ? $"Wissensquellen: {KnowledgeSources!.Count} Quelle{(KnowledgeSources.Count == 1 ? string.Empty : "n")}" : string.Empty;
     public string KnowledgePaths => HasKnowledgeSources
-        ? string.Join(" · ", KnowledgeSources!.Select(x => x.RelativePath)) : string.Empty;
+        ? string.Join(" · ", KnowledgeSources!.Select(x => $"{x.SourceType}: {x.RelativePath}")) : string.Empty;
     public string KnowledgeSummary => HasKnowledgeSources
         ? $"{KnowledgeHeading}\n{KnowledgePaths}"
         : string.Empty;

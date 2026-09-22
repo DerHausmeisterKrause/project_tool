@@ -5,6 +5,7 @@ public class AppSettings
     public bool AiEnabled { get; set; } = false;
     public bool AiKnowledgeEnabled { get; set; } = false;
     public bool AiChatUseKnowledgeBase { get; set; } = true;
+    public bool AiChatUseWiki { get; set; } = true;
     public AiProviderType AiProvider { get; set; } = AiProviderType.OpenAiCompatible;
     public string AiApiBaseUrl { get; set; } = "https://api.openai.com/v1";
     public string AiApiKeyEncrypted { get; set; } = string.Empty;

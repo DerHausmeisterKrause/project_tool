@@ -89,7 +89,7 @@ public class SettingsViewModel : ObservableObject
     public RelayCommand MoveWebShortcutDownCommand { get; private set; } = null!;
     public ObservableCollection<WikiSourceEditorViewModel> WikiSources { get; }
     private WikiSourceEditorViewModel? _selectedWikiSource;
-    public WikiSourceEditorViewModel? SelectedWikiSource { get => _selectedWikiSource; set { if (Set(ref _selectedWikiSource, value)) Raise(nameof(WikiIndexStatus)); } }
+    public WikiSourceEditorViewModel? SelectedWikiSource { get => _selectedWikiSource; set { if (Set(ref _selectedWikiSource, value)) { Raise(nameof(WikiIndexStatus)); Raise(nameof(WikiAiIndexStatus)); } } }
     private const string WikiSecretMask = "••••••••";
     public List<WikiChoice> WikiProviderTypes { get; } = new() { new("ConfluenceDataCenter", "Confluence Data Center"), new("ConfluenceCloud", "Confluence Cloud"), new("GenericRest", "Generic REST"), new("XWiki", "XWiki") };
     public List<WikiChoice> WikiAuthModes { get; } = new() { new("BearerToken", "Bearer Token"), new("UsernameToken", "Username + Token / Passwort"), new("Basic", "Basic Auth"), new("ApiKey", "API-Key Header"), new("WindowsIntegrated", "Windows Integrated") };
@@ -107,7 +107,21 @@ public class SettingsViewModel : ObservableObject
     public RelayCommand TestWikiConnectionCommand { get; }
     public RelayCommand TestWikiSearchCommand { get; }
     public RelayCommand RefreshWikiIndexCommand { get; }
+    public RelayCommand RefreshWikiAiIndexCommand { get; private set; } = null!;
+    public RelayCommand RebuildWikiAiIndexCommand { get; private set; } = null!;
     public string WikiIndexStatus => SelectedWikiSource == null ? "Kein Wiki ausgewählt." : FormatWikiIndexStatus(SelectedWikiSource.ToModel());
+    public string WikiAiIndexStatus
+    {
+        get
+        {
+            if (SelectedWikiSource == null) return "Kein Wiki ausgewählt.";
+            var source = SelectedWikiSource.ToModel();
+            if (!WikiScopePolicy.SupportsAiKnowledge(source)) return "Dieser Provider unterstützt den lokalen KI-Wiki-Index noch nicht.";
+            var s = ServiceLocator.WikiAiKnowledge.GetStatus(source.Id);
+            var status = s.Status == "failed" ? "Synchronisierung fehlgeschlagen – letzter erfolgreicher Stand bleibt verfügbar" : s.Status == "current" ? "Aktuell" : "Noch nicht indexiert";
+            return $"Seiten: {s.PageCount:N0} · Textabschnitte: {s.ChunkCount:N0}\nLetzter erfolgreicher Abgleich: {(s.LastSuccessUtc?.ToLocalTime().ToString("dd.MM.yyyy HH:mm") ?? "noch nie")}\nStatus: {status}";
+        }
+    }
     private readonly SemaphoreSlim _updateCheckGate = new(1, 1);
     private bool _startupUpdatePromptShown;
     public string Title => "Einstellungen";
@@ -310,6 +324,8 @@ public class SettingsViewModel : ObservableObject
         TestWikiConnectionCommand = new RelayCommand(async () => await TestWikiAsync(false), () => !_isWikiTestRunning);
         TestWikiSearchCommand = new RelayCommand(async () => await TestWikiAsync(true), () => !_isWikiTestRunning);
         RefreshWikiIndexCommand = new RelayCommand(async () => await RefreshWikiIndexAsync());
+        RefreshWikiAiIndexCommand = new RelayCommand(async () => await SyncWikiAiAsync(false));
+        RebuildWikiAiIndexCommand = new RelayCommand(async () => await SyncWikiAiAsync(true));
         AddWebShortcutCommand=new RelayCommand(()=>{var x=new WebShortcutEditorViewModel{SortOrder=WebShortcuts.Count};WebShortcuts.Add(x);SelectedWebShortcut=x;WebShortcutStatus="Webseite angelegt. Bitte speichern.";}); SaveWebShortcutCommand=new RelayCommand(SaveWebShortcut); RemoveWebShortcutCommand=new RelayCommand(RemoveWebShortcut);
         MoveWebShortcutUpCommand = new RelayCommand(() => MoveWebShortcut(-1), () => CanMoveWebShortcut(-1));
         MoveWebShortcutDownCommand = new RelayCommand(() => MoveWebShortcut(1), () => CanMoveWebShortcut(1));
@@ -633,7 +649,8 @@ public class SettingsViewModel : ObservableObject
         else if (apiAccessChanged) ServiceLocator.WikiSearch.ResetFailedRunsForSource(source.Id);
         NotifySettingsConsumers(); WikiSettingsStatus = $"Wiki '{source.Name}' wurde gespeichert.";
         if (searchConfigurationChanged || previousSource == null) { ServiceLocator.WikiVocabulary.Invalidate(source.Id); _ = ServiceLocator.WikiVocabulary.RefreshAsync(source); }
-        Raise(nameof(WikiIndexStatus));
+        if (searchConfigurationChanged || apiAccessChanged || previousSource == null) { ServiceLocator.WikiAiKnowledge.Invalidate(source.Id); _ = ServiceLocator.WikiAiKnowledge.SyncAsync(source, false); }
+        Raise(nameof(WikiIndexStatus)); Raise(nameof(WikiAiIndexStatus));
     }
 
     private static string WikiSearchConfigurationFingerprint(WikiSourceSettings source)
@@ -671,6 +688,16 @@ public class SettingsViewModel : ObservableObject
         if (!TryCreateWikiSourceFromEditor(out var source, out var error)) { WikiSettingsStatus = error; return; }
         WikiSettingsStatus = "Wiki-Suchindex wird aktualisiert …"; await ServiceLocator.WikiVocabulary.RefreshAsync(source); Raise(nameof(WikiIndexStatus));
         var status = ServiceLocator.WikiVocabulary.GetStatus(source); WikiSettingsStatus = status.Status == "success" ? $"Wiki-Suchindex aktualisiert: {status.PageCount:N0} Seiten." : "Wiki-Suchindex konnte nicht aktualisiert werden.";
+    }
+
+    private async Task SyncWikiAiAsync(bool rebuild)
+    {
+        if (!TryCreateWikiSourceFromEditor(out var source, out var error)) { WikiSettingsStatus = error; return; }
+        if (!WikiScopePolicy.SupportsAiKnowledge(source)) { WikiSettingsStatus = "Dieser Wiki-Provider ist nicht für den lokalen KI-Index verfügbar."; return; }
+        WikiSettingsStatus = rebuild ? "KI-Wiki-Index wird sicher neu aufgebaut …" : "KI-Wiki-Index wird aktualisiert …";
+        await ServiceLocator.WikiAiKnowledge.SyncAsync(source, rebuild);
+        Raise(nameof(WikiAiIndexStatus));
+        WikiSettingsStatus = ServiceLocator.WikiAiKnowledge.GetStatus(source.Id).Status == "current" ? "KI-Wiki-Index ist aktuell." : "Wiki-Synchronisierung fehlgeschlagen; der bisherige Index bleibt verfügbar.";
     }
 
     private void SaveWebShortcut()
