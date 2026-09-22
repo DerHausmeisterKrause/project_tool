@@ -7,8 +7,8 @@ namespace TaskTool.Tests;
 
 public sealed class AiChatViewModelTests
 {
-    private static AiChatViewModel CreateViewModel(FakeAi ai, FakeClipboard? clipboard = null)
-        => new(ai, clipboard ?? new FakeClipboard(), () => { });
+    private static AiChatViewModel CreateViewModel(FakeAi ai)
+        => new(ai, () => { });
 
     [Fact]
     public void InitialState_HasTitleAndCannotSendEmptyText()
@@ -59,7 +59,9 @@ public sealed class AiChatViewModelTests
         viewModel.InputText = "Zweite Frage";
         await viewModel.SendAsync();
         Assert.Equal(1, ai.CallCount);
-        Assert.Single(viewModel.Messages);
+        Assert.Equal(2, viewModel.Messages.Count);
+        Assert.True(viewModel.Messages[1].IsTyping);
+        Assert.Equal("Plenaro schreibt.", viewModel.Messages[1].Content);
         completion.SetResult("Antwort");
         await first;
     }
@@ -87,37 +89,6 @@ public sealed class AiChatViewModelTests
         await viewModel.SendAsync();
         viewModel.ClearChat();
         Assert.Empty(viewModel.Messages);
-    }
-
-    [Fact]
-    public void CopyMessage_CopiesCompleteAssistantAnswer()
-    {
-        var clipboard = new FakeClipboard();
-        var viewModel = CreateViewModel(new FakeAi(), clipboard);
-        var message = new AiChatMessage(AiChatRole.Assistant, "Erste Zeile\nZweite Zeile", DateTime.Now);
-
-        viewModel.CopyMessageCommand.Execute(message);
-
-        Assert.Equal(message.Content, clipboard.Text);
-    }
-
-    [Theory]
-    [InlineData("")]
-    [InlineData("   ")]
-    public void CopyMessage_DoesNotCopyEmptyAssistantAnswer(string content)
-    {
-        var clipboard = new FakeClipboard();
-        var viewModel = CreateViewModel(new FakeAi(), clipboard);
-
-        viewModel.CopyMessageCommand.Execute(new AiChatMessage(AiChatRole.Assistant, content, DateTime.Now));
-
-        Assert.Null(clipboard.Text);
-    }
-
-    private sealed class FakeClipboard : IClipboardService
-    {
-        public string? Text { get; private set; }
-        public void SetText(string text) => Text = text;
     }
 
     private sealed class FakeAi : IAiChatService

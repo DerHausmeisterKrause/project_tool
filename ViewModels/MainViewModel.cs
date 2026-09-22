@@ -113,7 +113,7 @@ public class MainViewModel : ObservableObject
         _reportsViewModel = new ReportsViewModel(taskService, workDayService, settingsService, germanTime, logger);
         SettingsViewModel = new SettingsViewModel(settingsService, notifications, outlookCalendar, taskService, ticketSystem, updates, aiService, aiKnowledge);
         NavigateToSettingsCommand = new RelayCommand<string>(NavigateToSettings);
-        AiChatViewModel = new AiChatViewModel(aiService, new ClipboardService(), () => NavigateToSettings("KI"), aiKnowledge);
+        AiChatViewModel = new AiChatViewModel(aiService, () => NavigateToSettings("KI"), aiKnowledge, settingsService);
 
         NavigationItems = new ObservableCollection<object> { TodayViewModel, _weekViewModel, _ticketSystemViewModel, _reportsViewModel, AiChatViewModel, SettingsViewModel };
         settingsService.SettingsChanged += RefreshDynamicNavigation;

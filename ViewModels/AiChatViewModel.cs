@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using System.Net;
 using System.Net.Http;
+using System.Windows.Threading;
 using TaskTool.Infrastructure;
 using TaskTool.Models;
 using TaskTool.Services;
@@ -18,22 +19,25 @@ public sealed class AiChatViewModel : ObservableObject
         """;
 
     private readonly IAiChatService _ai;
-    private readonly IClipboardService _clipboard;
     private readonly Action _openAiSettings;
     private readonly AiKnowledgeService? _knowledge;
+    private readonly SettingsService? _settings;
+    private readonly DispatcherTimer _typingTimer;
     private string _inputText = string.Empty;
     private string _errorMessage = string.Empty;
     private bool _isSending;
 
-    public AiChatViewModel(IAiChatService ai, IClipboardService clipboard, Action openAiSettings, AiKnowledgeService? knowledge = null)
+    public AiChatViewModel(IAiChatService ai, Action openAiSettings, AiKnowledgeService? knowledge = null, SettingsService? settings = null)
     {
         _ai = ai;
-        _clipboard = clipboard;
         _openAiSettings = openAiSettings;
         _knowledge = knowledge;
+        _settings = settings;
+        _useKnowledgeBase = settings?.Current.AiChatUseKnowledgeBase ?? true;
+        _typingTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(450) };
+        _typingTimer.Tick += (_, _) => AdvanceTypingIndicator();
         SendCommand = new RelayCommand(async () => await SendAsync(), () => CanSend);
         ClearCommand = new RelayCommand(Clear, () => Messages.Count > 0 && !IsSending);
-        CopyMessageCommand = new RelayCommand<AiChatMessage>(CopyMessage, CanCopyMessage);
         OpenAiSettingsCommand = new RelayCommand(_openAiSettings);
         _ai.StateChanged += (_, _) => RefreshState();
     }
@@ -42,15 +46,25 @@ public sealed class AiChatViewModel : ObservableObject
     public ObservableCollection<AiChatMessage> Messages { get; } = new();
     public RelayCommand SendCommand { get; }
     public RelayCommand ClearCommand { get; }
-    public RelayCommand<AiChatMessage> CopyMessageCommand { get; }
     public RelayCommand OpenAiSettingsCommand { get; }
     public bool IsEnabled => _ai.IsEnabled;
     public bool IsDisabled => !IsEnabled;
     public bool CanSend => !IsSending && _ai.CanChat && !string.IsNullOrWhiteSpace(InputText);
     public string ProviderDescription => _ai.ProviderDescription;
     public string AvailabilityMessage => _ai.AvailabilityMessage;
-    public string SendingStatus => IsSending ? "KI antwortet …" : string.Empty;
     public bool HasMessages => Messages.Count > 0;
+    private bool _useKnowledgeBase;
+    public bool UseKnowledgeBase
+    {
+        get => _useKnowledgeBase;
+        set
+        {
+            if (!Set(ref _useKnowledgeBase, value)) return;
+            if (_settings == null) return;
+            _settings.Current.AiChatUseKnowledgeBase = value;
+            _settings.Save();
+        }
+    }
 
     public string InputText
     {
@@ -71,7 +85,6 @@ public sealed class AiChatViewModel : ObservableObject
         {
             if (!Set(ref _isSending, value)) return;
             Raise(nameof(CanSend));
-            Raise(nameof(SendingStatus));
             SendCommand.RaiseCanExecuteChanged();
             ClearCommand.RaiseCanExecuteChanged();
         }
@@ -86,24 +99,29 @@ public sealed class AiChatViewModel : ObservableObject
         InputText = string.Empty;
         ErrorMessage = string.Empty;
         IsSending = true;
+        var typingMessage = new AiChatMessage(AiChatRole.Assistant, "Plenaro schreibt.", DateTime.Now, IsTyping: true);
+        Messages.Add(typingMessage);
+        _typingTimer.Start();
         try
         {
             IReadOnlyList<AiKnowledgeMatch> matches = Array.Empty<AiKnowledgeMatch>();
-            try { if (_knowledge != null) matches = await _knowledge.SearchAsync(text, cancellationToken); }
+            try { if (UseKnowledgeBase && _knowledge != null) matches = await _knowledge.SearchAsync(text, cancellationToken); }
             catch (Exception exception) { ServiceLocator.Logger?.Warning($"[AI Knowledge] Search unavailable error='{exception.Message}'"); }
             var request = BuildRequestMessages().ToList();
             var knowledgeContext = AiKnowledgeContextBuilder.Build(matches);
             if (knowledgeContext.Length > 0) request.Insert(1, new AiChatRequestMessage(AiChatRole.System, knowledgeContext));
             var answer = await _ai.ChatAsync(request, new AiRequestOptions(0.3, 1024), cancellationToken);
             var sources = matches.Select(x => new AiKnowledgeSource(x.RelativePath, x.PageNumber)).Distinct().ToArray();
-            Messages.Add(new AiChatMessage(AiChatRole.Assistant, answer, DateTime.Now, sources));
+            ReplaceTypingMessage(typingMessage, new AiChatMessage(AiChatRole.Assistant, answer, DateTime.Now, sources));
         }
         catch (Exception exception)
         {
+            RemoveTypingMessage(typingMessage);
             ErrorMessage = $"Die KI-Anfrage ist fehlgeschlagen: {DescribeError(exception)}";
         }
         finally
         {
+            _typingTimer.Stop();
             IsSending = false;
             ClearCommand.RaiseCanExecuteChanged();
         }
@@ -111,7 +129,8 @@ public sealed class AiChatViewModel : ObservableObject
 
     public IReadOnlyList<AiChatRequestMessage> BuildRequestMessages()
     {
-        var context = Messages.TakeLast(MaxContextMessages)
+        var context = Messages.Where(message => !message.IsTyping)
+            .TakeLast(MaxContextMessages)
             .Select(message => new AiChatRequestMessage(message.Role, message.Content));
         return new[] { new AiChatRequestMessage(AiChatRole.System, SystemPrompt) }.Concat(context).ToArray();
     }
@@ -126,12 +145,28 @@ public sealed class AiChatViewModel : ObservableObject
 
     public void ClearChat() => Clear();
 
-    private bool CanCopyMessage(AiChatMessage? message)
-        => message?.IsAssistant == true && !string.IsNullOrWhiteSpace(message.Content);
-
-    private void CopyMessage(AiChatMessage? message)
+    private void AdvanceTypingIndicator()
     {
-        if (CanCopyMessage(message)) _clipboard.SetText(message!.Content);
+        var index = Messages.ToList().FindIndex(message => message.IsTyping);
+        if (index < 0) { _typingTimer.Stop(); return; }
+        var current = Messages[index];
+        var dots = current.Content.EndsWith("...") ? 1 : current.Content.Count(character => character == '.') + 1;
+        Messages[index] = current with { Content = $"Plenaro schreibt{new string('.', dots)}" };
+    }
+
+    private void ReplaceTypingMessage(AiChatMessage typingMessage, AiChatMessage answer)
+    {
+        var index = Messages.IndexOf(typingMessage);
+        if (index < 0) index = Messages.ToList().FindIndex(message => message.IsTyping);
+        if (index >= 0) Messages[index] = answer;
+        else Messages.Add(answer);
+    }
+
+    private void RemoveTypingMessage(AiChatMessage typingMessage)
+    {
+        if (Messages.Remove(typingMessage)) return;
+        var current = Messages.FirstOrDefault(message => message.IsTyping);
+        if (current != null) Messages.Remove(current);
     }
 
     private void RefreshState()

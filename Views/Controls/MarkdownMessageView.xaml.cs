@@ -41,7 +41,7 @@ public partial class MarkdownMessageView : UserControl
     }
     private static Paragraph CreateParagraph(MarkdownBlock block)
     {
-        var paragraph = new Paragraph { Margin = new Thickness(0, 0, 0, 9) };
+        var paragraph = new Paragraph { Margin = new Thickness(0, 0, 0, 9), Background = Brushes.Transparent };
         if (block is LeafBlock { Inline: { } inline }) AddInlines(paragraph.Inlines, inline.FirstChild);
         else paragraph.Inlines.Add(new Run(block.ToString()));
         return paragraph;
@@ -52,8 +52,8 @@ public partial class MarkdownMessageView : UserControl
         {
             switch (current)
             {
-                case LiteralInline literal: target.Add(new Run(literal.Content.ToString())); break;
-                case CodeInline code: target.Add(new Run(code.Content) { FontFamily = new FontFamily("Consolas"), Background = new SolidColorBrush(Color.FromRgb(30, 41, 59)) }); break;
+                case LiteralInline literal: target.Add(new Run(literal.Content.ToString()) { Background = Brushes.Transparent }); break;
+                case CodeInline code: target.Add(new Run(code.Content) { FontFamily = new FontFamily("Consolas"), Background = Brushes.Transparent }); break;
                 case LineBreakInline: target.Add(new LineBreak()); break;
                 case EmphasisInline emphasis:
                     var span = new Span(); AddInlines(span.Inlines, emphasis.FirstChild); if (emphasis.DelimiterCount >= 2) span.FontWeight = FontWeights.Bold; else span.FontStyle = FontStyles.Italic; target.Add(span); break;
