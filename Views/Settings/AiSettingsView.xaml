@@ -52,7 +52,7 @@
                     <TextBlock Text="Lokales Wissen" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,10"/>
                     <CheckBox Content="Lokales Wissen verwenden" IsChecked="{Binding AiKnowledgeEnabled}" FontWeight="SemiBold"/>
                     <TextBlock Text="Wissensordner:" Style="{StaticResource SettingsLabelStyle}" Margin="0,12,0,0"/>
-                    <TextBox Text="{Binding AiKnowledgePath}" IsReadOnly="True" Style="{StaticResource SettingsTextBoxStyle}"/>
+                    <TextBox Text="{Binding AiKnowledgePath, Mode=OneWay}" IsReadOnly="True" Style="{StaticResource SettingsTextBoxStyle}"/>
                     <WrapPanel Margin="0,8,0,8">
                         <Button Content="Wissensordner öffnen" Command="{Binding OpenKnowledgeFolderCommand}"/>
                         <Button Content="Wissen neu indexieren" Command="{Binding ReindexKnowledgeCommand}" Style="{StaticResource SecondaryButtonStyle}"/>
