@@ -29,12 +29,14 @@ public sealed class AiChatViewModelTests
     [Fact]
     public async Task SuccessfulRequest_AddsUserAndAssistantMessages()
     {
-        var viewModel = CreateViewModel(new FakeAi { Answer = "Guten Tag!" });
+        var ai = new FakeAi { Answer = "Guten Tag!" };
+        var viewModel = CreateViewModel(ai);
         viewModel.InputText = "Hallo";
         await viewModel.SendAsync();
         Assert.Collection(viewModel.Messages,
             message => Assert.Equal(AiChatRole.User, message.Role),
             message => { Assert.Equal(AiChatRole.Assistant, message.Role); Assert.Equal("Guten Tag!", message.Content); });
+        Assert.Equal(0.1, ai.LastOptions!.Temperature);
     }
 
     [Fact]
@@ -91,6 +93,25 @@ public sealed class AiChatViewModelTests
         Assert.Empty(viewModel.Messages);
     }
 
+    [Fact]
+    public void SystemPrompt_RequiresExactOutputWithoutAdditionalText()
+    {
+        Assert.Contains("exaktes Ausgabeformat", AiChatViewModel.SystemPrompt);
+        Assert.Contains("keine Begrüßung, Erklärung, Einleitung oder zusätzlichen Text", AiChatViewModel.SystemPrompt);
+    }
+
+    [Fact]
+    public void KnowledgeContext_IsMergedIntoSingleSystemMessage()
+    {
+        var viewModel = CreateViewModel(new FakeAi());
+        viewModel.InputText = "Technische Frage";
+
+        var request = viewModel.BuildRequestMessages("LOKALES PLENARO-WISSEN:\nInhalt");
+
+        Assert.Single(request.Where(message => message.Role == AiChatRole.System));
+        Assert.Contains("LOKALES PLENARO-WISSEN", request[0].Content);
+    }
+
     private sealed class FakeAi : IAiChatService
     {
         public bool IsEnabled { get; set; } = true;
@@ -102,12 +123,14 @@ public sealed class AiChatViewModelTests
         public Task<string>? PendingAnswer { get; set; }
         public int CallCount { get; private set; }
         public IReadOnlyList<AiChatRequestMessage>? LastMessages { get; private set; }
+        public AiRequestOptions? LastOptions { get; private set; }
         public event EventHandler? StateChanged;
 
         public Task<string> ChatAsync(IReadOnlyList<AiChatRequestMessage> messages, AiRequestOptions options, CancellationToken cancellationToken = default)
         {
             CallCount++;
             LastMessages = messages;
+            LastOptions = options;
             if (Exception != null) return Task.FromException<string>(Exception);
             return PendingAnswer ?? Task.FromResult(Answer);
         }
