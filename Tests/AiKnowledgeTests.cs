@@ -93,6 +93,16 @@ public sealed class AiKnowledgeTests : IDisposable
     }
 
     [Fact]
+    public void NormalizeTerms_RemovesConversationalFillersButKeepsTechnicalTerms()
+    {
+        var terms = AiKnowledgeSearchService.NormalizeTerms("Ich habe dieses Problem an meinem PC, was kann man dagegen mit gpupdate machen?");
+
+        Assert.DoesNotContain(terms, term => new[] { "habe", "dieses", "meinem", "kann", "man", "dagegen", "machen" }.Contains(term, StringComparer.OrdinalIgnoreCase));
+        Assert.Contains("pc", terms, StringComparer.OrdinalIgnoreCase);
+        Assert.Contains("gpupdate", terms, StringComparer.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public async Task Search_AcceptsSpecificLinuxTokenWithoutFillingTopN()
     {
         var search = await CreateSearchAsync(
@@ -117,6 +127,39 @@ public sealed class AiKnowledgeTests : IDisposable
 
         var match = Assert.Single(result);
         Assert.Equal("Windows\\Fehler\\netzwerkpfad.md", match.RelativePath);
+    }
+
+    [Fact]
+    public async Task Search_RejectsUnrelatedWindowsDocumentsForGeneralPerformanceQuestion()
+    {
+        var search = await CreateSearchAsync(
+            ("Windows/Active_Directory/rpc_server_nicht_verfuegbar.md", "Windows Active Directory RPC Server nicht verfügbar"),
+            ("Windows/Gruppenrichtlinien_GPO/gpupdate_fehler_sysvol.md", "Windows gpupdate Fehler beim Zugriff auf SYSVOL"));
+
+        Assert.Empty(await search.SearchAsync("Mein Windows PC ist sehr langsam."));
+    }
+
+    [Fact]
+    public async Task Search_ReturnsOnlyStrongMetadataMatchForSingleMeaningfulTerm()
+    {
+        var search = await CreateSearchAsync(
+            ("Windows/Active_Directory/rpc_server_nicht_verfuegbar.md", "Windows Active Directory RPC Server nicht verfügbar"),
+            ("Windows/Gruppenrichtlinien_GPO/gpupdate_fehler_sysvol.md", "Windows gpupdate Fehler beim Zugriff auf SYSVOL"),
+            ("Windows/Performance/windows_pc_langsam.md", "Windows PC langsam CPU-Auslastung prüfen Arbeitsspeicher prüfen Datenträgerauslastung prüfen Task-Manager Autostart"));
+
+        var match = Assert.Single(await search.SearchAsync("Mein Windows PC ist sehr langsam."));
+        Assert.Equal("Windows\\Performance\\windows_pc_langsam.md", match.RelativePath);
+    }
+
+    [Fact]
+    public async Task Search_StillFindsSpecificGpupdateSysvolFailure()
+    {
+        var search = await CreateSearchAsync(
+            ("Windows/Active_Directory/rpc_server_nicht_verfuegbar.md", "Windows Active Directory RPC Server nicht verfügbar"),
+            ("Windows/Gruppenrichtlinien_GPO/gpupdate_fehler_sysvol.md", "gpupdate schlägt mit SYSVOL Fehler fehl"));
+
+        var match = Assert.Single(await search.SearchAsync("gpupdate schlägt mit SYSVOL Fehler fehl"));
+        Assert.Equal("Windows\\Gruppenrichtlinien_GPO\\gpupdate_fehler_sysvol.md", match.RelativePath);
     }
 
     private async Task<AiKnowledgeSearchService> CreateSearchAsync(params (string Path, string Content)[] documents)

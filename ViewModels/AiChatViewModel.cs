@@ -52,10 +52,23 @@ public sealed class AiChatViewModel : ObservableObject
         ClearCommand = new RelayCommand(Clear, () => Messages.Count > 0 && !IsSending);
         OpenAiSettingsCommand = new RelayCommand(_openAiSettings);
         _ai.StateChanged += (_, _) => RefreshState();
-        if (_wikiKnowledge != null) _wikiKnowledge.StatusChanged += (_, _) => { Raise(nameof(UseWikiAvailable)); Raise(nameof(UseWikiToolTip)); };
+        if (_wikiKnowledge != null) _wikiKnowledge.StatusChanged += (_, _) =>
+        {
+            Raise(nameof(UseWikiAvailable));
+            Raise(nameof(UseWiki));
+            Raise(nameof(UseWikiToolTip));
+        };
     }
     private bool _useWiki;
-    public bool UseWiki { get => _useWiki; set { if (!UseWikiAvailable || !Set(ref _useWiki, value)) return; if (_settings != null) { _settings.Current.AiChatUseWiki = value; _settings.Save(); } } }
+    public bool UseWiki
+    {
+        get => UseWikiAvailable && _useWiki;
+        set
+        {
+            if (!UseWikiAvailable || !Set(ref _useWiki, value)) return;
+            if (_settings != null) { _settings.Current.AiChatUseWiki = value; _settings.Save(); }
+        }
+    }
     public bool UseWikiAvailable => _wikiKnowledge?.IsAvailable == true;
     public string UseWikiToolTip => UseWikiAvailable ? "Lokalen Wiki-Index für diese Anfrage verwenden." : "Kein für KI-Wissen verfügbares Wiki konfiguriert.";
 

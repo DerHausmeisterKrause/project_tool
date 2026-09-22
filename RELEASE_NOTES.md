@@ -87,6 +87,8 @@
 
 ## KI
 
+- KI-Retrieval bei allgemeinen Fragen verschärft, sodass irrelevante lokale und Wiki-Wissensquellen nicht mehr in Antworten einfließen
+- `Use Wiki` wird ohne konfiguriertes Wiki nun korrekt deaktiviert und nicht mehr als aktiv angezeigt; die gespeicherte Präferenz bleibt für später konfigurierte Wikis erhalten
 - Aktivierte Confluence-Data-Center- und Confluence-Cloud-Wikis können als lokale, per SQLite FTS5 durchsuchbare Wissensquelle für den KI-Chat indexiert werden
 - Der Wiki-KI-Index wird im Hintergrund vollständig aufgebaut und anschließend alle 30 Minuten inkrementell aktualisiert; Chat-Anfragen verwenden ausschließlich den lokalen Index und funktionieren mit dem letzten erfolgreichen Stand auch offline
 - Neuer persistierter Schalter „Use Wiki“ steuert Wiki-Wissen unabhängig von der lokalen Plenaro Knowledge Base; lokale Datei- und Wiki-Treffer teilen sich ein gemeinsames Kontextbudget
