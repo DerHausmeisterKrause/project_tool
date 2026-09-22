@@ -14,7 +14,11 @@ public sealed record AiChatMessage(AiChatRole Role, string Content, DateTime Cre
     public bool IsUser => Role == AiChatRole.User;
     public bool IsAssistant => Role == AiChatRole.Assistant;
     public bool HasKnowledgeSources => KnowledgeSources?.Count > 0;
+    public string KnowledgeHeading => HasKnowledgeSources
+        ? $"Lokales Wissen: {KnowledgeSources!.Count} Quelle{(KnowledgeSources.Count == 1 ? string.Empty : "n")}" : string.Empty;
+    public string KnowledgePaths => HasKnowledgeSources
+        ? string.Join(" · ", KnowledgeSources!.Select(x => x.RelativePath)) : string.Empty;
     public string KnowledgeSummary => HasKnowledgeSources
-        ? $"Lokales Wissen: {KnowledgeSources!.Count} Quelle{(KnowledgeSources.Count == 1 ? string.Empty : "n")} · {string.Join(", ", KnowledgeSources.Select(x => x.RelativePath))}"
+        ? $"{KnowledgeHeading}\n{KnowledgePaths}"
         : string.Empty;
 }

@@ -44,8 +44,11 @@
                 </TextBlock>
 
                 <ScrollViewer x:Name="MessageScrollViewer" MinHeight="0" Background="Transparent"
-                              VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-                    <ItemsControl ItemsSource="{Binding Messages}" HorizontalContentAlignment="Stretch" MaxWidth="1250">
+                              VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
+                              HorizontalContentAlignment="Stretch"
+                              PreviewMouseWheel="MessageScrollViewer_OnPreviewMouseWheel">
+                    <ItemsControl ItemsSource="{Binding Messages}" HorizontalContentAlignment="Stretch"
+                                  MaxWidth="1250">
                         <ItemsControl.ItemContainerStyle>
                             <Style TargetType="ContentPresenter">
                                 <Setter Property="HorizontalAlignment" Value="Stretch"/>
@@ -55,17 +58,21 @@
                         <ItemsControl.ItemTemplate>
                             <DataTemplate DataType="{x:Type models:AiChatMessage}">
                                 <Border x:Name="Bubble" Background="#172554" CornerRadius="10" Padding="12"
-                                        MaxWidth="1000" HorizontalAlignment="Left">
+                                        MaxWidth="1050" HorizontalAlignment="Left">
                                     <StackPanel>
-                                        <TextBlock Text="{Binding Author}" FontWeight="SemiBold" Foreground="#93C5FD" Margin="0,0,0,5"/>
-                                        <TextBox x:Name="UserContent" Text="{Binding Content, Mode=OneWay}" IsReadOnly="True" Background="Transparent"
-                                                 BorderThickness="0" Padding="0" Foreground="{StaticResource TextBrush}"
-                                                 TextWrapping="Wrap" AcceptsReturn="True" IsTabStop="False"
-                                                 HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Disabled"/>
+                                        <TextBlock Text="{Binding Author}" FontSize="12" FontWeight="SemiBold"
+                                                   Foreground="#93C5FD" Margin="0,0,0,3"/>
+                                        <TextBlock x:Name="UserContent" Text="{Binding Content}" TextWrapping="Wrap"
+                                                   Foreground="{StaticResource TextBrush}"/>
                                         <controls:MarkdownMessageView x:Name="AssistantContent" Markdown="{Binding Content}" Foreground="{StaticResource TextBrush}" Visibility="Visible"/>
-                                        <TextBlock Text="{Binding KnowledgeSummary}" Foreground="{StaticResource MutedTextBrush}" FontSize="11" Margin="0,5,0,0">
-                                            <TextBlock.Style><Style TargetType="TextBlock"><Setter Property="Visibility" Value="Collapsed"/><Style.Triggers><DataTrigger Binding="{Binding HasKnowledgeSources}" Value="True"><Setter Property="Visibility" Value="Visible"/></DataTrigger></Style.Triggers></Style></TextBlock.Style>
-                                        </TextBlock>
+                                        <StackPanel x:Name="KnowledgeSources" Margin="0,5,0,0"
+                                                    ToolTip="{Binding KnowledgeSummary}" Visibility="Collapsed">
+                                            <TextBlock Text="{Binding KnowledgeHeading}" Foreground="{StaticResource MutedTextBrush}"
+                                                       FontSize="11" FontWeight="SemiBold"/>
+                                            <TextBlock Text="{Binding KnowledgePaths}" Foreground="{StaticResource MutedTextBrush}"
+                                                       FontSize="11" TextWrapping="Wrap" TextTrimming="CharacterEllipsis"
+                                                       MaxHeight="30"/>
+                                        </StackPanel>
                                         <Button Content="Kopieren" Command="{Binding DataContext.CopyMessageCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
                                                 CommandParameter="{Binding}" HorizontalAlignment="Right"
                                                 Padding="8,2" Height="26" Margin="0,7,0,0">
@@ -88,9 +95,15 @@
                                     <DataTrigger Binding="{Binding IsUser}" Value="True">
                                         <Setter TargetName="Bubble" Property="HorizontalAlignment" Value="Right"/>
                                         <Setter TargetName="Bubble" Property="Background" Value="#1F2937"/>
+                                        <Setter TargetName="Bubble" Property="MaxWidth" Value="780"/>
                                         <Setter TargetName="AssistantContent" Property="Visibility" Value="Collapsed"/>
                                     </DataTrigger>
-                                    <DataTrigger Binding="{Binding IsAssistant}" Value="True"><Setter TargetName="UserContent" Property="Visibility" Value="Collapsed"/></DataTrigger>
+                                    <DataTrigger Binding="{Binding IsAssistant}" Value="True">
+                                        <Setter TargetName="UserContent" Property="Visibility" Value="Collapsed"/>
+                                    </DataTrigger>
+                                    <DataTrigger Binding="{Binding HasKnowledgeSources}" Value="True">
+                                        <Setter TargetName="KnowledgeSources" Property="Visibility" Value="Visible"/>
+                                    </DataTrigger>
                                 </DataTemplate.Triggers>
                             </DataTemplate>
                         </ItemsControl.ItemTemplate>
