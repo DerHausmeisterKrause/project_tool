@@ -12,7 +12,7 @@ on:
           - prod
 
       version:
-        description: "Version ohne V, z.B. 3.3.1 oder 3.3.1-dev"
+        description: "Version ohne V, z.B. 3.3.1, 3.3.1-dev oder 3.3.1-dev-1"
         required: true
         type: string
 
@@ -59,14 +59,22 @@ jobs:
                   throw "DEV-Releases duerfen nur vom Branch 'dev' erstellt werden."
               }
 
-              if ($version -notmatch '^\d+\.\d+\.\d+-dev$') {
-                  throw "DEV-Version muss z.B. '3.3.1-dev' sein."
+              # Erlaubt:
+              # 3.3.1-dev
+              # 3.3.1-dev-1
+              # 3.3.1-dev-2
+              # 3.3.1-dev-123
+              if ($version -notmatch '^\d+\.\d+\.\d+-dev(?:-[1-9]\d*)?$') {
+                  throw "DEV-Version muss z.B. '3.3.1-dev', '3.3.1-dev-1' oder '3.3.1-dev-2' sein."
               }
           }
           else {
               throw "Unbekannter Release-Kanal."
           }
 
+          # Fuer AssemblyVersion/FileVersion darf nur der numerische Teil verwendet werden.
+          # Beispiel:
+          # 3.3.1-dev-2 -> 3.3.1 -> 3.3.1.0
           $numericVersion = $version -replace '-.*$', ''
           $fileVersion = "$numericVersion.0"
           $tag = "V$version"
@@ -75,7 +83,8 @@ jobs:
           "FILE_VERSION=$fileVersion" >> $env:GITHUB_ENV
           "RELEASE_TAG=$tag" >> $env:GITHUB_ENV
 
-          Write-Host "Release Tag: $tag"
+          Write-Host "Release Tag:  $tag"
+          Write-Host "Release Version: $version"
           Write-Host "File Version: $fileVersion"
 
       - name: Prüfen ob Tag bereits existiert
