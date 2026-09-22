@@ -101,7 +101,7 @@ public class MainViewModel : ObservableObject
         SelectedView = SettingsViewModel;
     }
 
-    public MainViewModel(TaskService taskService, WorkDayService workDayService, SettingsService settingsService, NotificationService notifications, OutlookCalendarService outlookCalendar, TicketSystemService ticketSystem, UpdateService updates, HomeOfficeService homeOffice, GermanTimeService germanTime, LoggerService logger, AiService aiService, AiKnowledgeService aiKnowledge)
+    public MainViewModel(TaskService taskService, WorkDayService workDayService, SettingsService settingsService, NotificationService notifications, OutlookCalendarService outlookCalendar, TicketSystemService ticketSystem, UpdateService updates, HomeOfficeService homeOffice, GermanTimeService germanTime, LoggerService logger, AiService aiService, AiKnowledgeService aiKnowledge, WikiAiKnowledgeService? wikiAiKnowledge = null)
     {
         _logger = logger;
         TodayViewModel = new TodayViewModel(taskService, workDayService, settingsService, outlookCalendar, ticketSystem, homeOffice);
@@ -113,7 +113,7 @@ public class MainViewModel : ObservableObject
         _reportsViewModel = new ReportsViewModel(taskService, workDayService, settingsService, germanTime, logger);
         SettingsViewModel = new SettingsViewModel(settingsService, notifications, outlookCalendar, taskService, ticketSystem, updates, aiService, aiKnowledge);
         NavigateToSettingsCommand = new RelayCommand<string>(NavigateToSettings);
-        AiChatViewModel = new AiChatViewModel(aiService, () => NavigateToSettings("KI"), aiKnowledge, settingsService);
+        AiChatViewModel = new AiChatViewModel(aiService, () => NavigateToSettings("KI"), aiKnowledge, settingsService, wikiAiKnowledge);
 
         NavigationItems = new ObservableCollection<object> { TodayViewModel, _weekViewModel, _ticketSystemViewModel, _reportsViewModel, AiChatViewModel, SettingsViewModel };
         settingsService.SettingsChanged += RefreshDynamicNavigation;

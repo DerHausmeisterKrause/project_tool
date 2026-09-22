@@ -68,6 +68,19 @@ public sealed class AiKnowledgeTests : IDisposable
         Assert.Equal(4, AiKnowledgeSearchService.DefaultTopN);
     }
 
+    [Fact]
+    public void CombinedContext_RanksBothSourcesAndHonorsSharedBudget()
+    {
+        var matches = Enumerable.Range(0, 8).Select(index => new AiRetrievalMatch(
+            index % 2 == 0 ? AiKnowledgeSourceType.Wiki : AiKnowledgeSourceType.LocalFiles,
+            new string('x', 1400), $"Titel {index}", index % 2 == 0 ? "Internes Confluence" : $"Datei{index}.md", null, 100 - index)).ToArray();
+        var context = AiCombinedContextBuilder.Prepare(matches);
+        Assert.True(context.Text.Length <= AiKnowledgeContextBuilder.MaximumContextCharacters);
+        Assert.True(context.IncludedMatches.Count <= AiKnowledgeContextBuilder.MaximumChunks);
+        Assert.Contains(context.IncludedMatches, x => x.SourceType == AiKnowledgeSourceType.Wiki);
+        Assert.Contains(context.IncludedMatches, x => x.SourceType == AiKnowledgeSourceType.LocalFiles);
+    }
+
     [Theory]
     [InlineData("test")]
     [InlineData("Antworte nur mit test")]

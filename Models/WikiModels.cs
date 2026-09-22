@@ -22,3 +22,7 @@ public sealed record WikiSearchTerm(string Text, string NormalizedText, double S
 public sealed record WikiVocabularyPage(string ExternalId, string Title, string Url, string SpaceKey, DateTime? LastModifiedUtc = null);
 public sealed record WikiVocabularyPageBatch(IReadOnlyList<WikiVocabularyPage> Pages, bool HasMore);
 public sealed record WikiVocabularyStatus(int PageCount, DateTime? UpdatedUtc, string Status);
+public sealed record WikiKnowledgePage(string SourceId, string ExternalId, string Title, string Url, string SpaceKey, string Version, DateTime? LastModifiedUtc);
+public sealed record WikiKnowledgePageBatch(IReadOnlyList<WikiKnowledgePage> Pages, bool HasMore);
+public sealed record WikiKnowledgePageContent(string ExternalId, string Title, string PlainText, string Version, DateTime? LastModifiedUtc);
+public sealed record WikiAiIndexStatus(string SourceId, int PageCount, int ChunkCount, DateTime? LastSuccessUtc, string Status, int ProcessedPages = 0, int? TotalPages = null);

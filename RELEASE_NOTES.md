@@ -87,6 +87,9 @@
 
 ## KI
 
+- Aktivierte Confluence-Data-Center- und Confluence-Cloud-Wikis können als lokale, per SQLite FTS5 durchsuchbare Wissensquelle für den KI-Chat indexiert werden
+- Der Wiki-KI-Index wird im Hintergrund vollständig aufgebaut und anschließend alle 30 Minuten inkrementell aktualisiert; Chat-Anfragen verwenden ausschließlich den lokalen Index und funktionieren mit dem letzten erfolgreichen Stand auch offline
+- Neuer persistierter Schalter „Use Wiki“ steuert Wiki-Wissen unabhängig von der lokalen Plenaro Knowledge Base; lokale Datei- und Wiki-Treffer teilen sich ein gemeinsames Kontextbudget
 - KI-Antwortqualität und lokale Wissenssuche verbessert: irrelevante Knowledge-Treffer werden gefiltert und konkrete Benutzeranweisungen zuverlässiger berücksichtigt
 - KI-Chat optisch überarbeitet: Benutzer-Nachrichten erscheinen jetzt als kompakte orange Chat-Bubbles
 - Schreibanzeige „Plenaro schreibt …“ als temporäre Assistant-Bubble direkt im Chat ergänzt

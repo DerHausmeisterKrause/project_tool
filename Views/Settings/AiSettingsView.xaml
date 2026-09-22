@@ -58,7 +58,7 @@
                         <Button Content="Wissen neu indexieren" Command="{Binding ReindexKnowledgeCommand}" Style="{StaticResource SecondaryButtonStyle}"/>
                     </WrapPanel>
                     <TextBlock Text="{Binding AiKnowledgeStatus}" Style="{StaticResource SettingsHelpStyle}"/>
-                    <TextBlock Text="Hinweis: Bei Verwendung einer externen KI-API werden die für eine Anfrage ausgewählten lokalen Wissensausschnitte an den konfigurierten KI-Anbieter übertragen. Bei lokaler llama.cpp-KI bleibt alles lokal."
+                    <TextBlock Text="Hinweis: Bei Verwendung einer externen KI-API werden ausgewählte lokale Wissens- und Wiki-Ausschnitte an den konfigurierten KI-Anbieter übertragen. Bei lokaler llama.cpp-KI bleibt alles lokal."
                                TextWrapping="Wrap" Foreground="#FBBF24" Margin="0,10,0,0"/>
                 </StackPanel>
             </Border>
