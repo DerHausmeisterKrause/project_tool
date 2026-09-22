@@ -36,4 +36,12 @@ public partial class AiChatView : UserControl
         if (DataContext is AiChatViewModel viewModel && viewModel.SendCommand.CanExecute(null)) viewModel.SendCommand.Execute(null);
         args.Handled = true;
     }
+
+    private void MessageScrollViewer_OnPreviewMouseWheel(object sender, MouseWheelEventArgs args)
+    {
+        if (sender is not ScrollViewer scrollViewer) return;
+
+        scrollViewer.ScrollToVerticalOffset(scrollViewer.VerticalOffset - args.Delta);
+        args.Handled = true;
+    }
 }
