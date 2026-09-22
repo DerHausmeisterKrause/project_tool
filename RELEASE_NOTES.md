@@ -98,6 +98,7 @@
 - Fließtext und Inline-Code in KI-Antworten werden ohne schwarzen Texthintergrund dargestellt; nur echte Codeblöcke bleiben dunkel hervorgehoben
 - Runtimefehler beim Anzeigen des lokalen KI-Wissensordners in den Einstellungen behoben
 - Buildprobleme der neuen lokalen Wissensbasis und Markdown-Darstellung einschließlich der Übergabe des Abbruch-Tokens an die Wissenssuche behoben
+- Build- und Parallelisierungsfehler des neuen lokalen Wiki-KI-Index behoben
 - Neue optionale KI-Integration als technisches Grundgerüst ergänzt
 - OpenAI-kompatible APIs können mit eigener Basis-URL, Modell und optionalem API-Key angebunden und getestet werden
 - API-Schlüssel werden verschlüsselt im Windows-Benutzerkontext gespeichert

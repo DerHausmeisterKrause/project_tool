@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.IO;
 using System.Security.Cryptography;
 using System.Text;
 using Microsoft.Data.Sqlite;
@@ -68,7 +69,22 @@ public sealed class WikiAiKnowledgeService : IDisposable
             var changed = pages.Where(p => fullRebuild || !old.TryGetValue(p.ExternalId, out var existing) || IsChanged(existing, p)).ToArray();
             var loaded = new Dictionary<string, WikiKnowledgePageContent>(StringComparer.Ordinal);
             using var throttle = new SemaphoreSlim(3, 3);
-            await Task.WhenAll(changed.Select(async page => { await throttle.WaitAsync(token); try { lock (loaded) loaded[page.ExternalId] = await _providers[source.ProviderType].GetPageContentAsync(source, page.ExternalId, token); } finally { throttle.Release(); } }));
+            await Task.WhenAll(changed.Select(async page =>
+            {
+                await throttle.WaitAsync(token);
+                try
+                {
+                    var content = await _providers[source.ProviderType].GetPageContentAsync(source, page.ExternalId, token);
+                    lock (loaded)
+                    {
+                        loaded[page.ExternalId] = content;
+                    }
+                }
+                finally
+                {
+                    throttle.Release();
+                }
+            }));
             Apply(source, fingerprint, pages, loaded, fullRebuild);
             var deleted = old.Keys.Count(x => !seen.ContainsKey(x)); var added = changed.Count(x => !old.ContainsKey(x.ExternalId));
             _logger.Info($"[Wiki AI Index] sourceId={source.Id} pagesSeen={pages.Count} changed={changed.Length - added} new={added} deleted={deleted} unchanged={pages.Count - changed.Length}");
