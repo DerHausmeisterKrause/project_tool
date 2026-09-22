@@ -20,6 +20,7 @@ in this repository.
 - Source: `ggml-org/llama.cpp`
 - License: MIT
 - Plenaro-approved runtime version: `b11081`
+- Optional Windows x64 backends: CPU and Vulkan (downloaded and SHA256-verified separately)
 
 ## Qwen3 1.7B
 

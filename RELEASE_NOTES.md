@@ -87,6 +87,9 @@
 
 ## KI
 
+- Markdown-Darstellung im KI-Chat für verschachtelte geordnete und ungeordnete Listen korrigiert
+- KI-Retrieval bei allgemeinen Performance-Fragen um Fachbereichs- und Entity-Abgleich erweitert, damit generische Symptome keine fachfremden lokalen oder Wiki-Quellen legitimieren
+- Lokale KI kann optional mit einer separat installierten, SHA256-verifizierten Vulkan-Runtime auf der GPU ausgeführt werden; bei Startfehlern erfolgt ein kontrollierter CPU-Fallback
 - KI-Retrieval bei allgemeinen Fragen verschärft, sodass irrelevante lokale und Wiki-Wissensquellen nicht mehr in Antworten einfließen
 - `Use Wiki` wird ohne konfiguriertes Wiki nun korrekt deaktiviert und nicht mehr als aktiv angezeigt; die gespeicherte Präferenz bleibt für später konfigurierte Wikis erhalten
 - Aktivierte Confluence-Data-Center- und Confluence-Cloud-Wikis können als lokale, per SQLite FTS5 durchsuchbare Wissensquelle für den KI-Chat indexiert werden

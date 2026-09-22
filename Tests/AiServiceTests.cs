@@ -24,6 +24,25 @@ public sealed class AiServiceTests
     }
 
     [Fact]
+    public void RuntimeCatalog_ContainsSeparateCpuAndVulkanBuildsAtSameVersion()
+    {
+        var cpu = LocalAiRuntimeCatalog.Get(LocalAiComputeMode.Cpu);
+        var gpu = LocalAiRuntimeCatalog.Get(LocalAiComputeMode.Gpu);
+        Assert.Equal(cpu.Version, gpu.Version);
+        Assert.Equal("cpu", cpu.Backend); Assert.Equal("vulkan", gpu.Backend);
+        Assert.Equal("llama-b11081-bin-win-vulkan-x64.zip", gpu.FileName);
+        Assert.Matches("^[0-9a-f]{64}$", gpu.Sha256);
+        Assert.Equal(Uri.UriSchemeHttps, new Uri(gpu.DownloadUrl).Scheme);
+    }
+
+    [Fact]
+    public void RuntimePaths_AreSeparatedByBackend()
+    {
+        Assert.EndsWith(Path.Combine("runtime", "llama.cpp", "cpu"), LocalLlamaServerManager.GetRuntimeDirectory("root", LocalAiComputeMode.Cpu));
+        Assert.EndsWith(Path.Combine("runtime", "llama.cpp", "vulkan"), LocalLlamaServerManager.GetRuntimeDirectory("root", LocalAiComputeMode.Gpu));
+    }
+
+    [Fact]
     public async Task RuntimeValidation_AcceptsMatchingMetadata()
     {
         var directory = Directory.CreateTempSubdirectory();
@@ -33,7 +52,7 @@ public sealed class AiServiceTests
             var metadata = Path.Combine(directory.FullName, "runtime.json");
             await File.WriteAllTextAsync(executable, "test");
             await File.WriteAllTextAsync(metadata, """
-                {"provider":"llama.cpp","version":"b11081","platform":"win-cpu-x64","archiveSha256":"48f13c153946cca8543fd3ab915709ec5f340bfe1f38c687121b3d58f848b7b2"}
+                {"provider":"llama.cpp","version":"b11081","backend":"cpu","platform":"win-cpu-x64","archiveSha256":"48f13c153946cca8543fd3ab915709ec5f340bfe1f38c687121b3d58f848b7b2"}
                 """);
 
             Assert.True(LocalLlamaServerManager.IsRuntimeInstalled(executable, metadata, LocalAiRuntimeCatalog.Current));
@@ -54,7 +73,7 @@ public sealed class AiServiceTests
             Assert.False(LocalLlamaServerManager.IsRuntimeInstalled(executable, metadata, LocalAiRuntimeCatalog.Current));
 
             await File.WriteAllTextAsync(metadata, """
-                {"provider":"llama.cpp","version":"b10938","platform":"win-cpu-x64","archiveSha256":"48f13c153946cca8543fd3ab915709ec5f340bfe1f38c687121b3d58f848b7b2"}
+                {"provider":"llama.cpp","version":"b10938","backend":"cpu","platform":"win-cpu-x64","archiveSha256":"48f13c153946cca8543fd3ab915709ec5f340bfe1f38c687121b3d58f848b7b2"}
                 """);
             Assert.False(LocalLlamaServerManager.IsRuntimeInstalled(executable, metadata, LocalAiRuntimeCatalog.Current));
         }
@@ -90,6 +109,7 @@ public sealed class AiServiceTests
         Assert.False(settings.AiEnabled);
         Assert.Equal(AiProviderType.OpenAiCompatible, settings.AiProvider);
         Assert.Equal(LocalAiPreset.Light, settings.AiLocalPreset);
+        Assert.Equal(LocalAiComputeMode.Cpu, settings.AiLocalComputeMode);
     }
 
     [Fact]
@@ -216,6 +236,37 @@ public sealed class AiServiceTests
         Assert.Contains("--reasoning", arguments);
         var reasoningIndex = arguments.ToList().IndexOf("--reasoning");
         Assert.Equal("off", arguments[reasoningIndex + 1]);
+    }
+
+    [Fact]
+    public void LocalServerArguments_OnlyEnableOffloadForGpu()
+    {
+        var cpu = LocalLlamaServerManager.BuildServerArguments("model.gguf", 1234, "model", LocalAiComputeMode.Cpu);
+        var gpu = LocalLlamaServerManager.BuildServerArguments("model.gguf", 1234, "model", LocalAiComputeMode.Gpu);
+        Assert.DoesNotContain("--n-gpu-layers", cpu);
+        var index = gpu.ToList().IndexOf("--n-gpu-layers");
+        Assert.True(index >= 0); Assert.Equal("all", gpu[index + 1]);
+    }
+
+    [Fact]
+    public async Task ComputeMode_IsPersistedAndReloaded()
+    {
+        var directory = Directory.CreateTempSubdirectory();
+        try
+        {
+            var path = Path.Combine(directory.FullName, "settings.json"); var logger = new LoggerService();
+            var settings = new SettingsService(logger, path); settings.Current.AiLocalComputeMode = LocalAiComputeMode.Gpu; settings.Save();
+            Assert.Equal(LocalAiComputeMode.Gpu, new SettingsService(logger, path).Current.AiLocalComputeMode);
+        }
+        finally { directory.Delete(true); }
+    }
+
+    [Fact]
+    public void GpuStartupFailure_UsesControlledCpuFallbackPolicy()
+    {
+        Assert.True(LocalLlamaServerManager.ShouldFallbackToCpu(LocalAiComputeMode.Gpu, new InvalidOperationException("Vulkan failed")));
+        Assert.False(LocalLlamaServerManager.ShouldFallbackToCpu(LocalAiComputeMode.Cpu, new InvalidOperationException("failed")));
+        Assert.False(LocalLlamaServerManager.ShouldFallbackToCpu(LocalAiComputeMode.Gpu, new OperationCanceledException()));
     }
 
     [Fact]

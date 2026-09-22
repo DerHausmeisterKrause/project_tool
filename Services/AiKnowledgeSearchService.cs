@@ -24,7 +24,21 @@ public sealed class AiKnowledgeSearchService
         "test", "hallo", "danke", "the", "a", "an", "and", "or", "with", "without", "please", "answer", "reply"
     };
     private static readonly HashSet<string> GenericTechnicalTerms = new(StringComparer.OrdinalIgnoreCase)
-    { "fehler", "problem", "dienst", "server", "windows", "linux", "client", "port", "pc", "computer", "rechner", "gerät", "system" };
+    { "fehler", "problem", "probleme", "dienst", "server", "windows", "linux", "client", "port", "pc", "computer", "rechner", "gerät", "system",
+      "langsam", "langsamer", "performance", "leistung", "auslastung", "hängt", "hängen", "ruckelt", "träge", "latency", "latenz" };
+    private static readonly HashSet<string> GenericSymptoms = new(StringComparer.OrdinalIgnoreCase)
+    { "langsam", "langsamer", "performance", "leistung", "problem", "probleme", "fehler", "auslastung", "hängt", "hängen", "ruckelt", "träge", "latency", "latenz" };
+    private static readonly IReadOnlyDictionary<string, string[]> DomainTerms = new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase)
+    {
+        ["windows"] = ["windows", "pc", "client", "rechner", "0x80070035"],
+        ["linux"] = ["linux", "systemd", "systemctl", "dpkg"],
+        ["vmware"] = ["vmware", "vcenter", "vsphere", "datastore", "esxi"],
+        ["database"] = ["datenbank", "datenbanken", "sql", "query", "queries", "mysql", "postgresql", "oracle"],
+        ["docker"] = ["docker", "container"], ["network"] = ["netzwerk", "dns", "dhcp", "switch", "router"],
+        ["ad-gpo"] = ["active", "directory", "gpo", "gpupdate", "gpresult", "sysvol", "gruppenrichtlinie"],
+        ["printer"] = ["drucker", "printer"], ["rdp"] = ["rdp", "remotedesktop"],
+        ["znuny"] = ["znuny", "otrs"], ["nginx"] = ["nginx"]
+    };
     private static readonly HashSet<string> KnownSpecificTerms = new(StringComparer.OrdinalIgnoreCase)
     { "dpkg", "systemctl", "gpresult", "gpupdate", "gruppenrichtlinie", "nginx", "vcenter", "znuny", "gpo", "dns", "dhcp", "systemd", "docker", "vmware", "ssh" };
 
@@ -86,8 +100,11 @@ public sealed class AiKnowledgeSearchService
     internal static double CalculateRelevance(IReadOnlyList<string> terms, string content, string titleOrFile, string category)
     {
         var contentTokens = Tokens(content); var titleTokens = Tokens(titleOrFile); var categoryTokens = Tokens(category);
+        var queryDomains = DetectDomains(terms);
+        var documentDomains = DetectDomains(contentTokens.Concat(titleTokens).Concat(categoryTokens));
+        if (queryDomains.Count > 0 && documentDomains.Count > 0 && !queryDomains.Overlaps(documentDomains)) return 0;
         var meaningfulTerms = terms.Where(term => !GenericTechnicalTerms.Contains(term)).ToArray();
-        var matched = 0; var meaningfulMatches = 0; var specificMatch = false; var strongMetadataMatch = false; var score = 0d;
+        var matched = 0; var meaningfulMatches = 0; var symptomMatches = 0; var specificMatch = false; var strongMetadataMatch = false; var score = 0d;
         foreach (var term in terms)
         {
             var inContent = contentTokens.Contains(term); var inTitle = titleTokens.Contains(term); var inCategory = categoryTokens.Contains(term);
@@ -95,6 +112,7 @@ public sealed class AiKnowledgeSearchService
             matched++;
             var specific = IsSpecific(term);
             if (!GenericTechnicalTerms.Contains(term)) meaningfulMatches++;
+            if (GenericSymptoms.Contains(term)) symptomMatches++;
             if (specific) specificMatch = true;
             if (!GenericTechnicalTerms.Contains(term) && (inTitle || inCategory)) strongMetadataMatch = true;
             score += (inContent ? 2 : 0) + (inTitle ? 4 : 0) + (inCategory ? 3 : 0) + (specific ? 6 : 0);
@@ -104,13 +122,22 @@ public sealed class AiKnowledgeSearchService
         // establish relevance: require two meaningful terms, or one backed by strong metadata.
         if (!specificMatch)
         {
-            if (meaningfulTerms.Length == 0 || meaningfulMatches == 0) return 0;
+            // A clearly identified domain may combine with a symptom ("Windows PC langsam").
+            // The symptom alone, or a conflicting domain, can never qualify a document.
+            var matchingDomainAndSymptom = queryDomains.Count > 0 && queryDomains.Overlaps(documentDomains) && symptomMatches > 0;
+            if ((meaningfulTerms.Length == 0 || meaningfulMatches == 0) && !matchingDomainAndSymptom) return 0;
             if (meaningfulTerms.Length == 1 && !strongMetadataMatch) return 0;
             if (meaningfulTerms.Length > 1 && meaningfulMatches < 2) return 0;
         }
 
         var meaningfulCoverage = meaningfulTerms.Length == 0 ? 0 : (double)meaningfulMatches / meaningfulTerms.Length;
         return score + (double)matched / terms.Count * 4 + meaningfulCoverage * 6;
+    }
+
+    private static HashSet<string> DetectDomains(IEnumerable<string> tokens)
+    {
+        var values = tokens.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        return DomainTerms.Where(domain => domain.Value.Any(values.Contains)).Select(domain => domain.Key).ToHashSet(StringComparer.OrdinalIgnoreCase);
     }
 
     private static bool IsSpecific(string term) => !GenericTechnicalTerms.Contains(term) && (KnownSpecificTerms.Contains(term)

@@ -67,11 +67,14 @@ public class SettingsViewModel : ObservableObject
     public string AiApiKey { get => string.IsNullOrWhiteSpace(_settings.Current.AiApiKeyEncrypted) ? string.Empty : AiApiKeyMask; set { if (value == AiApiKeyMask) return; _settings.SetAiApiKey(value ?? string.Empty); Save(); Raise(); } }
     public string AiModel { get => _settings.Current.AiModel; set { _settings.Current.AiModel = value; Save(); } }
     public IReadOnlyList<LocalAiModelDefinition> AiLocalModels => LocalAiModelCatalog.All;
+    public IReadOnlyList<LocalAiComputeModeChoice> AiLocalComputeModes { get; } = [new(LocalAiComputeMode.Cpu, "CPU"), new(LocalAiComputeMode.Gpu, "GPU")];
     public LocalAiPreset AiLocalPreset { get => _settings.Current.AiLocalPreset; set { if (_settings.Current.AiLocalPreset == value) return; _ai.LocalServer.Stop(); _settings.Current.AiLocalPreset = value; Save(); RaiseAiState(); if (AiEnabled && IsLocalAiProvider) _ = StartLocalAiAsync(); } }
+    public LocalAiComputeMode AiLocalComputeMode { get => _settings.Current.AiLocalComputeMode; set { if (_settings.Current.AiLocalComputeMode == value) return; _ai.LocalServer.Stop(); _settings.Current.AiLocalComputeMode = value; Save(); RaiseAiState(); if (AiEnabled && IsLocalAiProvider) _ = StartLocalAiAsync(); } }
     public string AiLocalLicense => LocalAiModelCatalog.Get(AiLocalPreset).License;
     public string AiStatus { get => _aiStatus; set => Set(ref _aiStatus, value); }
     public int AiDownloadProgress { get => _aiDownloadProgress; set => Set(ref _aiDownloadProgress, value); }
     public string AiLocalServerStatus => _ai.LocalServer.Status switch { LocalAiStatus.NotInstalled => "Nicht installiert", LocalAiStatus.DownloadingRuntime => "Runtime wird heruntergeladen", LocalAiStatus.DownloadingModel => $"Modell wird heruntergeladen – Download {_ai.LocalServer.Progress} %", LocalAiStatus.VerifyingSha256 => "SHA256 wird geprüft", LocalAiStatus.Installed => "Installiert", LocalAiStatus.LoadingModel => "Modell wird geladen …", LocalAiStatus.Ready => "Bereit", _ => "Fehler" };
+    public string AiLocalBackendStatus => _ai.LocalServer.BackendDescription + (string.IsNullOrWhiteSpace(_ai.LocalServer.DetectedGpu) ? string.Empty : $"\nGPU: {_ai.LocalServer.DetectedGpu}");
     public RelayCommand TestAiCommand { get; }
     public RelayCommand DownloadAiModelCommand { get; }
     public RelayCommand StartLocalAiCommand { get; }
@@ -352,12 +355,12 @@ public class SettingsViewModel : ObservableObject
         finally { SetAiBusy(false); }
     }
 
-    private async Task StartLocalAiAsync() { SetAiBusy(true); try { await _ai.LocalServer.InstallAndStartAsync(new Progress<int>(value => { AiDownloadProgress = value; Raise(nameof(AiLocalServerStatus)); })); AiStatus = "Bereit"; } catch (Exception ex) { AiStatus = DescribeAiError(ex); } finally { SetAiBusy(false); RaiseAiState(); } }
+    private async Task StartLocalAiAsync() { SetAiBusy(true); try { await _ai.LocalServer.InstallAndStartAsync(new Progress<int>(value => { AiDownloadProgress = value; Raise(nameof(AiLocalServerStatus)); })); AiStatus = _ai.LocalServer.UsedCpuFallback ? _ai.LocalServer.LastError ?? "Bereit" : "Bereit"; } catch (Exception ex) { AiStatus = DescribeAiError(ex); } finally { SetAiBusy(false); RaiseAiState(); } }
     private void StopLocalAi() { try { _ai.LocalServer.Stop(); AiStatus = "Lokaler llama.cpp-Server wurde gestoppt."; } catch (Exception ex) { AiStatus = DescribeAiError(ex); } RaiseAiState(); }
     private void SetAiBusy(bool value) { _isAiOperationRunning = value; RaiseAiState(); }
     private void RaiseAiState()
     {
-        Raise(nameof(IsOpenAiProvider)); Raise(nameof(IsLocalAiProvider)); Raise(nameof(AiLocalServerStatus)); Raise(nameof(AiLocalLicense)); Raise(nameof(AiLocalPreset));
+        Raise(nameof(IsOpenAiProvider)); Raise(nameof(IsLocalAiProvider)); Raise(nameof(AiLocalServerStatus)); Raise(nameof(AiLocalBackendStatus)); Raise(nameof(AiLocalLicense)); Raise(nameof(AiLocalPreset)); Raise(nameof(AiLocalComputeMode));
         TestAiCommand?.RaiseCanExecuteChanged(); DownloadAiModelCommand?.RaiseCanExecuteChanged(); StartLocalAiCommand?.RaiseCanExecuteChanged(); StopLocalAiCommand?.RaiseCanExecuteChanged();
     }
     private static string DescribeAiError(Exception ex) => ex switch
