@@ -35,7 +35,7 @@ public sealed class AiKnowledgeService : IDisposable
     }
     public Task RebuildAsync() => IndexSafelyAsync(true);
     public async Task<IReadOnlyList<AiKnowledgeMatch>> SearchAsync(string question, CancellationToken ct = default)
-        => !_settings.Current.AiKnowledgeEnabled ? Array.Empty<AiKnowledgeMatch>() : await Search.SearchAsync(question, cancellationToken: ct);
+        => !_settings.Current.AiKnowledgeEnabled ? Array.Empty<AiKnowledgeMatch>() : await Search.SearchAsync(question, ct: ct);
     private void OnChanged(object sender, FileSystemEventArgs e) { if (_settings.Current.AiKnowledgeEnabled) _debounce.Change(TimeSpan.FromSeconds(3), Timeout.InfiniteTimeSpan); }
     private async Task IndexSafelyAsync(bool rebuild)
     {

@@ -87,7 +87,7 @@
 
 ## KI
 
-- Buildprobleme der neuen lokalen Wissensbasis und Markdown-Darstellung behoben
+- Buildprobleme der neuen lokalen Wissensbasis und Markdown-Darstellung einschließlich der Übergabe des Abbruch-Tokens an die Wissenssuche behoben
 - Neue optionale KI-Integration als technisches Grundgerüst ergänzt
 - OpenAI-kompatible APIs können mit eigener Basis-URL, Modell und optionalem API-Key angebunden und getestet werden
 - API-Schlüssel werden verschlüsselt im Windows-Benutzerkontext gespeichert
