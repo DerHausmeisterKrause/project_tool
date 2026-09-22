@@ -5,6 +5,7 @@ using System.Windows.Media;
 using Markdig;
 using Markdig.Syntax;
 using Markdig.Syntax.Inlines;
+using MarkdownBlock = Markdig.Syntax.Block;
 
 namespace TaskTool.Views.Controls;
 
@@ -21,7 +22,7 @@ public partial class MarkdownMessageView : UserControl
         if (!string.IsNullOrEmpty(Markdown)) foreach (var block in Markdig.Markdown.Parse(Markdown, Pipeline)) AddBlock(document, block);
         Viewer.Document = document;
     }
-    private static void AddBlock(FlowDocument document, Block block)
+    private static void AddBlock(FlowDocument document, MarkdownBlock block)
     {
         if (block is CodeBlock codeBlock)
         {
@@ -38,7 +39,7 @@ public partial class MarkdownMessageView : UserControl
         if (block is HeadingBlock heading) { paragraph.FontSize = heading.Level switch { 1 => 24, 2 => 21, 3 => 18, _ => 16 }; paragraph.FontWeight = FontWeights.SemiBold; paragraph.Margin = new Thickness(0, 9, 0, 6); }
         document.Blocks.Add(paragraph);
     }
-    private static Paragraph CreateParagraph(Block block)
+    private static Paragraph CreateParagraph(MarkdownBlock block)
     {
         var paragraph = new Paragraph { Margin = new Thickness(0, 0, 0, 9) };
         if (block is LeafBlock { Inline: { } inline }) AddInlines(paragraph.Inlines, inline.FirstChild);
