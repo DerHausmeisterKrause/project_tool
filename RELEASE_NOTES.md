@@ -87,6 +87,7 @@
 
 ## KI
 
+- Fehlerhafte SHA256-Prüfsumme der Vulkan llama.cpp Runtime korrigiert, sodass die optionale GPU-Beschleunigung installiert werden kann
 - Markdown-Darstellung im KI-Chat für verschachtelte geordnete und ungeordnete Listen korrigiert
 - KI-Retrieval bei allgemeinen Performance-Fragen um Fachbereichs- und Entity-Abgleich erweitert, damit generische Symptome keine fachfremden lokalen oder Wiki-Quellen legitimieren
 - Lokale KI kann optional mit einer separat installierten, SHA256-verifizierten Vulkan-Runtime auf der GPU ausgeführt werden; bei Startfehlern erfolgt ein kontrollierter CPU-Fallback

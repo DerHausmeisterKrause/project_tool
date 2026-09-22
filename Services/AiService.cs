@@ -262,8 +262,13 @@ public sealed class LocalLlamaServerManager : IDisposable
             Log($"Installing llama.cpp runtime={runtime.Version}");
             Log($"Downloading runtime asset={runtime.FileName}");
             await DownloadAsync(url, part, progress, token);
-            if (!await HasSha256Async(part, runtime.Sha256, token))
+            Log($"Downloaded runtime bytes={new FileInfo(part).Length}");
+            var actualSha256 = await CalculateSha256Async(part, token);
+            if (!actualSha256.Equals(runtime.Sha256, StringComparison.OrdinalIgnoreCase))
+            {
+                Log($"Runtime SHA256 mismatch backend={runtime.Backend} asset={runtime.FileName} expected={runtime.Sha256} actual={actualSha256}");
                 throw new InvalidDataException("Die heruntergeladene llama.cpp-Runtime konnte nicht verifiziert werden.");
+            }
             Log("Runtime SHA256 verified");
             await InstallRuntimeArchiveAsync(part, RuntimeDirectory, runtime, Stop, token);
             Log("Runtime extracted");
@@ -360,7 +365,8 @@ public sealed class LocalLlamaServerManager : IDisposable
         var source = Path.GetDirectoryName(executable)!;
         foreach (var file in Directory.EnumerateFiles(source)) File.Move(file, Path.Combine(runtimeDirectory, Path.GetFileName(file)), true);
     }
-    internal static async Task<bool> HasSha256Async(string path, string expected, CancellationToken token = default) { await using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 131072, true); var hash = await SHA256.HashDataAsync(stream, token); return Convert.ToHexString(hash).Equals(expected, StringComparison.OrdinalIgnoreCase); }
+    internal static async Task<string> CalculateSha256Async(string path, CancellationToken token = default) { await using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 131072, true); var hash = await SHA256.HashDataAsync(stream, token); return Convert.ToHexString(hash).ToLowerInvariant(); }
+    internal static async Task<bool> HasSha256Async(string path, string expected, CancellationToken token = default) => (await CalculateSha256Async(path, token)).Equals(expected, StringComparison.OrdinalIgnoreCase);
 
     private async Task StartAndWaitForReadyAsync(LocalAiPreset preset, CancellationToken token)
     {
