@@ -192,6 +192,7 @@ public class SettingsService
         settings.AiApiKeyEncrypted ??= string.Empty;
         settings.AiModel = settings.AiModel?.Trim() ?? string.Empty;
         if (!Enum.IsDefined(settings.AiLocalPreset)) settings.AiLocalPreset = LocalAiPreset.Light;
+        if (!Enum.IsDefined(settings.AiLocalComputeMode)) settings.AiLocalComputeMode = LocalAiComputeMode.Cpu;
         settings.WikiSources ??= new();
         settings.WikiSources = settings.WikiSources.OfType<WikiSourceSettings>().ToList();
         foreach (var source in settings.WikiSources)

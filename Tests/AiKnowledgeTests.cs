@@ -152,6 +152,27 @@ public sealed class AiKnowledgeTests : IDisposable
     }
 
     [Fact]
+    public async Task Search_RejectsOtherDomainsForWindowsPerformanceQuestion()
+    {
+        var search = await CreateSearchAsync(
+            ("Datenbanken/Fehler/langsame_queries.md", "SQL Query langsam Performance Datenbank"),
+            ("VMware/Storage/storage_latency.md", "VMware datastore storage latency performance"),
+            ("Windows/Performance/windows_pc_langsam.md", "Windows PC langsam Leistung Task-Manager Autostart"));
+
+        var match = Assert.Single(await search.SearchAsync("Mein Windows PC ist sehr langsam."));
+        Assert.Equal("Windows\\Performance\\windows_pc_langsam.md", match.RelativePath);
+    }
+
+    [Fact]
+    public async Task Search_ReturnsNothingWhenOnlyOtherDomainsMatchGenericSymptoms()
+    {
+        var search = await CreateSearchAsync(
+            ("Datenbanken/Fehler/langsame_queries.md", "SQL Query langsam Performance Datenbank"),
+            ("VMware/Storage/storage_latency.md", "VMware datastore storage latency performance"));
+        Assert.Empty(await search.SearchAsync("Mein Windows PC ist sehr langsam."));
+    }
+
+    [Fact]
     public async Task Search_StillFindsSpecificGpupdateSysvolFailure()
     {
         var search = await CreateSearchAsync(

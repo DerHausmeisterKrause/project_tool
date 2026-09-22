@@ -128,7 +128,11 @@ public sealed class LocalLlamaServerManager : IDisposable
     private readonly Queue<string> _diagnostics = new(); private Process? _process; private int _port; private string _setupStage = "initialization";
     public LocalLlamaServerManager(SettingsService settings, LoggerService logger, HttpClient httpClient) { _settings = settings; _logger = logger; _httpClient = httpClient; }
     public string RootDirectory { get; } = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Plenaro", "AI");
-    public string RuntimeDirectory => Path.Combine(RootDirectory, "runtime", "llama.cpp");
+    public LocalAiComputeMode ActiveComputeMode { get; private set; } = LocalAiComputeMode.Cpu;
+    public string? DetectedGpu { get; private set; }
+    public bool UsedCpuFallback { get; private set; }
+    public string BackendDescription => ActiveComputeMode == LocalAiComputeMode.Gpu ? "Backend: GPU · Vulkan" : "Backend: CPU";
+    public string RuntimeDirectory => GetRuntimeDirectory(RootDirectory, ActiveComputeMode);
     public string RuntimeExecutable => Path.Combine(RuntimeDirectory, "llama-server.exe");
     public string RuntimeMetadataPath => Path.Combine(RuntimeDirectory, "runtime.json");
     public string ModelPath(LocalAiPreset preset) => Path.Combine(RootDirectory, "models", preset.ToString().ToLowerInvariant(), LocalAiModelCatalog.Get(preset).FileName);
@@ -137,6 +141,7 @@ public sealed class LocalLlamaServerManager : IDisposable
     public LocalAiStatus Status { get; private set; } = LocalAiStatus.NotInstalled; public int Progress { get; private set; }
     public string? LastError { get; private set; }
     public event EventHandler? StateChanged;
+    internal static string GetRuntimeDirectory(string root, LocalAiComputeMode mode) => Path.Combine(root, "runtime", "llama.cpp", LocalAiRuntimeCatalog.DirectoryName(mode));
     private void SetStatus(LocalAiStatus status, int progress = 0) { Status = status; Progress = progress; StateChanged?.Invoke(this, EventArgs.Empty); }
 
     public async Task InstallAndStartAsync(IProgress<int>? progress, CancellationToken token = default)
@@ -147,11 +152,20 @@ public sealed class LocalLlamaServerManager : IDisposable
             if (!_settings.Current.AiEnabled || _settings.Current.AiProvider != AiProviderType.LocalLlama) return;
             LastError = null;
             var preset = _settings.Current.AiLocalPreset;
-            Log($"Local AI setup started preset={preset}");
+            ActiveComputeMode = _settings.Current.AiLocalComputeMode; UsedCpuFallback = false; DetectedGpu = null;
+            Log($"Local AI setup started preset={preset} backend={LocalAiRuntimeCatalog.Get(ActiveComputeMode).Backend}");
             Stop();
             preset = await EnsureInstalledAsync(progress, token);
             _setupStage = "server-start";
-            await StartAndWaitForReadyAsync(preset, token);
+            try { await StartAndWaitForReadyAsync(preset, token); }
+            catch (Exception gpuFailure) when (ShouldFallbackToCpu(ActiveComputeMode, gpuFailure))
+            {
+                Log($"GPU startup failed; falling back to CPU: {gpuFailure.GetType().Name}: {gpuFailure.Message}");
+                Stop(); ActiveComputeMode = LocalAiComputeMode.Cpu; UsedCpuFallback = true;
+                await EnsureInstalledAsync(progress, token);
+                await StartAndWaitForReadyAsync(preset, token);
+                LastError = "GPU-Beschleunigung konnte nicht gestartet werden. Lokale KI wird auf CPU gestartet.";
+            }
             Log("Local AI setup completed");
         }
         catch (Exception exception) { HandleSetupFailure(exception); throw; }
@@ -165,7 +179,8 @@ public sealed class LocalLlamaServerManager : IDisposable
         {
             if (!_settings.Current.AiEnabled || _settings.Current.AiProvider != AiProviderType.LocalLlama) return;
             LastError = null;
-            Log($"Local AI setup started preset={_settings.Current.AiLocalPreset}");
+            ActiveComputeMode = _settings.Current.AiLocalComputeMode;
+            Log($"Local AI setup started preset={_settings.Current.AiLocalPreset} backend={LocalAiRuntimeCatalog.Get(ActiveComputeMode).Backend}");
             await EnsureInstalledAsync(progress, token);
             Log("Local AI setup completed");
         }
@@ -178,7 +193,7 @@ public sealed class LocalLlamaServerManager : IDisposable
         var preset = _settings.Current.AiLocalPreset;
         _setupStage = "runtime-check";
         Log("Checking llama.cpp runtime");
-        var runtime = LocalAiRuntimeCatalog.Current;
+        var runtime = LocalAiRuntimeCatalog.Get(ActiveComputeMode);
         Log($"Required llama.cpp runtime={runtime.Version}");
         var installedMetadata = ReadRuntimeMetadata(RuntimeMetadataPath);
         if (IsRuntimeInstalled(RuntimeExecutable, RuntimeMetadataPath, runtime))
@@ -236,12 +251,12 @@ public sealed class LocalLlamaServerManager : IDisposable
 
     private async Task DownloadRuntimeAsync(IProgress<int>? progress, CancellationToken token)
     {
-        var runtime = LocalAiRuntimeCatalog.Current;
+        var runtime = LocalAiRuntimeCatalog.Get(ActiveComputeMode);
         if (!Uri.TryCreate(runtime.DownloadUrl, UriKind.Absolute, out var url) || url.Scheme != Uri.UriSchemeHttps)
             throw new InvalidOperationException("Die Runtime darf nur über HTTPS geladen werden.");
         SetStatus(LocalAiStatus.DownloadingRuntime);
         _setupStage = "runtime-download";
-        Directory.CreateDirectory(RootDirectory); var part = Path.Combine(RootDirectory, "llama-runtime.zip.part");
+        Directory.CreateDirectory(RootDirectory); var part = Path.Combine(RootDirectory, $"llama-runtime-{runtime.Backend}.zip.part");
         try
         {
             Log($"Installing llama.cpp runtime={runtime.Version}");
@@ -282,6 +297,7 @@ public sealed class LocalLlamaServerManager : IDisposable
         return File.Exists(executablePath) && metadata != null &&
             string.Equals(metadata.Provider, "llama.cpp", StringComparison.Ordinal) &&
             string.Equals(metadata.Version, required.Version, StringComparison.Ordinal) &&
+            string.Equals(metadata.Backend, required.Backend, StringComparison.OrdinalIgnoreCase) &&
             string.Equals(metadata.Platform, required.Platform, StringComparison.Ordinal) &&
             string.Equals(metadata.ArchiveSha256, required.Sha256, StringComparison.OrdinalIgnoreCase);
     }
@@ -312,7 +328,7 @@ public sealed class LocalLlamaServerManager : IDisposable
             NormalizeRuntimeLayout(staging);
             if (!File.Exists(Path.Combine(staging, "llama-server.exe")))
                 throw new InvalidDataException("llama-server.exe fehlt im Runtime-Archiv.");
-            var metadata = new LocalAiRuntimeMetadata("llama.cpp", runtime.Version, runtime.Platform, runtime.Sha256);
+            var metadata = new LocalAiRuntimeMetadata("llama.cpp", runtime.Version, runtime.Backend, runtime.Platform, runtime.Sha256);
             await File.WriteAllTextAsync(Path.Combine(staging, "runtime.json"), JsonSerializer.Serialize(metadata, RuntimeJsonOptions), token);
 
             stopRunningRuntime();
@@ -349,7 +365,7 @@ public sealed class LocalLlamaServerManager : IDisposable
     private async Task StartAndWaitForReadyAsync(LocalAiPreset preset, CancellationToken token)
     {
         _port = GetFreePort(); var info = new ProcessStartInfo(RuntimeExecutable) { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true };
-        foreach (var arg in BuildServerArguments(ModelPath(preset), _port, LocalAiModelCatalog.Get(preset).LlamaAlias)) info.ArgumentList.Add(arg);
+        foreach (var arg in BuildServerArguments(ModelPath(preset), _port, LocalAiModelCatalog.Get(preset).LlamaAlias, ActiveComputeMode)) info.ArgumentList.Add(arg);
         _process = new Process { StartInfo = info, EnableRaisingEvents = true }; _process.OutputDataReceived += CaptureDiagnostic; _process.ErrorDataReceived += CaptureDiagnostic;
         if (!_process.Start()) throw new InvalidOperationException("llama.cpp konnte nicht gestartet werden."); _process.BeginOutputReadLine(); _process.BeginErrorReadLine(); SetStatus(LocalAiStatus.LoadingModel); _logger.Info($"[AI] Local llama.cpp server started host={Host} port={_port}.");
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(token); timeout.CancelAfter(TimeSpan.FromMinutes(3));
@@ -357,9 +373,20 @@ public sealed class LocalLlamaServerManager : IDisposable
         throw new TimeoutException("llama.cpp wurde nicht innerhalb von drei Minuten bereit.");
     }
 
-    internal static IReadOnlyList<string> BuildServerArguments(string modelPath, int port, string alias) =>
-        ["-m", modelPath, "--host", Host, "--port", port.ToString(), "--ctx-size", "4096", "--parallel", "1", "--alias", alias, "--reasoning", "off"];
-    private void CaptureDiagnostic(object sender, DataReceivedEventArgs e) { if (string.IsNullOrWhiteSpace(e.Data)) return; lock (_diagnostics) { _diagnostics.Enqueue(e.Data); while (_diagnostics.Count > 30) _diagnostics.Dequeue(); } }
+    internal static IReadOnlyList<string> BuildServerArguments(string modelPath, int port, string alias, LocalAiComputeMode mode = LocalAiComputeMode.Cpu)
+    {
+        var arguments = new List<string> { "-m", modelPath, "--host", Host, "--port", port.ToString(), "--ctx-size", "4096", "--parallel", "1", "--alias", alias, "--reasoning", "off" };
+        if (mode == LocalAiComputeMode.Gpu) arguments.AddRange(["--n-gpu-layers", "all"]);
+        return arguments;
+    }
+    internal static bool ShouldFallbackToCpu(LocalAiComputeMode mode, Exception exception) => mode == LocalAiComputeMode.Gpu && exception is not OperationCanceledException;
+    private void CaptureDiagnostic(object sender, DataReceivedEventArgs e)
+    {
+        if (string.IsNullOrWhiteSpace(e.Data)) return;
+        var match = Regex.Match(e.Data, @"(?:Vulkan|device)\s*(?:device)?\s*\d*\s*[:=-]\s*(.+)", RegexOptions.IgnoreCase);
+        if (ActiveComputeMode == LocalAiComputeMode.Gpu && match.Success && !string.IsNullOrWhiteSpace(match.Groups[1].Value)) DetectedGpu ??= match.Groups[1].Value.Trim();
+        lock (_diagnostics) { _diagnostics.Enqueue(e.Data); while (_diagnostics.Count > 30) _diagnostics.Dequeue(); }
+    }
     internal static int GetFreePort() { var listener = new TcpListener(IPAddress.Loopback, 0); listener.Start(); var port = ((IPEndPoint)listener.LocalEndpoint).Port; listener.Stop(); return port; }
     public void Stop() { IsReady = false; if (_process is { HasExited: false }) { _process.Kill(entireProcessTree: true); _process.WaitForExit(5000); } _process?.Dispose(); _process = null; _port = 0; StateChanged?.Invoke(this, EventArgs.Empty); }
     public void Dispose() { Stop(); _gate.Dispose(); }

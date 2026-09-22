@@ -11,6 +11,7 @@ public class AppSettings
     public string AiApiKeyEncrypted { get; set; } = string.Empty;
     public string AiModel { get; set; } = string.Empty;
     public LocalAiPreset AiLocalPreset { get; set; } = LocalAiPreset.Light;
+    public LocalAiComputeMode AiLocalComputeMode { get; set; } = LocalAiComputeMode.Cpu;
     public string ClientInstanceId { get; set; } = string.Empty;
     public bool ShowAllCandidatePoolTickets { get; set; }
     // Bootstrap/delivery version for fresh settings created by this distribution.
@@ -133,6 +134,12 @@ public enum LocalAiPreset
     Light = 0,
     Middle = 1,
     High = 2
+}
+
+public enum LocalAiComputeMode
+{
+    Cpu = 0,
+    Gpu = 1
 }
 
 public sealed class WebShortcutSettings

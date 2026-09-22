@@ -27,8 +27,12 @@
                             <TextBlock Text="Modell" Style="{StaticResource SettingsLabelStyle}"/>
                             <ComboBox ItemsSource="{Binding AiLocalModels}" DisplayMemberPath="DisplayName" SelectedValuePath="Id" SelectedValue="{Binding AiLocalPreset}" Style="{StaticResource SettingsComboStyle}"/>
                             <TextBlock Text="{Binding AiLocalLicense, StringFormat=Lizenz: {0}}" Style="{StaticResource SettingsHelpStyle}"/>
+                            <TextBlock Text="Rechenmodus" Style="{StaticResource SettingsLabelStyle}" Margin="0,10,0,0"/>
+                            <ComboBox ItemsSource="{Binding AiLocalComputeModes}" DisplayMemberPath="DisplayName" SelectedValuePath="Value" SelectedValue="{Binding AiLocalComputeMode}" Style="{StaticResource SettingsComboStyle}"/>
+                            <TextBlock Text="GPU-Beschleunigung kann je nach GPU und Treiber schneller oder langsamer als CPU sein." TextWrapping="Wrap" Style="{StaticResource SettingsHelpStyle}"/>
                             <ProgressBar Minimum="0" Maximum="100" Value="{Binding AiDownloadProgress}" Height="8" Margin="0,8,0,6"/>
                             <TextBlock Text="{Binding AiLocalServerStatus}" Style="{StaticResource SettingsHelpStyle}"/>
+                            <TextBlock Text="{Binding AiLocalBackendStatus}" TextWrapping="Wrap" Style="{StaticResource SettingsHelpStyle}"/>
                             <WrapPanel>
                                 <Button Content="Einrichten" Command="{Binding DownloadAiModelCommand}"/>
                                 <Button Content="Lokale KI starten" Command="{Binding StartLocalAiCommand}"/>
