@@ -12,6 +12,7 @@ public sealed class AiKnowledgeService : IDisposable
     private readonly Timer _debounce;
     public AiKnowledgeIndexService Index { get; }
     public AiKnowledgeSearchService Search { get; }
+    public StandardKnowledgeService? StandardKnowledge { get; private set; }
     public event EventHandler? StatusChanged;
     public AiKnowledgeIndexStatus Status { get; private set; } = new(0, 0, null);
 
@@ -21,6 +22,7 @@ public sealed class AiKnowledgeService : IDisposable
         _debounce = new Timer(async _ => await IndexSafelyAsync(false), null, Timeout.Infinite, Timeout.Infinite);
         if (settings.Current.AiKnowledgeEnabled) SetEnabled(true);
     }
+    public void AttachStandardKnowledge(StandardKnowledgeService service) { StandardKnowledge = service; if (_settings.Current.AiKnowledgeEnabled) SetEnabled(true); }
     public void SetEnabled(bool enabled)
     {
         if (!enabled) { if (_watcher != null) _watcher.EnableRaisingEvents = false; return; }
@@ -31,8 +33,10 @@ public sealed class AiKnowledgeService : IDisposable
             _watcher.Created += OnChanged; _watcher.Changed += OnChanged; _watcher.Deleted += OnChanged; _watcher.Renamed += OnChanged;
             _watcher.Error += (_, e) => _logger.Warning($"[AI Knowledge] Watcher error='{e.GetException().Message}'");
         }
-        _watcher.EnableRaisingEvents = true; _ = IndexSafelyAsync(false);
+        _watcher.EnableRaisingEvents = true;
+        _ = StandardKnowledge == null ? IndexSafelyAsync(false) : EnsureAndIndexAsync();
     }
+    private async Task EnsureAndIndexAsync() { await StandardKnowledge!.EnsureInstalledAsync(); await IndexSafelyAsync(false); }
     public Task RebuildAsync() => IndexSafelyAsync(true);
     public async Task<IReadOnlyList<AiKnowledgeMatch>> SearchAsync(string question, CancellationToken ct = default)
         => !_settings.Current.AiKnowledgeEnabled ? Array.Empty<AiKnowledgeMatch>() : await Search.SearchAsync(question, ct: ct);

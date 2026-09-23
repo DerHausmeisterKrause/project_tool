@@ -139,7 +139,7 @@ public sealed class AiChatViewModel : ObservableObject
             catch (Exception exception) { ServiceLocator.Logger?.Warning($"[AI Knowledge] Search unavailable error='{exception.Message}'"); }
             try { if (UseWiki && UseWikiAvailable && _wikiKnowledge != null) wikiMatches = await _wikiKnowledge.SearchAsync(text, token: cancellationToken); }
             catch (Exception exception) { ServiceLocator.Logger?.Warning($"[AI Wiki] Search unavailable error='{exception.Message}'"); }
-            var combined = matches.Select(x => new AiRetrievalMatch(AiKnowledgeSourceType.LocalFiles, x.Content, x.FileName, x.RelativePath, null, x.Score, x.PageNumber)).Concat(wikiMatches);
+            var combined = matches.Select(x => new AiRetrievalMatch(AiKnowledgeSourceType.LocalFiles, x.Content, x.FileName, $"{(x.SourceKind == AiKnowledgeSourceKind.Standard ? "Plenaro Knowledge" : "Eigene Knowledge")}: {x.RelativePath}", null, x.Score, x.PageNumber)).Concat(wikiMatches);
             var knowledge = AiCombinedContextBuilder.Prepare(combined);
             var request = BuildRequestMessages(knowledge.Text);
             if (knowledge.Text.Length > 0) ServiceLocator.Logger?.OperationalInfo($"[AI Knowledge] Context prepared sources={knowledge.IncludedMatches.Count} characters={knowledge.Text.Length}");

@@ -6,7 +6,7 @@ using Microsoft.Data.Sqlite;
 
 namespace TaskTool.Services;
 
-public sealed record AiKnowledgeMatch(string Content, string RelativePath, string CategoryPath, string FileName, int? PageNumber, double Score);
+public sealed record AiKnowledgeMatch(string Content, string RelativePath, string CategoryPath, string FileName, int? PageNumber, double Score, AiKnowledgeSourceKind SourceKind = AiKnowledgeSourceKind.User);
 
 public sealed class AiKnowledgeSearchService
 {
@@ -61,7 +61,7 @@ public sealed class AiKnowledgeSearchService
         await db.OpenAsync(ct);
         await using var cmd = db.CreateCommand();
         cmd.CommandText = """
-            SELECT c.content,c.relative_path,c.category_path,c.file_name,c.page_number,
+            SELECT c.content,c.relative_path,c.category_path,c.file_name,c.page_number,c.source_type,
                    bm25(knowledge_chunks_fts,1.0,4.0,5.0) AS rank
             FROM knowledge_chunks_fts f JOIN knowledge_chunks c ON c.id=f.rowid
             WHERE knowledge_chunks_fts MATCH $query ORDER BY rank LIMIT $limit
@@ -80,11 +80,11 @@ public sealed class AiKnowledgeSearchService
             var file = reader.GetString(3);
             var relevance = CalculateRelevance(terms, content, file, category);
             if (relevance > 0)
-                candidates.Add(new(content, relativePath, category, file, reader.IsDBNull(4) ? null : reader.GetInt32(4), relevance));
+                candidates.Add(new(content, relativePath, category, file, reader.IsDBNull(4) ? null : reader.GetInt32(4), relevance, Enum.Parse<AiKnowledgeSourceKind>(reader.GetString(5))));
         }
 
         var ordered = candidates.OrderByDescending(x => x.Score).ThenBy(x => x.RelativePath, StringComparer.OrdinalIgnoreCase).ToArray();
-        var firstPerDocument = ordered.GroupBy(x => x.RelativePath, StringComparer.OrdinalIgnoreCase).Select(group => group.First());
+        var firstPerDocument = ordered.GroupBy(x => $"{x.SourceKind}:{x.RelativePath}", StringComparer.OrdinalIgnoreCase).Select(group => group.First());
         var result = firstPerDocument.Concat(ordered.Where(x => !firstPerDocument.Contains(x))).Take(Math.Max(0, topN)).ToArray();
         _logger.OperationalInfo($"[AI Knowledge] Query completed candidates={candidateCount} accepted={result.Length} durationMs={watch.ElapsedMilliseconds}");
         return result;
@@ -176,7 +176,7 @@ public static class AiKnowledgeContextBuilder
         var included = new List<AiKnowledgeMatch>();
         foreach (var match in matches)
         {
-            var header = $"Quelle: {match.RelativePath}{(match.PageNumber is int page ? $", Seite {page}" : string.Empty)}\n---\n";
+            var header = $"Quelle: {(match.SourceKind == AiKnowledgeSourceKind.Standard ? "Plenaro Knowledge" : "Eigene Knowledge")}: {match.RelativePath}{(match.PageNumber is int page ? $", Seite {page}" : string.Empty)}\n---\n";
             var available = MaximumContextCharacters - result.Length - header.Length - 6;
             if (available <= 0) break;
             result += header + match.Content[..Math.Min(match.Content.Length, available)] + "\n---\n";
@@ -205,7 +205,7 @@ public static class AiCombinedContextBuilder
         var text = instruction; var included = new List<AiRetrievalMatch>();
         foreach (var match in selected)
         {
-            var label = match.SourceType == AiKnowledgeSourceType.Wiki ? $"Wiki: {match.DisplaySource} · {match.Title}" : $"Plenaro Knowledge: {match.DisplaySource}";
+            var label = match.SourceType == AiKnowledgeSourceType.Wiki ? $"Wiki: {match.DisplaySource} · {match.Title}" : match.DisplaySource;
             var header = $"Quelle: {label}\n---\n"; var available = AiKnowledgeContextBuilder.MaximumContextCharacters - text.Length - header.Length - 6;
             if (available <= 0) break; text += header + match.Content[..Math.Min(match.Content.Length, available)] + "\n---\n"; included.Add(match);
         }

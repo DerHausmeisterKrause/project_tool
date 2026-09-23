@@ -174,6 +174,18 @@ jobs:
 
           Write-Host "SHA256: $hash"
 
+      - name: Standard Knowledge prüfen und SHA256 erstellen
+        shell: pwsh
+        run: |
+          $knowledge = "knowledge/plenaro_it_wissensbasis.zip"
+          if (-not (Test-Path $knowledge)) {
+              throw "Die Plenaro Standard Knowledge Base fehlt."
+          }
+          New-Item "artifacts" -ItemType Directory -Force | Out-Null
+          $knowledgeHash = "artifacts/plenaro_it_wissensbasis.zip.sha256"
+          $hash = (Get-FileHash $knowledge -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  plenaro_it_wissensbasis.zip" | Set-Content $knowledgeHash -Encoding ascii
+
       - name: Release Notes prüfen
         shell: pwsh
         run: |
@@ -195,6 +207,8 @@ jobs:
               $env:RELEASE_TAG,
               $exe,
               $hash,
+              "knowledge/plenaro_it_wissensbasis.zip",
+              "artifacts/plenaro_it_wissensbasis.zip.sha256",
               "--target",
               "${{ github.sha }}",
               "--title",

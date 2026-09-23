@@ -29,6 +29,7 @@ public static class ServiceLocator
     public static WebShortcutBrowserSessionManager WebShortcutBrowsers { get; private set; } = null!;
     public static AiService Ai { get; private set; } = null!;
     public static AiKnowledgeService AiKnowledge { get; private set; } = null!;
+    public static StandardKnowledgeService StandardKnowledge { get; private set; } = null!;
     public static WikiAiKnowledgeService WikiAiKnowledge { get; private set; } = null!;
     public static MainViewModel MainViewModel { get; private set; } = null!;
 
@@ -47,6 +48,8 @@ public static class ServiceLocator
         WebShortcutBrowsers = new WebShortcutBrowserSessionManager(Settings, Logger);
         Ai = new AiService(Settings, Logger);
         AiKnowledge = new AiKnowledgeService(Settings, Logger);
+        StandardKnowledge = new StandardKnowledgeService(AppVersion, AiKnowledge.Index, Logger);
+        AiKnowledge.AttachStandardKnowledge(StandardKnowledge);
         WikiAiKnowledge = new WikiAiKnowledgeService(Settings, Logger);
         _ = WikiAiKnowledge.SyncStaleAsync();
         _ = WikiVocabulary.RefreshStaleAsync();
