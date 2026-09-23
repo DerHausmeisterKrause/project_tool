@@ -106,7 +106,7 @@ public sealed class WikiAiKnowledgeTests : IDisposable
         public bool CanChat => true;
         public string ProviderDescription => "Test";
         public string AvailabilityMessage => string.Empty;
-        public event EventHandler? StateChanged;
+        public event EventHandler? StateChanged { add { } remove { } }
         public Task<string> ChatAsync(IReadOnlyList<AiChatRequestMessage> messages, AiRequestOptions options, CancellationToken cancellationToken = default)
             => Task.FromResult("Antwort");
     }
