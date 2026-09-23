@@ -18,6 +18,11 @@ public interface IWikiVocabularyProvider
 {
     Task<WikiVocabularyPageBatch> GetVocabularyPageAsync(WikiSourceSettings source, int offset, int limit, CancellationToken cancellationToken);
 }
+public interface IWikiKnowledgeProvider
+{
+    Task<WikiKnowledgePageBatch> GetPagesAsync(WikiSourceSettings source, int offset, int limit, CancellationToken token);
+    Task<WikiKnowledgePageContent> GetPageContentAsync(WikiSourceSettings source, string externalId, CancellationToken token);
+}
 
 public abstract class HttpWikiProvider(SettingsService settings) : IWikiProvider
 {
@@ -46,7 +51,7 @@ public abstract class HttpWikiProvider(SettingsService settings) : IWikiProvider
     public abstract Task<IReadOnlyList<WikiProviderResult>> SearchAsync(WikiSourceSettings source, IReadOnlyList<string> terms, int limit, CancellationToken cancellationToken);
 }
 
-public class ConfluenceDataCenterWikiProvider(SettingsService settings) : HttpWikiProvider(settings), IWikiVocabularyProvider
+public class ConfluenceDataCenterWikiProvider(SettingsService settings) : HttpWikiProvider(settings), IWikiVocabularyProvider, IWikiKnowledgeProvider
 {
     public override string ProviderType => "ConfluenceDataCenter";
     protected virtual string ApiPath => "/rest/api/search";
@@ -93,6 +98,60 @@ public class ConfluenceDataCenterWikiProvider(SettingsService settings) : HttpWi
             pages.Add(new(id, Clean(title), url, space));
         }
         return new(pages, pages.Count == limit);
+    }
+
+    public async Task<WikiKnowledgePageBatch> GetPagesAsync(WikiSourceSettings source, int offset, int limit, CancellationToken token)
+    {
+        var cql = "type=page" + WikiScopePolicy.BuildConfluenceClause(source);
+        var apiBase = ProviderType == "ConfluenceCloud" ? Regex.Replace(source.BaseUrl.TrimEnd('/'), "/wiki$", "", RegexOptions.IgnoreCase) : source.BaseUrl.TrimEnd('/');
+        var endpoint = apiBase + ApiPath + "?cql=" + Uri.EscapeDataString(cql) + "&start=" + offset + "&limit=" + limit + "&expand=content.version,content.space";
+        using var client = CreateClient(source); using var response = await client.GetAsync(endpoint, token); response.EnsureSuccessStatusCode();
+        using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync(token)); var root = doc.RootElement;
+        var baseUrl = root.TryGetProperty("_links", out var links) && links.TryGetProperty("base", out var b) ? b.GetString() : source.BaseUrl;
+        var pages = new List<WikiKnowledgePage>();
+        foreach (var item in root.GetProperty("results").EnumerateArray())
+        {
+            var content = item.TryGetProperty("content", out var c) ? c : item;
+            var id = content.TryGetProperty("id", out var ci) ? ci.GetString() ?? "" : "";
+            var title = content.TryGetProperty("title", out var ct) ? ct.GetString() ?? "" : "";
+            var space = content.TryGetProperty("space", out var sp) && sp.TryGetProperty("key", out var key) ? key.GetString() ?? "" : "";
+            var version = content.TryGetProperty("version", out var v) && v.TryGetProperty("number", out var number) ? number.ToString() : "";
+            DateTime? modified = content.TryGetProperty("version", out v) && v.TryGetProperty("when", out var when) && DateTime.TryParse(when.GetString(), out var parsed) ? parsed.ToUniversalTime() : null;
+            var url = item.TryGetProperty("url", out var u) ? u.GetString() ?? "" : "";
+            if (!Uri.IsWellFormedUriString(url, UriKind.Absolute)) url = new Uri(new Uri((baseUrl ?? source.BaseUrl).TrimEnd('/') + "/"), url.TrimStart('/')).ToString();
+            pages.Add(new(source.Id, id, Clean(title), url, space, version, modified));
+        }
+        return new(pages, pages.Count == limit);
+    }
+
+    public async Task<WikiKnowledgePageContent> GetPageContentAsync(WikiSourceSettings source, string externalId, CancellationToken token)
+    {
+        var prefix = ProviderType == "ConfluenceCloud" ? "/wiki/rest/api/content/" : "/rest/api/content/";
+        var baseUrl = ProviderType == "ConfluenceCloud" ? Regex.Replace(source.BaseUrl.TrimEnd('/'), "/wiki$", "", RegexOptions.IgnoreCase) : source.BaseUrl.TrimEnd('/');
+        var endpoint = baseUrl + prefix + Uri.EscapeDataString(externalId) + "?expand=body.storage,version";
+        using var client = CreateClient(source); using var response = await client.GetAsync(endpoint, token); response.EnsureSuccessStatusCode();
+        using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync(token)); var root = doc.RootElement;
+        var title = root.TryGetProperty("title", out var t) ? t.GetString() ?? "" : "";
+        var markup = root.TryGetProperty("body", out var body) && body.TryGetProperty("storage", out var storage) && storage.TryGetProperty("value", out var value) ? value.GetString() : "";
+        var version = root.TryGetProperty("version", out var v) && v.TryGetProperty("number", out var n) ? n.ToString() : "";
+        DateTime? modified = root.TryGetProperty("version", out v) && v.TryGetProperty("when", out var w) && DateTime.TryParse(w.GetString(), out var parsed) ? parsed.ToUniversalTime() : null;
+        return new(externalId, Clean(title), ConfluencePlainText.Convert(markup), version, modified);
+    }
+}
+
+internal static class ConfluencePlainText
+{
+    public static string Convert(string? markup)
+    {
+        if (string.IsNullOrWhiteSpace(markup)) return string.Empty;
+        var value = Regex.Replace(markup, @"<(script|style)[^>]*>[\s\S]*?</\1>", " ", RegexOptions.IgnoreCase);
+        value = Regex.Replace(value, @"</?(h[1-6]|p|div|li|tr|pre|code|blockquote|br)[^>]*>", "\n", RegexOptions.IgnoreCase);
+        value = Regex.Replace(value, @"</?(td|th)[^>]*>", " | ", RegexOptions.IgnoreCase);
+        value = Regex.Replace(value, "<[^>]+>", " ");
+        value = WebUtility.HtmlDecode(value).Replace('\u00a0', ' ');
+        value = Regex.Replace(value, @"[ \t]+", " ");
+        value = Regex.Replace(value, @"\s*\n\s*", "\n");
+        return Regex.Replace(value, @"\n{3,}", "\n\n").Trim();
     }
 }
 

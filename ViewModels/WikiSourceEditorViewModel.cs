@@ -51,3 +51,5 @@ public sealed class WikiSourceEditorViewModel : ObservableObject
 }
 
 public sealed record WikiChoice(string Value, string DisplayName);
+public sealed record AiProviderChoice(AiProviderType Value, string DisplayName);
+public sealed record LocalAiComputeModeChoice(LocalAiComputeMode Value, string DisplayName);

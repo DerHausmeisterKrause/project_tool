@@ -1,0 +1,71 @@
+<UserControl x:Class="TaskTool.Views.Settings.AiSettingsView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             Background="Transparent">
+    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Padding="0,0,8,16">
+        <StackPanel MaxWidth="1200" HorizontalAlignment="Center">
+            <TextBlock Text="KI" Style="{StaticResource SettingsSectionTitleStyle}"/>
+            <TextBlock Text="OpenAI-kompatible APIs oder einen lokalen llama.cpp-Server konfigurieren und testen." Style="{StaticResource SettingsSectionDescriptionStyle}"/>
+            <Border Style="{StaticResource CardStyle}">
+                <StackPanel>
+                    <CheckBox Content="KI verwenden" IsChecked="{Binding AiEnabled}" FontWeight="SemiBold" Margin="0,0,0,12"/>
+                    <StackPanel IsEnabled="{Binding AiEnabled}">
+                        <TextBlock Text="Provider" Style="{StaticResource SettingsLabelStyle}"/>
+                        <ComboBox ItemsSource="{Binding AiProviders}" DisplayMemberPath="DisplayName" SelectedValuePath="Value"
+                                  SelectedValue="{Binding AiProvider}" Style="{StaticResource SettingsComboStyle}" Margin="0,0,0,12"/>
+
+                        <StackPanel Visibility="{Binding IsOpenAiProvider, Converter={StaticResource BooleanToVisibilityConverter}}">
+                            <TextBlock Text="API Basis-URL" Style="{StaticResource SettingsLabelStyle}"/>
+                            <TextBox Text="{Binding AiApiBaseUrl, UpdateSourceTrigger=LostFocus}" Style="{StaticResource SettingsTextBoxStyle}"/>
+                            <TextBlock Text="Beispiel: https://api.openai.com/v1 oder http://server:1234/v1" Style="{StaticResource SettingsHelpStyle}"/>
+                            <TextBlock Text="API-Key (optional)" Style="{StaticResource SettingsLabelStyle}"/>
+                            <TextBox Text="{Binding AiApiKey, UpdateSourceTrigger=LostFocus}" Style="{StaticResource SettingsTextBoxStyle}"/>
+                            <TextBlock Text="Der API-Key wird mit Windows DPAPI verschlüsselt gespeichert und nach dem Speichern maskiert angezeigt." Style="{StaticResource SettingsHelpStyle}"/>
+                        </StackPanel>
+
+                        <StackPanel Visibility="{Binding IsLocalAiProvider, Converter={StaticResource BooleanToVisibilityConverter}}">
+                            <TextBlock Text="Modell" Style="{StaticResource SettingsLabelStyle}"/>
+                            <ComboBox ItemsSource="{Binding AiLocalModels}" DisplayMemberPath="DisplayName" SelectedValuePath="Id" SelectedValue="{Binding AiLocalPreset}" Style="{StaticResource SettingsComboStyle}"/>
+                            <TextBlock Text="{Binding AiLocalLicense, StringFormat=Lizenz: {0}}" Style="{StaticResource SettingsHelpStyle}"/>
+                            <TextBlock Text="Rechenmodus" Style="{StaticResource SettingsLabelStyle}" Margin="0,10,0,0"/>
+                            <ComboBox ItemsSource="{Binding AiLocalComputeModes}" DisplayMemberPath="DisplayName" SelectedValuePath="Value" SelectedValue="{Binding AiLocalComputeMode}" Style="{StaticResource SettingsComboStyle}"/>
+                            <TextBlock Text="GPU-Beschleunigung kann je nach GPU und Treiber schneller oder langsamer als CPU sein." TextWrapping="Wrap" Style="{StaticResource SettingsHelpStyle}"/>
+                            <ProgressBar Minimum="0" Maximum="100" Value="{Binding AiDownloadProgress}" Height="8" Margin="0,8,0,6"/>
+                            <TextBlock Text="{Binding AiLocalServerStatus}" Style="{StaticResource SettingsHelpStyle}"/>
+                            <TextBlock Text="{Binding AiLocalBackendStatus}" TextWrapping="Wrap" Style="{StaticResource SettingsHelpStyle}"/>
+                            <WrapPanel>
+                                <Button Content="Einrichten" Command="{Binding DownloadAiModelCommand}"/>
+                                <Button Content="Lokale KI starten" Command="{Binding StartLocalAiCommand}"/>
+                                <Button Content="Server stoppen" Command="{Binding StopLocalAiCommand}" Style="{StaticResource SecondaryButtonStyle}"/>
+                            </WrapPanel>
+                        </StackPanel>
+
+                        <StackPanel Visibility="{Binding IsOpenAiProvider, Converter={StaticResource BooleanToVisibilityConverter}}">
+                            <TextBlock Text="Modell" Style="{StaticResource SettingsLabelStyle}"/>
+                            <TextBox Text="{Binding AiModel, UpdateSourceTrigger=LostFocus}" Style="{StaticResource SettingsTextBoxStyle}"/>
+                            <TextBlock Text="Freier Modellname, den der konfigurierte Server erwartet." Style="{StaticResource SettingsHelpStyle}"/>
+                        </StackPanel>
+                        <Button Content="Verbindung testen" Command="{Binding TestAiCommand}" Width="170" HorizontalAlignment="Left" Margin="0,8,0,8" Visibility="{Binding IsOpenAiProvider, Converter={StaticResource BooleanToVisibilityConverter}}"/>
+                        <Button Content="Lokale KI testen" Command="{Binding TestAiCommand}" Width="170" HorizontalAlignment="Left" Margin="0,8,0,8" Visibility="{Binding IsLocalAiProvider, Converter={StaticResource BooleanToVisibilityConverter}}"/>
+                        <TextBlock Text="{Binding AiStatus}" TextWrapping="Wrap" Foreground="#FBBF24" FontWeight="SemiBold"/>
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+            <Border Style="{StaticResource CardStyle}">
+                <StackPanel>
+                    <TextBlock Text="Lokales Wissen" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,10"/>
+                    <CheckBox Content="Lokales Wissen verwenden" IsChecked="{Binding AiKnowledgeEnabled}" FontWeight="SemiBold"/>
+                    <TextBlock Text="Wissensordner:" Style="{StaticResource SettingsLabelStyle}" Margin="0,12,0,0"/>
+                    <TextBox Text="{Binding AiKnowledgePath, Mode=OneWay}" IsReadOnly="True" Style="{StaticResource SettingsTextBoxStyle}"/>
+                    <WrapPanel Margin="0,8,0,8">
+                        <Button Content="Wissensordner öffnen" Command="{Binding OpenKnowledgeFolderCommand}"/>
+                        <Button Content="Wissen neu indexieren" Command="{Binding ReindexKnowledgeCommand}" Style="{StaticResource SecondaryButtonStyle}"/>
+                    </WrapPanel>
+                    <TextBlock Text="{Binding AiKnowledgeStatus}" Style="{StaticResource SettingsHelpStyle}"/>
+                    <TextBlock Text="Hinweis: Bei Verwendung einer externen KI-API werden ausgewählte lokale Wissens- und Wiki-Ausschnitte an den konfigurierten KI-Anbieter übertragen. Bei lokaler llama.cpp-KI bleibt alles lokal."
+                               TextWrapping="Wrap" Foreground="#FBBF24" Margin="0,10,0,0"/>
+                </StackPanel>
+            </Border>
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>

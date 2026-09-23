@@ -26,6 +26,7 @@ public partial class App : Application
             MainWindow = mainWindow;
             ServiceLocator.Notifications.AttachMainWindow(mainWindow);
             mainWindow.Show();
+            _ = StartLocalAiSafelyAsync();
             ServiceLocator.TicketSystem.StartScheduledSync();
             var postUpdateVersion = GetPostUpdateVersion(e.Args);
             if (postUpdateVersion != null)
@@ -59,6 +60,12 @@ public partial class App : Application
         base.OnStartup(e);
     }
 
+    private static async Task StartLocalAiSafelyAsync()
+    {
+        try { await ServiceLocator.Ai.InitializeLocalInBackgroundAsync(); }
+        catch (Exception ex) { ServiceLocator.Logger.Warning($"[AI] Local server autostart failed: {ex.Message}"); }
+    }
+
     private static string? GetPostUpdateVersion(IReadOnlyList<string> args)
     {
         for (var index = 0; index < args.Count; index++)
@@ -83,6 +90,9 @@ public partial class App : Application
                 ServiceLocator.Updates.Dispose();
             if (ServiceLocator.WebShortcutBrowsers != null)
                 ServiceLocator.WebShortcutBrowsers.Dispose();
+            ServiceLocator.Ai?.Dispose();
+            ServiceLocator.AiKnowledge?.Dispose();
+            ServiceLocator.WikiAiKnowledge?.Dispose();
         }
         catch
         {

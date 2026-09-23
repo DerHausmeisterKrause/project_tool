@@ -17,6 +17,7 @@ public class MainViewModel : ObservableObject
     private readonly List<WebShortcutViewModel> _webShortcutViews = new();
     private readonly LoggerService _logger;
     public SettingsViewModel SettingsViewModel { get; }
+    public AiChatViewModel AiChatViewModel { get; }
     public string InstalledVersion => ServiceLocator.AppVersion.InstalledVersionText;
     public RelayCommand<string> NavigateToSettingsCommand { get; }
 
@@ -100,7 +101,7 @@ public class MainViewModel : ObservableObject
         SelectedView = SettingsViewModel;
     }
 
-    public MainViewModel(TaskService taskService, WorkDayService workDayService, SettingsService settingsService, NotificationService notifications, OutlookCalendarService outlookCalendar, TicketSystemService ticketSystem, UpdateService updates, HomeOfficeService homeOffice, GermanTimeService germanTime, LoggerService logger)
+    public MainViewModel(TaskService taskService, WorkDayService workDayService, SettingsService settingsService, NotificationService notifications, OutlookCalendarService outlookCalendar, TicketSystemService ticketSystem, UpdateService updates, HomeOfficeService homeOffice, GermanTimeService germanTime, LoggerService logger, AiService aiService, AiKnowledgeService aiKnowledge, WikiAiKnowledgeService? wikiAiKnowledge = null)
     {
         _logger = logger;
         TodayViewModel = new TodayViewModel(taskService, workDayService, settingsService, outlookCalendar, ticketSystem, homeOffice);
@@ -110,10 +111,11 @@ public class MainViewModel : ObservableObject
         _ticketSystemViewModel = new TicketSystemViewModel(settingsService);
         WikiBrowserViewModel = new WikiBrowserViewModel(settingsService);
         _reportsViewModel = new ReportsViewModel(taskService, workDayService, settingsService, germanTime, logger);
-        SettingsViewModel = new SettingsViewModel(settingsService, notifications, outlookCalendar, taskService, ticketSystem, updates);
+        SettingsViewModel = new SettingsViewModel(settingsService, notifications, outlookCalendar, taskService, ticketSystem, updates, aiService, aiKnowledge);
         NavigateToSettingsCommand = new RelayCommand<string>(NavigateToSettings);
+        AiChatViewModel = new AiChatViewModel(aiService, () => NavigateToSettings("KI"), aiKnowledge, settingsService, wikiAiKnowledge);
 
-        NavigationItems = new ObservableCollection<object> { TodayViewModel, _weekViewModel, _ticketSystemViewModel, _reportsViewModel, SettingsViewModel };
+        NavigationItems = new ObservableCollection<object> { TodayViewModel, _weekViewModel, _ticketSystemViewModel, _reportsViewModel, AiChatViewModel, SettingsViewModel };
         settingsService.SettingsChanged += RefreshDynamicNavigation;
         RefreshDynamicNavigation();
         _selectedView = TodayViewModel;

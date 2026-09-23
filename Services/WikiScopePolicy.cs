@@ -24,4 +24,5 @@ public static class WikiScopePolicy
     }
 
     public static bool SupportsSecureVocabulary(WikiSourceSettings source) => source.ProviderType is "ConfluenceDataCenter" or "ConfluenceCloud";
+    public static bool SupportsAiKnowledge(WikiSourceSettings source) => source.ProviderType is "ConfluenceDataCenter" or "ConfluenceCloud";
 }

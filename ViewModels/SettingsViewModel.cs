@@ -26,14 +26,15 @@ public class SettingsViewModel : ObservableObject
             ["Ticketsystem"] = 4,
             ["Wiki"] = 5,
             ["Favorites"] = 6, ["Favoriten"] = 6,
-            ["Updates"] = 7
+            ["AI"] = 7, ["KI"] = 7,
+            ["Updates"] = 8
         };
 
     private int _selectedSettingsSectionIndex;
     public int SelectedSettingsSectionIndex
     {
         get => _selectedSettingsSectionIndex;
-        set => Set(ref _selectedSettingsSectionIndex, Math.Clamp(value, 0, 7));
+        set => Set(ref _selectedSettingsSectionIndex, Math.Clamp(value, 0, 8));
     }
 
     public void SelectSection(string? section)
@@ -49,8 +50,40 @@ public class SettingsViewModel : ObservableObject
     private readonly TicketSystemService _ticketSystem;
     private readonly Action? _tasksChanged;
     private readonly UpdateService _updates;
+    private readonly AiService _ai;
+    private readonly AiKnowledgeService _aiKnowledge;
     private readonly DispatcherTimer _hourlyUpdateTimer;
     private const string ShortcutPasswordMask = "••••••••";
+    private const string AiApiKeyMask = "••••••••";
+    private bool _isAiOperationRunning;
+    private string _aiStatus = "Noch nicht getestet.";
+    private int _aiDownloadProgress;
+    public IReadOnlyList<AiProviderChoice> AiProviders { get; } = new[] { new AiProviderChoice(AiProviderType.OpenAiCompatible, "OpenAI-kompatible API"), new AiProviderChoice(AiProviderType.LocalLlama, "Lokale KI") };
+    public bool AiEnabled { get => _settings.Current.AiEnabled; set { _settings.Current.AiEnabled = value; if (!value) _ai.LocalServer.Stop(); Save(); RaiseAiState(); } }
+    public AiProviderType AiProvider { get => _settings.Current.AiProvider; set { if (_settings.Current.AiProvider == value) return; _ai.LocalServer.Stop(); _settings.Current.AiProvider = value; Save(); RaiseAiState(); } }
+    public bool IsOpenAiProvider => AiProvider == AiProviderType.OpenAiCompatible;
+    public bool IsLocalAiProvider => AiProvider == AiProviderType.LocalLlama;
+    public string AiApiBaseUrl { get => _settings.Current.AiApiBaseUrl; set { _settings.Current.AiApiBaseUrl = value; Save(); } }
+    public string AiApiKey { get => string.IsNullOrWhiteSpace(_settings.Current.AiApiKeyEncrypted) ? string.Empty : AiApiKeyMask; set { if (value == AiApiKeyMask) return; _settings.SetAiApiKey(value ?? string.Empty); Save(); Raise(); } }
+    public string AiModel { get => _settings.Current.AiModel; set { _settings.Current.AiModel = value; Save(); } }
+    public IReadOnlyList<LocalAiModelDefinition> AiLocalModels => LocalAiModelCatalog.All;
+    public IReadOnlyList<LocalAiComputeModeChoice> AiLocalComputeModes { get; } = [new(LocalAiComputeMode.Cpu, "CPU"), new(LocalAiComputeMode.Gpu, "GPU")];
+    public LocalAiPreset AiLocalPreset { get => _settings.Current.AiLocalPreset; set { if (_settings.Current.AiLocalPreset == value) return; _ai.LocalServer.Stop(); _settings.Current.AiLocalPreset = value; Save(); RaiseAiState(); if (AiEnabled && IsLocalAiProvider) _ = StartLocalAiAsync(); } }
+    public LocalAiComputeMode AiLocalComputeMode { get => _settings.Current.AiLocalComputeMode; set { if (_settings.Current.AiLocalComputeMode == value) return; _ai.LocalServer.Stop(); _settings.Current.AiLocalComputeMode = value; Save(); RaiseAiState(); if (AiEnabled && IsLocalAiProvider) _ = StartLocalAiAsync(); } }
+    public string AiLocalLicense => LocalAiModelCatalog.Get(AiLocalPreset).License;
+    public string AiStatus { get => _aiStatus; set => Set(ref _aiStatus, value); }
+    public int AiDownloadProgress { get => _aiDownloadProgress; set => Set(ref _aiDownloadProgress, value); }
+    public string AiLocalServerStatus => _ai.LocalServer.Status switch { LocalAiStatus.NotInstalled => "Nicht installiert", LocalAiStatus.DownloadingRuntime => "Runtime wird heruntergeladen", LocalAiStatus.DownloadingModel => $"Modell wird heruntergeladen – Download {_ai.LocalServer.Progress} %", LocalAiStatus.VerifyingSha256 => "SHA256 wird geprüft", LocalAiStatus.Installed => "Installiert", LocalAiStatus.LoadingModel => "Modell wird geladen …", LocalAiStatus.Ready => "Bereit", _ => "Fehler" };
+    public string AiLocalBackendStatus => _ai.LocalServer.BackendDescription + (string.IsNullOrWhiteSpace(_ai.LocalServer.DetectedGpu) ? string.Empty : $"\nGPU: {_ai.LocalServer.DetectedGpu}");
+    public RelayCommand TestAiCommand { get; }
+    public RelayCommand DownloadAiModelCommand { get; }
+    public RelayCommand StartLocalAiCommand { get; }
+    public RelayCommand StopLocalAiCommand { get; }
+    public RelayCommand OpenKnowledgeFolderCommand { get; }
+    public RelayCommand ReindexKnowledgeCommand { get; }
+    public bool AiKnowledgeEnabled { get => _settings.Current.AiKnowledgeEnabled; set { if (_settings.Current.AiKnowledgeEnabled == value) return; _settings.Current.AiKnowledgeEnabled = value; Save(); _aiKnowledge.SetEnabled(value); Raise(); Raise(nameof(AiKnowledgeStatus)); } }
+    public string AiKnowledgePath => _aiKnowledge.Index.KnowledgePath;
+    public string AiKnowledgeStatus { get { var s = _aiKnowledge.Status; return s.Error != null ? $"Fehler: {s.Error}" : $"{s.DocumentCount} Dateien · {s.ChunkCount} Textabschnitte · Zuletzt indexiert: {(s.LastIndexedUtc?.ToLocalTime().ToString("dd.MM.yyyy HH:mm") ?? "noch nie")}"; } }
     public ObservableCollection<WebShortcutEditorViewModel> WebShortcuts { get; }
     private WebShortcutEditorViewModel? _selectedWebShortcut; public WebShortcutEditorViewModel? SelectedWebShortcut { get=>_selectedWebShortcut; set { if (Set(ref _selectedWebShortcut,value)) RaiseWebShortcutMoveCanExecute(); } }
     private string _webShortcutStatus=""; public string WebShortcutStatus { get=>_webShortcutStatus; set=>Set(ref _webShortcutStatus,value); }
@@ -59,7 +92,7 @@ public class SettingsViewModel : ObservableObject
     public RelayCommand MoveWebShortcutDownCommand { get; private set; } = null!;
     public ObservableCollection<WikiSourceEditorViewModel> WikiSources { get; }
     private WikiSourceEditorViewModel? _selectedWikiSource;
-    public WikiSourceEditorViewModel? SelectedWikiSource { get => _selectedWikiSource; set { if (Set(ref _selectedWikiSource, value)) Raise(nameof(WikiIndexStatus)); } }
+    public WikiSourceEditorViewModel? SelectedWikiSource { get => _selectedWikiSource; set { if (Set(ref _selectedWikiSource, value)) { Raise(nameof(WikiIndexStatus)); Raise(nameof(WikiAiIndexStatus)); } } }
     private const string WikiSecretMask = "••••••••";
     public List<WikiChoice> WikiProviderTypes { get; } = new() { new("ConfluenceDataCenter", "Confluence Data Center"), new("ConfluenceCloud", "Confluence Cloud"), new("GenericRest", "Generic REST"), new("XWiki", "XWiki") };
     public List<WikiChoice> WikiAuthModes { get; } = new() { new("BearerToken", "Bearer Token"), new("UsernameToken", "Username + Token / Passwort"), new("Basic", "Basic Auth"), new("ApiKey", "API-Key Header"), new("WindowsIntegrated", "Windows Integrated") };
@@ -77,7 +110,21 @@ public class SettingsViewModel : ObservableObject
     public RelayCommand TestWikiConnectionCommand { get; }
     public RelayCommand TestWikiSearchCommand { get; }
     public RelayCommand RefreshWikiIndexCommand { get; }
+    public RelayCommand RefreshWikiAiIndexCommand { get; private set; } = null!;
+    public RelayCommand RebuildWikiAiIndexCommand { get; private set; } = null!;
     public string WikiIndexStatus => SelectedWikiSource == null ? "Kein Wiki ausgewählt." : FormatWikiIndexStatus(SelectedWikiSource.ToModel());
+    public string WikiAiIndexStatus
+    {
+        get
+        {
+            if (SelectedWikiSource == null) return "Kein Wiki ausgewählt.";
+            var source = SelectedWikiSource.ToModel();
+            if (!WikiScopePolicy.SupportsAiKnowledge(source)) return "Dieser Provider unterstützt den lokalen KI-Wiki-Index noch nicht.";
+            var s = ServiceLocator.WikiAiKnowledge.GetStatus(source.Id);
+            var status = s.Status == "failed" ? "Synchronisierung fehlgeschlagen – letzter erfolgreicher Stand bleibt verfügbar" : s.Status == "current" ? "Aktuell" : "Noch nicht indexiert";
+            return $"Seiten: {s.PageCount:N0} · Textabschnitte: {s.ChunkCount:N0}\nLetzter erfolgreicher Abgleich: {(s.LastSuccessUtc?.ToLocalTime().ToString("dd.MM.yyyy HH:mm") ?? "noch nie")}\nStatus: {status}";
+        }
+    }
     private readonly SemaphoreSlim _updateCheckGate = new(1, 1);
     private bool _startupUpdatePromptShown;
     public string Title => "Einstellungen";
@@ -238,7 +285,7 @@ public class SettingsViewModel : ObservableObject
     public RelayCommand InstallUpdateCommand { get; }
     public RelayCommand OpenReleaseCommand { get; }
 
-    public SettingsViewModel(SettingsService settings, NotificationService notifications, OutlookCalendarService outlookCalendar, TaskService tasks, TicketSystemService ticketSystem, UpdateService updates, Action? tasksChanged = null)
+    public SettingsViewModel(SettingsService settings, NotificationService notifications, OutlookCalendarService outlookCalendar, TaskService tasks, TicketSystemService ticketSystem, UpdateService updates, AiService ai, AiKnowledgeService aiKnowledge, Action? tasksChanged = null)
     {
         _settings = settings;
         _notifications = notifications;
@@ -248,6 +295,10 @@ public class SettingsViewModel : ObservableObject
         _lastFullSyncStatus = ticketSystem.LastFullSyncStatus;
         _ticketSystem.FullSyncStatusChanged += OnFullSyncStatusChanged;
         _updates = updates;
+        _ai = ai;
+        _aiKnowledge = aiKnowledge;
+        _aiKnowledge.StatusChanged += (_, _) => Application.Current?.Dispatcher.BeginInvoke(new Action(() => Raise(nameof(AiKnowledgeStatus))));
+        _ai.LocalServer.StateChanged += (_, _) => Application.Current?.Dispatcher.BeginInvoke(new Action(RaiseAiState));
         _tasksChanged = tasksChanged;
         WebShortcuts = new(_settings.Current.WebShortcuts.OrderBy(x=>x.SortOrder).Select(x=>WebShortcutEditorViewModel.From(x,ShortcutPasswordMask))); SelectedWebShortcut=WebShortcuts.FirstOrDefault();
         WikiSources = new ObservableCollection<WikiSourceEditorViewModel>(_settings.Current.WikiSources.Select(x => WikiSourceEditorViewModel.FromModel(x, WikiSecretMask, x.Id == _settings.Current.DefaultWikiSourceId)));
@@ -255,6 +306,12 @@ public class SettingsViewModel : ObservableObject
         _hourlyUpdateTimer = new DispatcherTimer { Interval = TimeSpan.FromHours(1) };
         _hourlyUpdateTimer.Tick += async (_, _) => await RunHourlyUpdateCheckAsync();
         TestReminderCommand = new RelayCommand(() => _notifications.ShowTestNotification());
+        TestAiCommand = new RelayCommand(async () => await TestAiAsync(), () => AiEnabled && !_isAiOperationRunning && (!IsLocalAiProvider || _ai.LocalServer.IsReady));
+        DownloadAiModelCommand = new RelayCommand(async () => await DownloadAiModelAsync(), () => AiEnabled && IsLocalAiProvider && !_isAiOperationRunning);
+        StartLocalAiCommand = new RelayCommand(async () => await StartLocalAiAsync(), () => AiEnabled && IsLocalAiProvider && !_isAiOperationRunning && !_ai.LocalServer.IsReady);
+        StopLocalAiCommand = new RelayCommand(StopLocalAi, () => _ai.LocalServer.IsRunning);
+        OpenKnowledgeFolderCommand = new RelayCommand(() => { _aiKnowledge.Index.EnsureKnowledgeDirectory(); Process.Start(new ProcessStartInfo("explorer.exe", _aiKnowledge.Index.KnowledgePath) { UseShellExecute = true }); });
+        ReindexKnowledgeCommand = new RelayCommand(async () => { AiStatus = "Wissen wird indexiert …"; await _aiKnowledge.RebuildAsync(); AiStatus = _aiKnowledge.Status.Error == null ? "Wissen wurde neu indexiert." : $"Indexierung fehlgeschlagen: {_aiKnowledge.Status.Error}"; Raise(nameof(AiKnowledgeStatus)); });
         RefreshOutlookCalendarCommand = new RelayCommand(async () => await _outlookCalendar.TriggerSyncAsync("manual-button"));
         TestOutlookConnectionCommand = new RelayCommand(TestOutlookConnection);
         ImportTicketSystemTasksCommand = new RelayCommand(async () => await ImportTicketSystemTasksAsync());
@@ -270,11 +327,50 @@ public class SettingsViewModel : ObservableObject
         TestWikiConnectionCommand = new RelayCommand(async () => await TestWikiAsync(false), () => !_isWikiTestRunning);
         TestWikiSearchCommand = new RelayCommand(async () => await TestWikiAsync(true), () => !_isWikiTestRunning);
         RefreshWikiIndexCommand = new RelayCommand(async () => await RefreshWikiIndexAsync());
+        RefreshWikiAiIndexCommand = new RelayCommand(async () => await SyncWikiAiAsync(false));
+        RebuildWikiAiIndexCommand = new RelayCommand(async () => await SyncWikiAiAsync(true));
         AddWebShortcutCommand=new RelayCommand(()=>{var x=new WebShortcutEditorViewModel{SortOrder=WebShortcuts.Count};WebShortcuts.Add(x);SelectedWebShortcut=x;WebShortcutStatus="Webseite angelegt. Bitte speichern.";}); SaveWebShortcutCommand=new RelayCommand(SaveWebShortcut); RemoveWebShortcutCommand=new RelayCommand(RemoveWebShortcut);
         MoveWebShortcutUpCommand = new RelayCommand(() => MoveWebShortcut(-1), () => CanMoveWebShortcut(-1));
         MoveWebShortcutDownCommand = new RelayCommand(() => MoveWebShortcut(1), () => CanMoveWebShortcut(1));
         RaiseWebShortcutMoveCanExecute();
     }
+
+    private async Task TestAiAsync()
+    {
+        SetAiBusy(true); AiStatus = "Verbindung wird getestet …";
+        try
+        {
+            var result = await _ai.TestAsync();
+            AiStatus = string.IsNullOrWhiteSpace(result) ? "Die KI hat leer geantwortet." : "Test erfolgreich";
+        }
+        catch (Exception ex) { AiStatus = DescribeAiError(ex); }
+        finally { SetAiBusy(false); }
+    }
+
+    private async Task DownloadAiModelAsync()
+    {
+        SetAiBusy(true); AiDownloadProgress = 0; AiStatus = "Lokale KI wird eingerichtet …";
+        try { await _ai.LocalServer.InstallAsync(new Progress<int>(value => { AiDownloadProgress = value; Raise(nameof(AiLocalServerStatus)); })); AiStatus = "Lokale KI ist installiert."; }
+        catch (Exception ex) { AiStatus = DescribeAiError(ex); }
+        finally { SetAiBusy(false); }
+    }
+
+    private async Task StartLocalAiAsync() { SetAiBusy(true); try { await _ai.LocalServer.InstallAndStartAsync(new Progress<int>(value => { AiDownloadProgress = value; Raise(nameof(AiLocalServerStatus)); })); AiStatus = _ai.LocalServer.UsedCpuFallback ? _ai.LocalServer.LastError ?? "Bereit" : "Bereit"; } catch (Exception ex) { AiStatus = DescribeAiError(ex); } finally { SetAiBusy(false); RaiseAiState(); } }
+    private void StopLocalAi() { try { _ai.LocalServer.Stop(); AiStatus = "Lokaler llama.cpp-Server wurde gestoppt."; } catch (Exception ex) { AiStatus = DescribeAiError(ex); } RaiseAiState(); }
+    private void SetAiBusy(bool value) { _isAiOperationRunning = value; RaiseAiState(); }
+    private void RaiseAiState()
+    {
+        Raise(nameof(IsOpenAiProvider)); Raise(nameof(IsLocalAiProvider)); Raise(nameof(AiLocalServerStatus)); Raise(nameof(AiLocalBackendStatus)); Raise(nameof(AiLocalLicense)); Raise(nameof(AiLocalPreset)); Raise(nameof(AiLocalComputeMode));
+        TestAiCommand?.RaiseCanExecuteChanged(); DownloadAiModelCommand?.RaiseCanExecuteChanged(); StartLocalAiCommand?.RaiseCanExecuteChanged(); StopLocalAiCommand?.RaiseCanExecuteChanged();
+    }
+    private static string DescribeAiError(Exception ex) => ex switch
+    {
+        TaskCanceledException => "Zeitüberschreitung beim KI-Request.",
+        HttpRequestException http when http.StatusCode.HasValue => $"KI-Request fehlgeschlagen (HTTP {(int)http.StatusCode.Value}).",
+        HttpRequestException => "Der KI-Server ist nicht erreichbar.",
+        UriFormatException => "Die konfigurierte URL ist ungültig.",
+        _ => ex.Message
+    };
 
     private void OnFullSyncStatusChanged(ZnunySyncStatusSnapshot snapshot)
     {
@@ -556,7 +652,8 @@ public class SettingsViewModel : ObservableObject
         else if (apiAccessChanged) ServiceLocator.WikiSearch.ResetFailedRunsForSource(source.Id);
         NotifySettingsConsumers(); WikiSettingsStatus = $"Wiki '{source.Name}' wurde gespeichert.";
         if (searchConfigurationChanged || previousSource == null) { ServiceLocator.WikiVocabulary.Invalidate(source.Id); _ = ServiceLocator.WikiVocabulary.RefreshAsync(source); }
-        Raise(nameof(WikiIndexStatus));
+        if (searchConfigurationChanged || apiAccessChanged || previousSource == null) { ServiceLocator.WikiAiKnowledge.Invalidate(source.Id); _ = ServiceLocator.WikiAiKnowledge.SyncAsync(source, false); }
+        Raise(nameof(WikiIndexStatus)); Raise(nameof(WikiAiIndexStatus));
     }
 
     private static string WikiSearchConfigurationFingerprint(WikiSourceSettings source)
@@ -594,6 +691,16 @@ public class SettingsViewModel : ObservableObject
         if (!TryCreateWikiSourceFromEditor(out var source, out var error)) { WikiSettingsStatus = error; return; }
         WikiSettingsStatus = "Wiki-Suchindex wird aktualisiert …"; await ServiceLocator.WikiVocabulary.RefreshAsync(source); Raise(nameof(WikiIndexStatus));
         var status = ServiceLocator.WikiVocabulary.GetStatus(source); WikiSettingsStatus = status.Status == "success" ? $"Wiki-Suchindex aktualisiert: {status.PageCount:N0} Seiten." : "Wiki-Suchindex konnte nicht aktualisiert werden.";
+    }
+
+    private async Task SyncWikiAiAsync(bool rebuild)
+    {
+        if (!TryCreateWikiSourceFromEditor(out var source, out var error)) { WikiSettingsStatus = error; return; }
+        if (!WikiScopePolicy.SupportsAiKnowledge(source)) { WikiSettingsStatus = "Dieser Wiki-Provider ist nicht für den lokalen KI-Index verfügbar."; return; }
+        WikiSettingsStatus = rebuild ? "KI-Wiki-Index wird sicher neu aufgebaut …" : "KI-Wiki-Index wird aktualisiert …";
+        await ServiceLocator.WikiAiKnowledge.SyncAsync(source, rebuild);
+        Raise(nameof(WikiAiIndexStatus));
+        WikiSettingsStatus = ServiceLocator.WikiAiKnowledge.GetStatus(source.Id).Status == "current" ? "KI-Wiki-Index ist aktuell." : "Wiki-Synchronisierung fehlgeschlagen; der bisherige Index bleibt verfügbar.";
     }
 
     private void SaveWebShortcut()

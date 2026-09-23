@@ -84,3 +84,45 @@
 - Browser-Sessions verschiedener Favoriten stärker voneinander isoliert
 - Unnötige Browser-Neuinitialisierungen reduziert
 - Kalender- und Update-Hintergrundprozesse benutzerfreundlicher gestaltet
+
+## KI
+
+- Fehlerhafte SHA256-Prüfsumme der Vulkan llama.cpp Runtime korrigiert, sodass die optionale GPU-Beschleunigung installiert werden kann
+- Markdown-Darstellung im KI-Chat für verschachtelte geordnete und ungeordnete Listen korrigiert
+- KI-Retrieval bei allgemeinen Performance-Fragen um Fachbereichs- und Entity-Abgleich erweitert, damit generische Symptome keine fachfremden lokalen oder Wiki-Quellen legitimieren
+- Lokale KI kann optional mit einer separat installierten, SHA256-verifizierten Vulkan-Runtime auf der GPU ausgeführt werden; bei Startfehlern erfolgt ein kontrollierter CPU-Fallback
+- KI-Retrieval bei allgemeinen Fragen verschärft, sodass irrelevante lokale und Wiki-Wissensquellen nicht mehr in Antworten einfließen
+- `Use Wiki` wird ohne konfiguriertes Wiki nun korrekt deaktiviert und nicht mehr als aktiv angezeigt; die gespeicherte Präferenz bleibt für später konfigurierte Wikis erhalten
+- Aktivierte Confluence-Data-Center- und Confluence-Cloud-Wikis können als lokale, per SQLite FTS5 durchsuchbare Wissensquelle für den KI-Chat indexiert werden
+- Der Wiki-KI-Index wird im Hintergrund vollständig aufgebaut und anschließend alle 30 Minuten inkrementell aktualisiert; Chat-Anfragen verwenden ausschließlich den lokalen Index und funktionieren mit dem letzten erfolgreichen Stand auch offline
+- Neuer persistierter Schalter „Use Wiki“ steuert Wiki-Wissen unabhängig von der lokalen Plenaro Knowledge Base; lokale Datei- und Wiki-Treffer teilen sich ein gemeinsames Kontextbudget
+- KI-Antwortqualität und lokale Wissenssuche verbessert: irrelevante Knowledge-Treffer werden gefiltert und konkrete Benutzeranweisungen zuverlässiger berücksichtigt
+- KI-Chat optisch überarbeitet: Benutzer-Nachrichten erscheinen jetzt als kompakte orange Chat-Bubbles
+- Schreibanzeige „Plenaro schreibt …“ als temporäre Assistant-Bubble direkt im Chat ergänzt
+- KI-Antworten bleiben direkt markierbar und kopierbar; der separate Kopieren-Button wurde entfernt
+- Option „Use Plenaro knowledge base“ unter dem Eingabefeld ergänzt, um lokale Wissenssuche und Quellen pro Chat ein- oder auszuschalten
+- Fließtext und Inline-Code in KI-Antworten werden ohne schwarzen Texthintergrund dargestellt; nur echte Codeblöcke bleiben dunkel hervorgehoben
+- Runtimefehler beim Anzeigen des lokalen KI-Wissensordners in den Einstellungen behoben
+- Buildprobleme der neuen lokalen Wissensbasis und Markdown-Darstellung einschließlich der Übergabe des Abbruch-Tokens an die Wissenssuche behoben
+- Build- und Parallelisierungsfehler des neuen lokalen Wiki-KI-Index behoben
+- Neue optionale KI-Integration als technisches Grundgerüst ergänzt
+- OpenAI-kompatible APIs können mit eigener Basis-URL, Modell und optionalem API-Key angebunden und getestet werden
+- API-Schlüssel werden verschlüsselt im Windows-Benutzerkontext gespeichert
+- Lokale KI kann über automatisch verwaltetes llama.cpp betrieben werden
+- Drei lokale Modellgrößen Light, Middle und High stehen zur Auswahl
+- Benötigte Runtime- und Modelldateien werden bei Bedarf automatisch heruntergeladen und geprüft
+- Die Einrichtung lokaler KI bereitet Runtime und Modell jetzt gemeinsam vor und verwirft unvollständige oder fehlerhaft geprüfte Downloads zuverlässig
+- Automatische Erkennung und Installation der offiziellen llama.cpp-Windows-x64-Runtime korrigiert
+- llama.cpp-Prerelease-Builds werden bei der automatischen Windows-x64-Runtime-Ermittlung jetzt korrekt berücksichtigt
+- Die lokale llama.cpp-Runtime wird als getestete, fest freigegebene Version verwaltet, sodass neue Upstream-Builds Plenaro nicht unbeabsichtigt verändern
+- Diagnose und Logging bei Fehlern der lokalen KI-Einrichtung verbessert
+- Aktivierte lokale Modelle werden beim Programmstart im Hintergrund vorgeladen
+- Lokale und externe KI können über einen echten Testrequest geprüft werden
+- Neue KI-Seite in der Hauptnavigation ergänzt, über die direkt mit dem konfigurierten lokalen oder OpenAI-kompatiblen Modell gechattet werden kann
+- KI-Unterhaltungen berücksichtigen bis zu 20 Nachrichten des aktuellen Sitzungsverlaufs und bleiben vollständig optional und flüchtig
+- KI-Chatoberfläche verbessert: Antworten können jetzt markiert und vollständig kopiert werden, der Nachrichtenverlauf scrollt zuverlässig und die Eingabe bleibt auch bei längeren Chats sichtbar
+- KI-Chatdarstellung weiter verbessert: kompaktere Benutzer-Nachrichten, platzsparende Quellenangaben und zuverlässiges Scrollen auch über Markdown-, Code- und Nachrichtenelementen
+- Verbindungstest und lokale Qwen3-Nutzung durch flexible Antwortprüfung und deaktiviertes Thinking zuverlässiger gestaltet
+- KI-Antworten werden im Chat mit formatierten Überschriften, Listen, Hervorhebungen und Codeblöcken dargestellt
+- Optionaler lokaler Wissensordner für TXT-, Markdown- und PDF-Dokumente ergänzt
+- Lokales Wissen wird im Hintergrund inkrementell indexiert und bei passenden KI-Fragen per lokaler FTS5-Suche als begrenzter Kontext berücksichtigt
