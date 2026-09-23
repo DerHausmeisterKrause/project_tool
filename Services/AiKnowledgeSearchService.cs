@@ -6,13 +6,14 @@ using Microsoft.Data.Sqlite;
 
 namespace TaskTool.Services;
 
-public sealed record AiKnowledgeMatch(string Content, string RelativePath, string CategoryPath, string FileName, int? PageNumber, double Score);
+public sealed record AiKnowledgeMatch(string Content, string RelativePath, string CategoryPath, string FileName, int? PageNumber, double Score, AiKnowledgeSourceKind SourceKind = AiKnowledgeSourceKind.User);
 
 public sealed class AiKnowledgeSearchService
 {
     public const int DefaultTopN = 4;
     private const int MaximumQueryTerms = 12;
     private static readonly Regex TokenPattern = new(@"[\p{L}\p{N}_-]{2,}", RegexOptions.Compiled);
+    private static readonly Regex TokenPartPattern = new(@"[\p{L}\p{N}]{2,}", RegexOptions.Compiled);
     private static readonly HashSet<string> StopWords = new(StringComparer.OrdinalIgnoreCase)
     {
         "der", "die", "das", "den", "dem", "des", "ein", "eine", "einer", "einen", "einem",
@@ -61,7 +62,7 @@ public sealed class AiKnowledgeSearchService
         await db.OpenAsync(ct);
         await using var cmd = db.CreateCommand();
         cmd.CommandText = """
-            SELECT c.content,c.relative_path,c.category_path,c.file_name,c.page_number,
+            SELECT c.content,c.relative_path,c.category_path,c.file_name,c.page_number,c.source_type,
                    bm25(knowledge_chunks_fts,1.0,4.0,5.0) AS rank
             FROM knowledge_chunks_fts f JOIN knowledge_chunks c ON c.id=f.rowid
             WHERE knowledge_chunks_fts MATCH $query ORDER BY rank LIMIT $limit
@@ -80,18 +81,19 @@ public sealed class AiKnowledgeSearchService
             var file = reader.GetString(3);
             var relevance = CalculateRelevance(terms, content, file, category);
             if (relevance > 0)
-                candidates.Add(new(content, relativePath, category, file, reader.IsDBNull(4) ? null : reader.GetInt32(4), relevance));
+                candidates.Add(new(content, relativePath, category, file, reader.IsDBNull(4) ? null : reader.GetInt32(4), relevance, Enum.Parse<AiKnowledgeSourceKind>(reader.GetString(5))));
         }
 
-        var ordered = candidates.OrderByDescending(x => x.Score).ThenBy(x => x.RelativePath, StringComparer.OrdinalIgnoreCase).ToArray();
-        var firstPerDocument = ordered.GroupBy(x => x.RelativePath, StringComparer.OrdinalIgnoreCase).Select(group => group.First());
+        var ordered = candidates.OrderByDescending(x => x.Score)
+            .ThenBy(x => x.SourceKind == AiKnowledgeSourceKind.User ? 0 : 1)
+            .ThenBy(x => x.RelativePath, StringComparer.OrdinalIgnoreCase).ToArray();
+        var firstPerDocument = ordered.GroupBy(x => $"{x.SourceKind}:{x.RelativePath}", StringComparer.OrdinalIgnoreCase).Select(group => group.First());
         var result = firstPerDocument.Concat(ordered.Where(x => !firstPerDocument.Contains(x))).Take(Math.Max(0, topN)).ToArray();
         _logger.OperationalInfo($"[AI Knowledge] Query completed candidates={candidateCount} accepted={result.Length} durationMs={watch.ElapsedMilliseconds}");
         return result;
     }
 
-    internal static string[] NormalizeTerms(string question) => TokenPattern.Matches(question)
-        .Select(match => match.Value.Replace("\"", ""))
+    internal static string[] NormalizeTerms(string question) => ExpandTokens(question)
         .Where(term => !StopWords.Contains(term))
         .Distinct(StringComparer.OrdinalIgnoreCase)
         .Take(MaximumQueryTerms)
@@ -141,14 +143,24 @@ public sealed class AiKnowledgeSearchService
     }
 
     private static bool IsSpecific(string term) => !GenericTechnicalTerms.Contains(term) && (KnownSpecificTerms.Contains(term)
+        || term.Contains('_') || term.Contains('-')
         || Regex.IsMatch(term, @"^0x[0-9a-f]{6,}$", RegexOptions.IgnoreCase)
         || term.Any(char.IsDigit)
         || (term.Length >= 5 && term.All(character => !char.IsLetter(character) || char.IsUpper(character)))
         || (term.Length >= 6 && term.Any(char.IsUpper) && term.Any(char.IsLower)));
 
-    private static HashSet<string> Tokens(string value) => Regex.Matches(value, @"[\p{L}\p{N}]+")
-        .Select(match => match.Value)
-        .ToHashSet(StringComparer.OrdinalIgnoreCase);
+    private static IEnumerable<string> ExpandTokens(string value)
+    {
+        foreach (Match match in TokenPattern.Matches(value))
+        {
+            yield return match.Value;
+            if (!match.Value.Contains('_') && !match.Value.Contains('-')) continue;
+            foreach (Match part in TokenPartPattern.Matches(match.Value))
+                if (!part.Value.Equals(match.Value, StringComparison.OrdinalIgnoreCase)) yield return part.Value;
+        }
+    }
+
+    private static HashSet<string> Tokens(string value) => ExpandTokens(value).ToHashSet(StringComparer.OrdinalIgnoreCase);
 }
 
 public sealed record AiKnowledgeContext(string Text, IReadOnlyList<AiKnowledgeMatch> IncludedMatches);
@@ -176,7 +188,7 @@ public static class AiKnowledgeContextBuilder
         var included = new List<AiKnowledgeMatch>();
         foreach (var match in matches)
         {
-            var header = $"Quelle: {match.RelativePath}{(match.PageNumber is int page ? $", Seite {page}" : string.Empty)}\n---\n";
+            var header = $"Quelle: {(match.SourceKind == AiKnowledgeSourceKind.Standard ? "Plenaro Knowledge" : "Eigene Knowledge")}: {match.RelativePath}{(match.PageNumber is int page ? $", Seite {page}" : string.Empty)}\n---\n";
             var available = MaximumContextCharacters - result.Length - header.Length - 6;
             if (available <= 0) break;
             result += header + match.Content[..Math.Min(match.Content.Length, available)] + "\n---\n";
@@ -205,7 +217,7 @@ public static class AiCombinedContextBuilder
         var text = instruction; var included = new List<AiRetrievalMatch>();
         foreach (var match in selected)
         {
-            var label = match.SourceType == AiKnowledgeSourceType.Wiki ? $"Wiki: {match.DisplaySource} · {match.Title}" : $"Plenaro Knowledge: {match.DisplaySource}";
+            var label = match.SourceType == AiKnowledgeSourceType.Wiki ? $"Wiki: {match.DisplaySource} · {match.Title}" : match.DisplaySource;
             var header = $"Quelle: {label}\n---\n"; var available = AiKnowledgeContextBuilder.MaximumContextCharacters - text.Length - header.Length - 6;
             if (available <= 0) break; text += header + match.Content[..Math.Min(match.Content.Length, available)] + "\n---\n"; included.Add(match);
         }
