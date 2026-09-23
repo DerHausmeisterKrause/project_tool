@@ -67,10 +67,13 @@ public sealed class AiKnowledgeIndexService
         {
             var extracted = await _extractor.ExtractAsync(path, ct);
             var chunks = AiKnowledgeChunker.Chunk(extracted);
+            var contentHash = Convert.ToHexString(SHA256.HashData(await File.ReadAllBytesAsync(path, ct)));
             var status = chunks.Count == 0 && Path.GetExtension(path).Equals(".pdf", StringComparison.OrdinalIgnoreCase)
                 ? "PDF enthält keinen extrahierbaren Text." : "Indexed";
-            await DeleteDocumentAsync(db, source, relative, ct);
+            await using var transaction = db.BeginTransaction();
+            await DeleteDocumentAsync(db, source, relative, ct, transaction);
             await using var insert = db.CreateCommand();
+            insert.Transaction = transaction;
             insert.CommandText = "INSERT INTO knowledge_documents(source_type,relative_path,category_path,file_name,extension,file_size,last_write_utc,content_hash,indexed_utc,status) VALUES($source,$p,$c,$n,$e,$s,$w,$h,$i,$status); SELECT last_insert_rowid();";
             insert.Parameters.AddWithValue("$source", source.ToString());
             insert.Parameters.AddWithValue("$p", relative);
@@ -79,13 +82,14 @@ public sealed class AiKnowledgeIndexService
             insert.Parameters.AddWithValue("$e", Path.GetExtension(path).ToLowerInvariant());
             insert.Parameters.AddWithValue("$s", info.Length);
             insert.Parameters.AddWithValue("$w", info.LastWriteTimeUtc.ToString("O"));
-            insert.Parameters.AddWithValue("$h", Convert.ToHexString(SHA256.HashData(await File.ReadAllBytesAsync(path, ct))));
+            insert.Parameters.AddWithValue("$h", contentHash);
             insert.Parameters.AddWithValue("$i", DateTime.UtcNow.ToString("O"));
             insert.Parameters.AddWithValue("$status", status);
             var id = (long)(await insert.ExecuteScalarAsync(ct) ?? 0L);
             for (var index = 0; index < chunks.Count; index++)
             {
                 await using var chunk = db.CreateCommand();
+                chunk.Transaction = transaction;
                 chunk.CommandText = "INSERT INTO knowledge_chunks(document_id,source_type,chunk_index,content,category_path,file_name,relative_path,page_number) VALUES($d,$source,$i,$t,$c,$n,$r,$page)";
                 chunk.Parameters.AddWithValue("$source", source.ToString());
                 chunk.Parameters.AddWithValue("$d", id); chunk.Parameters.AddWithValue("$i", index); chunk.Parameters.AddWithValue("$t", chunks[index].Content);
@@ -93,7 +97,9 @@ public sealed class AiKnowledgeIndexService
                 chunk.Parameters.AddWithValue("$page", (object?)chunks[index].PageNumber ?? DBNull.Value);
                 await chunk.ExecuteNonQueryAsync(ct);
             }
+            await transaction.CommitAsync(ct);
         }
+        catch (OperationCanceledException) { throw; }
         catch (Exception ex) { _logger.Warning($"[AI Knowledge] Index failed file='{relative}' error='{ex.Message}'"); }
     }
 
@@ -129,7 +135,7 @@ public sealed class AiKnowledgeIndexService
         var existing = new List<(AiKnowledgeSourceKind Source, string Path)>(); await using (var reader = await cmd.ExecuteReaderAsync(ct)) while (await reader.ReadAsync(ct)) existing.Add((Enum.Parse<AiKnowledgeSourceKind>(reader.GetString(0)), reader.GetString(1)));
         foreach (var item in existing.Where(item => !seen.Contains($"{item.Source}:{item.Path}"))) await DeleteDocumentAsync(db, item.Source, item.Path, ct);
     }
-    private static async Task DeleteDocumentAsync(SqliteConnection db, AiKnowledgeSourceKind source, string relative, CancellationToken ct) { await using var cmd = db.CreateCommand(); cmd.CommandText = "DELETE FROM knowledge_documents WHERE source_type=$source AND relative_path=$p"; cmd.Parameters.AddWithValue("$source", source.ToString()); cmd.Parameters.AddWithValue("$p", relative); await cmd.ExecuteNonQueryAsync(ct); }
+    private static async Task DeleteDocumentAsync(SqliteConnection db, AiKnowledgeSourceKind source, string relative, CancellationToken ct, SqliteTransaction? transaction = null) { await using var cmd = db.CreateCommand(); cmd.Transaction = transaction; cmd.CommandText = "DELETE FROM knowledge_documents WHERE source_type=$source AND relative_path=$p"; cmd.Parameters.AddWithValue("$source", source.ToString()); cmd.Parameters.AddWithValue("$p", relative); await cmd.ExecuteNonQueryAsync(ct); }
     private static async Task ExecuteAsync(SqliteConnection db, string sql, CancellationToken ct) { await using var cmd = db.CreateCommand(); cmd.CommandText = sql; await cmd.ExecuteNonQueryAsync(ct); }
     public async Task<AiKnowledgeIndexStatus> GetStatusAsync(CancellationToken ct = default) { await using var db = new SqliteConnection($"Data Source={IndexPath}"); await db.OpenAsync(ct); await InitializeSchemaAsync(db, ct); return await GetStatusAsync(db, ct); }
     private static async Task<AiKnowledgeIndexStatus> GetStatusAsync(SqliteConnection db, CancellationToken ct)

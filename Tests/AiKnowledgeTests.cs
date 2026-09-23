@@ -73,6 +73,58 @@ public sealed class AiKnowledgeTests : IDisposable
         Assert.Equal(AiKnowledgeSourceKind.Standard, Assert.Single(await search.SearchAsync("STANDARD_UNIQUE4712")).SourceKind);
     }
 
+    [Theory]
+    [InlineData("USER_UNIQUE4711 eigenes Wissen", "USER_UNIQUE4711")]
+    [InlineData("Znuny request-budget-exceeded", "request-budget-exceeded")]
+    [InlineData("Windows Fehler 0x80070035", "0x80070035")]
+    public async Task Search_FindsExactTechnicalCompositeIdentifiers(string content, string query)
+    {
+        var search = await CreateSearchAsync(("Technik/identifier.md", content));
+
+        Assert.Single(await search.SearchAsync(query));
+    }
+
+    [Fact]
+    public async Task Search_PrefersUserKnowledgeOnlyWhenScoresAreEqual()
+    {
+        var index = new AiKnowledgeIndexService(_logger, localAppData: _root);
+        Directory.CreateDirectory(index.KnowledgePath); Directory.CreateDirectory(index.DefaultKnowledgePath);
+        await File.WriteAllTextAsync(Path.Combine(index.KnowledgePath, "same.md"), "EXACT_IDENTIFIER4711");
+        await File.WriteAllTextAsync(Path.Combine(index.DefaultKnowledgePath, "same.md"), "EXACT_IDENTIFIER4711");
+        await index.IndexAsync();
+
+        var results = await new AiKnowledgeSearchService(index.IndexPath, _logger).SearchAsync("EXACT_IDENTIFIER4711", 2);
+
+        Assert.Equal(2, results.Count);
+        Assert.Equal(AiKnowledgeSourceKind.User, results[0].SourceKind);
+        Assert.Equal(AiKnowledgeSourceKind.Standard, results[1].SourceKind);
+    }
+
+    [Fact]
+    public async Task FailedDocumentReplacement_RollsBackAndKeepsPreviousIndexEntry()
+    {
+        var index = new AiKnowledgeIndexService(_logger, localAppData: _root);
+        Directory.CreateDirectory(index.KnowledgePath);
+        var path = Path.Combine(index.KnowledgePath, "transaction.md");
+        await File.WriteAllTextAsync(path, "OLD_IDENTIFIER4711");
+        await index.IndexAsync();
+        await using (var db = new SqliteConnection($"Data Source={index.IndexPath}"))
+        {
+            await db.OpenAsync();
+            await using var command = db.CreateCommand();
+            command.CommandText = "CREATE TRIGGER reject_new_chunk BEFORE INSERT ON knowledge_chunks BEGIN SELECT RAISE(ABORT, 'simulated failure'); END;";
+            await command.ExecuteNonQueryAsync();
+        }
+        await File.WriteAllTextAsync(path, "NEW_IDENTIFIER4712 with changed length");
+        File.SetLastWriteTimeUtc(path, DateTime.UtcNow.AddSeconds(1));
+
+        await index.IndexAsync();
+
+        var search = new AiKnowledgeSearchService(index.IndexPath, _logger);
+        Assert.Single(await search.SearchAsync("OLD_IDENTIFIER4711"));
+        Assert.Empty(await search.SearchAsync("NEW_IDENTIFIER4712"));
+    }
+
     [Fact]
     public void Context_HonorsCharacterBudgetAndTopNConstant()
     {
