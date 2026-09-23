@@ -61,6 +61,19 @@ public sealed class AiKnowledgeTests : IDisposable
     }
 
     [Fact]
+    public async Task UserAndStandardDocuments_WithSameRelativePath_AreBothIndexed()
+    {
+        var index = new AiKnowledgeIndexService(_logger, localAppData: _root);
+        Directory.CreateDirectory(index.KnowledgePath); Directory.CreateDirectory(index.DefaultKnowledgePath);
+        await File.WriteAllTextAsync(Path.Combine(index.KnowledgePath, "foo.md"), "USER_UNIQUE4711 eigenes Wissen");
+        await File.WriteAllTextAsync(Path.Combine(index.DefaultKnowledgePath, "foo.md"), "STANDARD_UNIQUE4712 Plenaro Wissen");
+        Assert.Equal(2, (await index.IndexAsync()).DocumentCount);
+        var search = new AiKnowledgeSearchService(index.IndexPath, _logger);
+        Assert.Equal(AiKnowledgeSourceKind.User, Assert.Single(await search.SearchAsync("USER_UNIQUE4711")).SourceKind);
+        Assert.Equal(AiKnowledgeSourceKind.Standard, Assert.Single(await search.SearchAsync("STANDARD_UNIQUE4712")).SourceKind);
+    }
+
+    [Fact]
     public void Context_HonorsCharacterBudgetAndTopNConstant()
     {
         var matches = Enumerable.Range(0, 10).Select(i => new AiKnowledgeMatch(new string('x', 1200), $"Windows\\{i}.txt", "Windows", $"{i}.txt", null, i)).Take(AiKnowledgeSearchService.DefaultTopN).ToArray();

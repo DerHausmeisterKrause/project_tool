@@ -1,5 +1,11 @@
 # Plenaro
 
+## Lokales KI-Wissen
+
+- Plenaro lädt die Standard-Wissensbasis beim Aktivieren des lokalen Wissens automatisch aus dem zur laufenden Version passenden GitHub Release, prüft ihre SHA256-Prüfsumme und indexiert sie.
+- Standard-Wissen und eigene Knowledge-Dateien werden getrennt gespeichert und gemeinsam für lokale KI-Antworten durchsucht.
+- Release-Artefakte enthalten zusätzlich die Plenaro Standard Knowledge Base inklusive SHA256-Prüfsumme.
+
 ## Znuny / OTRS
 
 - Ticket-Synchronisierung auf eine lokale Cache-/Snapshot-Architektur umgestellt

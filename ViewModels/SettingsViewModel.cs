@@ -81,9 +81,11 @@ public class SettingsViewModel : ObservableObject
     public RelayCommand StopLocalAiCommand { get; }
     public RelayCommand OpenKnowledgeFolderCommand { get; }
     public RelayCommand ReindexKnowledgeCommand { get; }
+    public RelayCommand UpdateStandardKnowledgeCommand { get; }
     public bool AiKnowledgeEnabled { get => _settings.Current.AiKnowledgeEnabled; set { if (_settings.Current.AiKnowledgeEnabled == value) return; _settings.Current.AiKnowledgeEnabled = value; Save(); _aiKnowledge.SetEnabled(value); Raise(); Raise(nameof(AiKnowledgeStatus)); } }
     public string AiKnowledgePath => _aiKnowledge.Index.KnowledgePath;
     public string AiKnowledgeStatus { get { var s = _aiKnowledge.Status; return s.Error != null ? $"Fehler: {s.Error}" : $"{s.DocumentCount} Dateien · {s.ChunkCount} Textabschnitte · Zuletzt indexiert: {(s.LastIndexedUtc?.ToLocalTime().ToString("dd.MM.yyyy HH:mm") ?? "noch nie")}"; } }
+    public string StandardKnowledgeStatus { get { var s = _aiKnowledge.StandardKnowledge?.Status; if (s == null) return "Nicht installiert"; var label = s.State switch { StandardKnowledgeState.Checking => "Wird geprüft …", StandardKnowledgeState.Downloading => "Wird heruntergeladen …", StandardKnowledgeState.Verifying => "Download wird geprüft …", StandardKnowledgeState.Installing => "Wird installiert …", StandardKnowledgeState.Indexing => "Wird indexiert …", StandardKnowledgeState.Installed => "Installiert", StandardKnowledgeState.Sha256Failed => "SHA256-Prüfung fehlgeschlagen", StandardKnowledgeState.DownloadFailed => "Standard-Wissen konnte nicht aktualisiert werden", _ => "Nicht installiert" }; return $"Status: {label} · Dokumente: {s.DocumentCount}" + (s.ReleaseTag == null ? "" : $" · Release: {s.ReleaseTag}") + (s.Error == null ? "" : ". Der vorhandene Stand wird weiter verwendet."); } }
     public ObservableCollection<WebShortcutEditorViewModel> WebShortcuts { get; }
     private WebShortcutEditorViewModel? _selectedWebShortcut; public WebShortcutEditorViewModel? SelectedWebShortcut { get=>_selectedWebShortcut; set { if (Set(ref _selectedWebShortcut,value)) RaiseWebShortcutMoveCanExecute(); } }
     private string _webShortcutStatus=""; public string WebShortcutStatus { get=>_webShortcutStatus; set=>Set(ref _webShortcutStatus,value); }
@@ -298,6 +300,7 @@ public class SettingsViewModel : ObservableObject
         _ai = ai;
         _aiKnowledge = aiKnowledge;
         _aiKnowledge.StatusChanged += (_, _) => Application.Current?.Dispatcher.BeginInvoke(new Action(() => Raise(nameof(AiKnowledgeStatus))));
+        if (_aiKnowledge.StandardKnowledge != null) _aiKnowledge.StandardKnowledge.StatusChanged += (_, _) => Application.Current?.Dispatcher.BeginInvoke(new Action(() => Raise(nameof(StandardKnowledgeStatus))));
         _ai.LocalServer.StateChanged += (_, _) => Application.Current?.Dispatcher.BeginInvoke(new Action(RaiseAiState));
         _tasksChanged = tasksChanged;
         WebShortcuts = new(_settings.Current.WebShortcuts.OrderBy(x=>x.SortOrder).Select(x=>WebShortcutEditorViewModel.From(x,ShortcutPasswordMask))); SelectedWebShortcut=WebShortcuts.FirstOrDefault();
@@ -312,6 +315,7 @@ public class SettingsViewModel : ObservableObject
         StopLocalAiCommand = new RelayCommand(StopLocalAi, () => _ai.LocalServer.IsRunning);
         OpenKnowledgeFolderCommand = new RelayCommand(() => { _aiKnowledge.Index.EnsureKnowledgeDirectory(); Process.Start(new ProcessStartInfo("explorer.exe", _aiKnowledge.Index.KnowledgePath) { UseShellExecute = true }); });
         ReindexKnowledgeCommand = new RelayCommand(async () => { AiStatus = "Wissen wird indexiert …"; await _aiKnowledge.RebuildAsync(); AiStatus = _aiKnowledge.Status.Error == null ? "Wissen wurde neu indexiert." : $"Indexierung fehlgeschlagen: {_aiKnowledge.Status.Error}"; Raise(nameof(AiKnowledgeStatus)); });
+        UpdateStandardKnowledgeCommand = new RelayCommand(async () => { if (_aiKnowledge.StandardKnowledge != null) await _aiKnowledge.StandardKnowledge.ForceCheckAsync(); });
         RefreshOutlookCalendarCommand = new RelayCommand(async () => await _outlookCalendar.TriggerSyncAsync("manual-button"));
         TestOutlookConnectionCommand = new RelayCommand(TestOutlookConnection);
         ImportTicketSystemTasksCommand = new RelayCommand(async () => await ImportTicketSystemTasksAsync());

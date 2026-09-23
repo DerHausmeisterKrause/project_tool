@@ -55,6 +55,10 @@
                 <StackPanel>
                     <TextBlock Text="Lokales Wissen" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,10"/>
                     <CheckBox Content="Lokales Wissen verwenden" IsChecked="{Binding AiKnowledgeEnabled}" FontWeight="SemiBold"/>
+                    <TextBlock Text="Plenaro Standard-Wissen" Style="{StaticResource SettingsLabelStyle}" Margin="0,12,0,0"/>
+                    <TextBlock Text="{Binding StandardKnowledgeStatus}" Style="{StaticResource SettingsHelpStyle}"/>
+                    <Button Content="Standard-Wissen aktualisieren" Command="{Binding UpdateStandardKnowledgeCommand}" HorizontalAlignment="Left" Margin="0,8,0,4"/>
+                    <TextBlock Text="Eigene Wissensbasis" Style="{StaticResource SettingsLabelStyle}" Margin="0,8,0,0"/>
                     <TextBlock Text="Wissensordner:" Style="{StaticResource SettingsLabelStyle}" Margin="0,12,0,0"/>
                     <TextBox Text="{Binding AiKnowledgePath, Mode=OneWay}" IsReadOnly="True" Style="{StaticResource SettingsTextBoxStyle}"/>
                     <WrapPanel Margin="0,8,0,8">
