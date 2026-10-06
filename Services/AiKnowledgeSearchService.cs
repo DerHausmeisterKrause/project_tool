@@ -9,12 +9,13 @@ namespace TaskTool.Services;
 public sealed record AiKnowledgeMatch(string Content, string RelativePath, string CategoryPath, string FileName, int? PageNumber, double Score, AiKnowledgeSourceKind SourceKind = AiKnowledgeSourceKind.User);
 internal sealed record RelevanceEvaluation(double Score, int MatchedTerms, int MeaningfulMatchedTerms, int MeaningfulTermCount,
     double MeaningfulCoverage, bool HasSpecificExactMatch, bool HasStrongTitleOrSectionMatch,
-    int AnchorCount = 0, int HardAnchorCount = 0, bool HasAnchorMatch = true)
+    int AnchorCount = 0, int HardAnchorCount = 0, bool HasAnchorMatch = true, bool HasIntentMatch = true)
 {
     public bool IsRelevant => Score > 0;
 }
 internal sealed record KnowledgeQueryAnalysis(string[] SearchTerms, string[] OriginalTerms, IReadOnlyList<string> Anchors,
-    string? PrimaryAnchor, int HardAnchorCount, HashSet<string> Domains);
+    string? PrimaryAnchor, int HardAnchorCount, HashSet<string> Domains, string? Entity = null,
+    IReadOnlyList<string>? EntityAliases = null, IReadOnlyList<string>? IntentTerms = null);
 
 public sealed class AiKnowledgeSearchService
 {
@@ -134,8 +135,13 @@ public sealed class AiKnowledgeSearchService
         var contentTokens = Tokens(content); var titleTokens = Tokens(titleOrFile); var categoryTokens = Tokens(category);
         var hierarchyTokens = Tokens(hierarchyPath).Where(term => !GenericHierarchyTerms.Contains(term)).ToHashSet(StringComparer.OrdinalIgnoreCase);
         var parentTokens = Tokens(parentTitle).Where(term => !GenericHierarchyTerms.Contains(term)).ToHashSet(StringComparer.OrdinalIgnoreCase);
-        var anchorMatch = query.PrimaryAnchor is null || MatchesAnchor(query.PrimaryAnchor, content, titleOrFile, category, hierarchyPath, parentTitle);
-        if (!anchorMatch) return new(0, 0, 0, 0, 0, false, false, query.Anchors.Count, query.HardAnchorCount, false);
+        var searchableValues = new[] { content, titleOrFile, category, hierarchyPath, parentTitle };
+        var aliases = query.EntityAliases ?? Array.Empty<string>();
+        var anchorMatch = aliases.Count > 0 ? aliases.Any(alias => MatchesAnchor(alias, searchableValues))
+            : query.PrimaryAnchor is null || MatchesAnchor(query.PrimaryAnchor, searchableValues);
+        var intentTerms = query.IntentTerms ?? Array.Empty<string>();
+        var intentMatch = query.Entity is null || intentTerms.Count == 0 || intentTerms.Any(intent => MatchesIntent(intent, searchableValues));
+        if (!anchorMatch || !intentMatch) return new(0, 0, 0, 0, 0, false, false, query.Anchors.Count, query.HardAnchorCount, anchorMatch, intentMatch);
         var queryDomains = query.Domains;
         var documentDomains = DetectDomains(contentTokens.Concat(titleTokens).Concat(categoryTokens).Concat(hierarchyTokens));
         if (queryDomains.Count > 0 && documentDomains.Count > 0 && !queryDomains.Overlaps(documentDomains)) return new(0, 0, 0, 0, 0, false, false, query.Anchors.Count, query.HardAnchorCount, true);
@@ -180,18 +186,21 @@ public sealed class AiKnowledgeSearchService
     {
         var originals = TokenPattern.Matches(question).Cast<Match>().Select(match => match.Value).Where(term => !StopWords.Contains(term))
             .Distinct(StringComparer.OrdinalIgnoreCase).Take(MaximumQueryTerms).ToArray();
-        return CreateAnalysis(NormalizeTerms(question), originals);
+        return CreateAnalysis(NormalizeTerms(question), originals, question);
     }
 
     private static KnowledgeQueryAnalysis AnalyzeTerms(IReadOnlyList<string> terms)
     {
         var derived = terms.Where(term => terms.Any(parent => (parent.Contains('_') || parent.Contains('-')) && !parent.Equals(term, StringComparison.OrdinalIgnoreCase)
             && TokenPartPattern.Matches(parent).Cast<Match>().Any(part => part.Value.Equals(term, StringComparison.OrdinalIgnoreCase)))).ToHashSet(StringComparer.OrdinalIgnoreCase);
-        return CreateAnalysis(terms.ToArray(), terms.Where(term => !derived.Contains(term)).ToArray());
+        return CreateAnalysis(terms.ToArray(), terms.Where(term => !derived.Contains(term)).ToArray(), null);
     }
 
-    private static KnowledgeQueryAnalysis CreateAnalysis(string[] searchTerms, string[] originalTerms)
+    private static KnowledgeQueryAnalysis CreateAnalysis(string[] searchTerms, string[] originalTerms, string? rawQuery)
     {
+        var entity = rawQuery is null ? null : KnowledgeEntityAliases.Resolve(rawQuery);
+        if (entity is not null)
+            searchTerms = searchTerms.Concat(entity.Aliases.SelectMany(ExpandTokens)).Distinct(StringComparer.OrdinalIgnoreCase).Take(24).ToArray();
         var hard = originalTerms.Where(IsHardAnchor).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
         var soft = originalTerms.Where(term => !StopWords.Contains(term) && !GenericTechnicalTerms.Contains(term) && !GenericIntentTerms.Contains(term) && !GenericHierarchyTerms.Contains(term))
             .Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
@@ -201,9 +210,10 @@ public sealed class AiKnowledgeSearchService
                 && ((!GenericIntentTerms.Contains(pair.first) && !GenericIntentTerms.Contains(pair.second)) || soft.Length == 0))
             .Select(pair => $"{pair.first} {pair.second}").Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
         var strongHard = hard.Where(term => !term.All(char.IsDigit) && !(term.Length <= 3 && term.Any(char.IsDigit))).ToArray();
-        var values = hard.Concat(phrases).Concat(soft).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
-        var primary = strongHard.FirstOrDefault() ?? phrases.FirstOrDefault() ?? soft.FirstOrDefault() ?? hard.FirstOrDefault();
-        return new(searchTerms, originalTerms, values, primary, hard.Length, DetectDomains(searchTerms));
+        var values = hard.Concat(phrases).Concat(soft).Concat(entity?.Aliases ?? Array.Empty<string>()).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+        var primary = entity?.CanonicalName ?? strongHard.FirstOrDefault() ?? phrases.FirstOrDefault() ?? soft.FirstOrDefault() ?? hard.FirstOrDefault();
+        var intents = originalTerms.Where(GenericIntentTerms.Contains).ToArray();
+        return new(searchTerms, originalTerms, values, primary, hard.Length, DetectDomains(searchTerms), entity?.CanonicalName, entity?.Aliases, intents);
     }
 
     private static bool MatchesAnchor(string anchor, params string[] values)
@@ -211,6 +221,20 @@ public sealed class AiKnowledgeSearchService
         if (!anchor.Contains(' ')) return values.Any(value => Tokens(value).Contains(anchor));
         var pattern = $@"(?<![\p{{L}}\p{{N}}]){Regex.Escape(anchor).Replace("\\ ", @"[\s_-]+")}(?![\p{{L}}\p{{N}}])";
         return values.Any(value => Regex.IsMatch(value, pattern, RegexOptions.IgnoreCase));
+    }
+
+    private static bool MatchesIntent(string intent, params string[] values)
+    {
+        var root = intent.ToLowerInvariant() switch
+        {
+            var value when value.StartsWith("entsperr", StringComparison.Ordinal) => "entsperr",
+            var value when value.StartsWith("zurücksetz", StringComparison.Ordinal) => "zurücksetz",
+            var value when value.StartsWith("konfigurier", StringComparison.Ordinal) => "konfigurier",
+            var value when value.StartsWith("installier", StringComparison.Ordinal) => "installier",
+            var value when value.StartsWith("einspiel", StringComparison.Ordinal) => "einspiel",
+            _ => intent.ToLowerInvariant()
+        };
+        return values.SelectMany(value => Tokens(value)).Any(token => token.StartsWith(root, StringComparison.OrdinalIgnoreCase));
     }
 
     private static bool IsHardAcronym(string term) => term.Length is >= 3 and <= 8 && !GenericAcronyms.Contains(term)
@@ -246,6 +270,33 @@ public sealed class AiKnowledgeSearchService
     }
 
     private static HashSet<string> Tokens(string value) => ExpandTokens(value).ToHashSet(StringComparer.OrdinalIgnoreCase);
+}
+
+internal sealed record KnowledgeEntityAliasGroup(string CanonicalName, IReadOnlyList<string> Aliases);
+internal static class KnowledgeEntityAliases
+{
+    private static readonly KnowledgeEntityAliasGroup[] Groups =
+    [
+        new("Password Secure", ["Password Secure", "Password Safe", "PasswordSafe", "Password-Safe", "Passwordsafe", "Passwort Safe", "Passwortsafe", "PWS"]),
+        new("Active Directory", ["Active Directory", "AD"]),
+        new("Remote Desktop", ["Remote Desktop", "RDP"])
+    ];
+
+    internal static KnowledgeEntityAliasGroup? Resolve(string query)
+    {
+        var normalizedQuery = Normalize(query);
+        return Groups.FirstOrDefault(group => group.Aliases.Any(alias => Matches(query, normalizedQuery, alias)));
+    }
+
+    private static bool Matches(string query, string normalizedQuery, string alias)
+    {
+        var normalizedAlias = Normalize(alias);
+        return normalizedAlias.Length <= 3
+            ? Regex.IsMatch(query, $@"(?<![\p{{L}}\p{{N}}]){Regex.Escape(alias)}(?![\p{{L}}\p{{N}}])", RegexOptions.IgnoreCase)
+            : normalizedQuery.Contains(normalizedAlias, StringComparison.Ordinal);
+    }
+
+    private static string Normalize(string value) => string.Concat(value.Normalize().Where(char.IsLetterOrDigit)).ToLowerInvariant();
 }
 
 public sealed record AiKnowledgeContext(string Text, IReadOnlyList<AiKnowledgeMatch> IncludedMatches);
@@ -300,11 +351,12 @@ public static class AiCombinedContextBuilder
         var materialized = matches
             .DistinctBy(x => new { x.SourceType, x.DisplaySource, x.Title, x.SectionTitle, x.AttachmentName, x.PageNumber })
             .ToArray();
-        var wiki = materialized.Where(x => x.SourceType == AiKnowledgeSourceType.Wiki).OrderByDescending(x => x.Score).Take(3).ToArray();
-        var local = materialized.Where(x => x.SourceType == AiKnowledgeSourceType.LocalFiles).OrderByDescending(x => x.Score).ToArray();
-        var selected = wiki.Take(1)
-            .Concat(local.Take(1))
-            .Concat(wiki.Skip(1).Concat(local.Skip(1)).OrderByDescending(x => x.Score))
+        var bestScore = materialized.Select(match => match.Score).DefaultIfEmpty().Max();
+        var qualified = materialized.Where(match => match.Score >= bestScore * .65).ToArray();
+        var bestWiki = qualified.Where(match => match.SourceType == AiKnowledgeSourceType.Wiki).OrderByDescending(match => match.Score).FirstOrDefault();
+        var selected = (bestWiki is not null && bestWiki.Score >= bestScore * .8
+                ? new[] { bestWiki }.Concat(qualified.Where(match => !ReferenceEquals(match, bestWiki)).OrderByDescending(match => match.Score))
+                : qualified.OrderByDescending(match => match.Score).ThenBy(match => match.SourceType == AiKnowledgeSourceType.Wiki ? 0 : 1))
             .Take(AiKnowledgeContextBuilder.MaximumChunks).ToArray();
         if (selected.Length == 0) return new(string.Empty, Array.Empty<AiRetrievalMatch>());
         const string separator = "\n---\n";

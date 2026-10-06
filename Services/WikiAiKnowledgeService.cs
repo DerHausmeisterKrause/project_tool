@@ -156,7 +156,7 @@ public sealed class WikiAiKnowledgeService : IDisposable
         var watch = Stopwatch.StartNew(); var result = new List<(AiRetrievalMatch Match, RelevanceEvaluation Evaluation)>(); var candidates = 0; var rejectedAnchorMismatch = 0;
         await using var db = Open(true); await using var cmd = db.CreateCommand();
         var sourceParameters = eligible.Keys.Select((_, index) => $"$s{index}").ToArray();
-        cmd.CommandText = $"SELECT c.content,c.title,s.name,c.url,c.space_key,c.source_id,c.external_id,c.section_title,c.content_kind,c.attachment_name,c.page_number,c.hierarchy_path,c.parent_title,bm25(wiki_ai_chunks_fts,1,5,4,3,2,3) FROM wiki_ai_chunks_fts f JOIN wiki_ai_chunks c ON c.id=f.rowid JOIN wiki_ai_source_names s ON s.source_id=c.source_id WHERE wiki_ai_chunks_fts MATCH $q AND c.source_id IN ({string.Join(',', sourceParameters)}) LIMIT $l";
+        cmd.CommandText = $"SELECT c.content,c.title,s.name,c.url,c.space_key,c.source_id,c.external_id,c.section_title,c.content_kind,c.attachment_name,c.page_number,c.hierarchy_path,c.parent_title,bm25(wiki_ai_chunks_fts,1,5,4,3,2,3) AS rank FROM wiki_ai_chunks_fts f JOIN wiki_ai_chunks c ON c.id=f.rowid JOIN wiki_ai_source_names s ON s.source_id=c.source_id WHERE wiki_ai_chunks_fts MATCH $q AND c.source_id IN ({string.Join(',', sourceParameters)}) ORDER BY rank LIMIT $l";
         cmd.Parameters.AddWithValue("$q", string.Join(" OR ", terms.Select(x => $"\"{x}\"*"))); cmd.Parameters.AddWithValue("$l", Math.Max(limit * 8, 32));
         var parameterIndex = 0; foreach (var sourceId in eligible.Keys) cmd.Parameters.AddWithValue(sourceParameters[parameterIndex++], sourceId);
         await using var reader = await cmd.ExecuteReaderAsync(token);
@@ -182,7 +182,7 @@ public sealed class WikiAiKnowledgeService : IDisposable
         var acceptedEntries = acceptedPages.SelectMany(page => page.Matches).Take(limit).ToArray(); var accepted = acceptedEntries.Select(x => x.Match).ToArray();
         var bestCoverage = pages.Length == 0 || pages[0].Matches.Length == 0 ? 0 : pages[0].Matches[0].Evaluation.MeaningfulCoverage;
         var averageCoverage = acceptedEntries.Length == 0 ? 0 : acceptedEntries.Average(x => x.Evaluation.MeaningfulCoverage);
-        _logger.OperationalInfo($"[AI Wiki] Query completed terms={terms.Length} anchors={queryEvaluation.AnchorCount} hardAnchors={queryEvaluation.HardAnchorCount} candidates={candidates} qualifiedCandidates={result.Count} rejectedAnchorMismatch={rejectedAnchorMismatch} acceptedPages={acceptedPages.Length} acceptedChunks={accepted.Length} bestScore={best:F2} minimumAcceptedScore={minimumAcceptedScore:F2} bestCoverage={bestCoverage:F2} acceptedAverageCoverage={averageCoverage:F2} durationMs={watch.ElapsedMilliseconds}"); return accepted;
+        _logger.OperationalInfo($"[AI Wiki] Query completed terms={terms.Length} entityDetected={query.Entity is not null} aliases={query.EntityAliases?.Count ?? 0} intentTerms={query.IntentTerms?.Count ?? 0} anchors={queryEvaluation.AnchorCount} hardAnchors={queryEvaluation.HardAnchorCount} candidates={candidates} entityScope={candidates - rejectedAnchorMismatch} qualifiedCandidates={result.Count} rejectedAnchorMismatch={rejectedAnchorMismatch} acceptedPages={acceptedPages.Length} acceptedChunks={accepted.Length} bestScore={best:F2} minimumAcceptedScore={minimumAcceptedScore:F2} bestCoverage={bestCoverage:F2} acceptedAverageCoverage={averageCoverage:F2} durationMs={watch.ElapsedMilliseconds}"); return accepted;
     }
 
     public WikiAiIndexStatus GetStatus(string sourceId)
