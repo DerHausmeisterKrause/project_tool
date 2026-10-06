@@ -212,19 +212,29 @@ public static class AiCombinedContextBuilder
             Erfinde keine Quellen oder internen Fakten.
 
             """;
-        var materialized = matches.ToArray();
-        var selected = materialized.Where(x => x.SourceType == AiKnowledgeSourceType.Wiki).OrderByDescending(x => x.Score).Take(3)
-            .Concat(materialized.Where(x => x.SourceType == AiKnowledgeSourceType.LocalFiles).OrderByDescending(x => x.Score))
+        var materialized = matches
             .DistinctBy(x => new { x.SourceType, x.DisplaySource, x.Title, x.SectionTitle, x.AttachmentName, x.PageNumber })
+            .ToArray();
+        var wiki = materialized.Where(x => x.SourceType == AiKnowledgeSourceType.Wiki).OrderByDescending(x => x.Score).Take(3).ToArray();
+        var local = materialized.Where(x => x.SourceType == AiKnowledgeSourceType.LocalFiles).OrderByDescending(x => x.Score).ToArray();
+        var selected = wiki.Take(1)
+            .Concat(local.Take(1))
+            .Concat(wiki.Skip(1).Concat(local.Skip(1)).OrderByDescending(x => x.Score))
             .Take(AiKnowledgeContextBuilder.MaximumChunks).ToArray();
         if (selected.Length == 0) return new(string.Empty, Array.Empty<AiRetrievalMatch>());
         var text = instruction; var included = new List<AiRetrievalMatch>();
-        foreach (var match in selected)
+        for (var index = 0; index < selected.Length; index++)
         {
+            var match = selected[index];
             var label = match.SourceType == AiKnowledgeSourceType.Wiki
                 ? $"PRIORITÄT 1 – WIKI\nQuelle: Wiki · {match.DisplaySource} · {match.SpaceKey} · {match.Title}{(string.IsNullOrWhiteSpace(match.SectionTitle) ? string.Empty : $" · {match.SectionTitle}")}{(string.IsNullOrWhiteSpace(match.AttachmentName) ? string.Empty : $"\nAttachment: {match.AttachmentName}")}{(match.PageNumber is int wikiPage ? $" · Seite {wikiPage}" : string.Empty)}"
                 : $"PRIORITÄT 2 – LOKALE KNOWLEDGE\nQuelle: {match.DisplaySource}";
-            var header = $"{label}\n---\n"; var available = AiKnowledgeContextBuilder.MaximumContextCharacters - text.Length - header.Length - 6;
+            var header = $"{label}\n---\n";
+            var pendingLocal = selected.Skip(index + 1).FirstOrDefault(x => x.SourceType == AiKnowledgeSourceType.LocalFiles);
+            var reservedForLocal = match.SourceType == AiKnowledgeSourceType.Wiki && pendingLocal is not null
+                ? $"PRIORITÄT 2 – LOKALE KNOWLEDGE\nQuelle: {pendingLocal.DisplaySource}\n---\n".Length + Math.Min(pendingLocal.Content.Length, 400) + 6
+                : 0;
+            var available = AiKnowledgeContextBuilder.MaximumContextCharacters - text.Length - header.Length - 6 - reservedForLocal;
             if (available <= 0) break; text += header + match.Content[..Math.Min(match.Content.Length, available)] + "\n---\n"; included.Add(match);
         }
         return new(text[..Math.Min(text.Length, AiKnowledgeContextBuilder.MaximumContextCharacters)], included);

@@ -1,3 +1,4 @@
+using System.IO;
 using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
@@ -171,7 +172,9 @@ public class ConfluenceDataCenterWikiProvider(SettingsService settings) : HttpWi
     public async Task<Stream> DownloadAttachmentAsync(WikiSourceSettings source, WikiKnowledgeAttachmentMetadata attachment, CancellationToken token)
     {
         var baseUri = new Uri(source.BaseUrl); var uri = new Uri(attachment.DownloadUrl);
-        if (uri.Scheme is not (Uri.UriSchemeHttp or Uri.UriSchemeHttps) || !uri.Host.Equals(baseUri.Host, StringComparison.OrdinalIgnoreCase))
+        var isHttp = string.Equals(uri.Scheme, Uri.UriSchemeHttp, StringComparison.OrdinalIgnoreCase);
+        var isHttps = string.Equals(uri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase);
+        if ((!isHttp && !isHttps) || !uri.Host.Equals(baseUri.Host, StringComparison.OrdinalIgnoreCase))
             throw new InvalidOperationException("Attachment download URL is outside the configured Confluence host.");
         using var client = CreateClient(source); using var response = await client.GetAsync(uri, HttpCompletionOption.ResponseHeadersRead, token); response.EnsureSuccessStatusCode();
         const long maximum = WikiAttachmentProcessor.MaximumPdfBytes;

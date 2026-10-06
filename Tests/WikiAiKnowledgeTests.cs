@@ -130,7 +130,9 @@ public sealed class WikiAiKnowledgeTests : IDisposable
         Assert.Equal(WikiKnowledgeContentKind.ImageOcr, Assert.Single(await service.SearchAsync("PLENARO-OCR-4711")).ContentKind);
         Assert.Equal(WikiKnowledgeContentKind.DrawIo, Assert.Single(await service.SearchAsync("Reverse Proxy Database")).ContentKind);
         Assert.Equal(3, provider.DownloadCount);
-        Assert.Empty(Directory.EnumerateFiles(_root, "*", SearchOption.AllDirectories).Where(path => new[] { ".pdf", ".png", ".drawio" }.Contains(Path.GetExtension(path), StringComparer.OrdinalIgnoreCase)));
+        Assert.DoesNotContain(
+            Directory.EnumerateFiles(_root, "*", SearchOption.AllDirectories),
+            path => new[] { ".pdf", ".png", ".drawio" }.Contains(Path.GetExtension(path), StringComparer.OrdinalIgnoreCase));
         await service.SyncAsync(source, false);
         Assert.Equal(3, provider.DownloadCount);
         var status = service.GetStatus(source.Id); Assert.Equal(3, status.AttachmentCount); Assert.Equal(1, status.PdfCount); Assert.Equal(1, status.OcrSuccessCount); Assert.Equal(1, status.DrawIoCount);

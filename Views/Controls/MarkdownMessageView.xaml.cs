@@ -90,7 +90,7 @@ public partial class MarkdownMessageView : UserControl
                 case EmphasisInline emphasis:
                     var span = new Span(); AddInlines(span.Inlines, emphasis.FirstChild); if (emphasis.DelimiterCount >= 2) span.FontWeight = FontWeights.Bold; else span.FontStyle = FontStyles.Italic; target.Add(span); break;
                 case LinkInline link:
-                    var hyperlink = new Hyperlink(); AddInlines(hyperlink.Inlines, link.FirstChild); if (Uri.TryCreate(link.Url, UriKind.Absolute, out var uri) && uri.Scheme is Uri.UriSchemeHttp or Uri.UriSchemeHttps) hyperlink.NavigateUri = uri; target.Add(hyperlink); break;
+                    var hyperlink = new Hyperlink(); AddInlines(hyperlink.Inlines, link.FirstChild); if (Uri.TryCreate(link.Url, UriKind.Absolute, out var uri) && (string.Equals(uri.Scheme, Uri.UriSchemeHttp, StringComparison.OrdinalIgnoreCase) || string.Equals(uri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase))) hyperlink.NavigateUri = uri; target.Add(hyperlink); break;
                 case ContainerInline container: var nested = new Span(); AddInlines(nested.Inlines, container.FirstChild); target.Add(nested); break;
             }
             current = current.NextSibling;

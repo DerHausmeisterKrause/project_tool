@@ -147,6 +147,32 @@ public sealed class AiKnowledgeTests : IDisposable
         Assert.Equal(AiKnowledgeSourceType.Wiki, context.IncludedMatches[0].SourceType);
     }
 
+    [Fact]
+    public void CombinedContext_ReservesLocalSpaceWhenTopWikiChunkIsVeryLarge()
+    {
+        var context = AiCombinedContextBuilder.Prepare([
+            new(AiKnowledgeSourceType.Wiki, new string('w', 10000), "Wiki", "Internes Confluence", null, 100),
+            new(AiKnowledgeSourceType.LocalFiles, new string('l', 1000), "Local", "local.md", null, 95)
+        ]);
+
+        Assert.Equal(new[] { AiKnowledgeSourceType.Wiki, AiKnowledgeSourceType.LocalFiles }, context.IncludedMatches.Select(x => x.SourceType));
+        Assert.True(context.Text.Length <= AiKnowledgeContextBuilder.MaximumContextCharacters);
+    }
+
+    [Theory]
+    [InlineData(AiKnowledgeSourceType.Wiki)]
+    [InlineData(AiKnowledgeSourceType.LocalFiles)]
+    public void CombinedContext_SingleSourceUsesSharedBudgetWithoutOtherSourceReservation(AiKnowledgeSourceType sourceType)
+    {
+        var context = AiCombinedContextBuilder.Prepare([
+            new(sourceType, new string('x', 10000), "Titel", "Quelle", null, 100)
+        ]);
+
+        Assert.Single(context.IncludedMatches);
+        Assert.Equal(sourceType, context.IncludedMatches[0].SourceType);
+        Assert.Equal(AiKnowledgeContextBuilder.MaximumContextCharacters, context.Text.Length);
+    }
+
     [Theory]
     [InlineData("test")]
     [InlineData("Antworte nur mit test")]
