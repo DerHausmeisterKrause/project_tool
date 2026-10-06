@@ -135,7 +135,7 @@ public class ConfluenceDataCenterWikiProvider(SettingsService settings) : HttpWi
         var markup = root.TryGetProperty("body", out var body) && body.TryGetProperty("storage", out var storage) && storage.TryGetProperty("value", out var value) ? value.GetString() : "";
         var version = root.TryGetProperty("version", out var v) && v.TryGetProperty("number", out var n) ? n.ToString() : "";
         DateTime? modified = root.TryGetProperty("version", out v) && v.TryGetProperty("when", out var w) && DateTime.TryParse(w.GetString(), out var parsed) ? parsed.ToUniversalTime() : null;
-        return new(externalId, Clean(title), ConfluencePlainText.Convert(markup), version, modified);
+        return new(externalId, Clean(title), ConfluencePlainText.Convert(markup), version, modified, markup);
     }
 }
 
@@ -161,8 +161,15 @@ public sealed class ConfluenceCloudWikiProvider(SettingsService settings) : Conf
     protected override string ApiPath => "/wiki/rest/api/search";
     public override Task<IReadOnlyList<WikiProviderResult>> SearchAsync(WikiSourceSettings source, IReadOnlyList<string> terms, int limit, CancellationToken token)
     {
-        source.BaseUrl = Regex.Replace(source.BaseUrl.TrimEnd('/'), "/wiki$", "", RegexOptions.IgnoreCase);
-        return base.SearchAsync(source, terms, limit, token);
+        var normalized = Regex.Replace(source.BaseUrl.TrimEnd('/'), "/wiki$", "", RegexOptions.IgnoreCase);
+        var copy = new WikiSourceSettings
+        {
+            Id = source.Id, Name = source.Name, Enabled = source.Enabled, ProviderType = source.ProviderType, BaseUrl = normalized,
+            AuthMode = source.AuthMode, Username = source.Username, SecretEncrypted = source.SecretEncrypted,
+            ApiKeyHeaderName = source.ApiKeyHeaderName, SpaceKey = source.SpaceKey, SearchAllSpaces = source.SearchAllSpaces,
+            SpaceKeys = source.SpaceKeys.ToList(), MaxResults = source.MaxResults
+        };
+        return base.SearchAsync(copy, terms, limit, token);
     }
 }
 

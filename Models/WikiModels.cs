@@ -24,5 +24,11 @@ public sealed record WikiVocabularyPageBatch(IReadOnlyList<WikiVocabularyPage> P
 public sealed record WikiVocabularyStatus(int PageCount, DateTime? UpdatedUtc, string Status);
 public sealed record WikiKnowledgePage(string SourceId, string ExternalId, string Title, string Url, string SpaceKey, string Version, DateTime? LastModifiedUtc);
 public sealed record WikiKnowledgePageBatch(IReadOnlyList<WikiKnowledgePage> Pages, bool HasMore);
-public sealed record WikiKnowledgePageContent(string ExternalId, string Title, string PlainText, string Version, DateTime? LastModifiedUtc);
+public sealed record WikiKnowledgePageContent(string ExternalId, string Title, string PlainText, string Version, DateTime? LastModifiedUtc, string? StorageMarkup = null);
 public sealed record WikiAiIndexStatus(string SourceId, int PageCount, int ChunkCount, DateTime? LastSuccessUtc, string Status, int ProcessedPages = 0, int? TotalPages = null);
+
+public enum WikiKnowledgeContentKind { PageText, List, Table, Code, Pdf, ImageOcr, DrawIo, AttachmentMetadata }
+public sealed record WikiKnowledgeBlock(string SectionTitle, WikiKnowledgeContentKind ContentKind, string Content, int BlockOrdinal,
+    string? AttachmentId = null, string? AttachmentName = null, int? PageNumber = null);
+public sealed record WikiKnowledgeDocument(string SourceId, string ExternalPageId, string SpaceKey, string PageTitle, string PageUrl,
+    IReadOnlyList<WikiKnowledgeBlock> Blocks);
