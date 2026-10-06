@@ -22,7 +22,27 @@ public sealed record WikiSearchTerm(string Text, string NormalizedText, double S
 public sealed record WikiVocabularyPage(string ExternalId, string Title, string Url, string SpaceKey, DateTime? LastModifiedUtc = null);
 public sealed record WikiVocabularyPageBatch(IReadOnlyList<WikiVocabularyPage> Pages, bool HasMore);
 public sealed record WikiVocabularyStatus(int PageCount, DateTime? UpdatedUtc, string Status);
-public sealed record WikiKnowledgePage(string SourceId, string ExternalId, string Title, string Url, string SpaceKey, string Version, DateTime? LastModifiedUtc);
+public sealed record WikiKnowledgeAncestor(string ExternalId, string Title);
+public sealed record WikiKnowledgePage(string SourceId, string ExternalId, string Title, string Url, string SpaceKey, string Version, DateTime? LastModifiedUtc,
+    IReadOnlyList<WikiKnowledgeAncestor>? Ancestors = null)
+{
+    public IReadOnlyList<WikiKnowledgeAncestor> EffectiveAncestors => Ancestors ?? Array.Empty<WikiKnowledgeAncestor>();
+    public string? ParentExternalId => EffectiveAncestors.LastOrDefault()?.ExternalId;
+    public string? ParentTitle => EffectiveAncestors.LastOrDefault()?.Title;
+    public string HierarchyPath => string.Join(" > ", EffectiveAncestors.TakeLast(6).Select(ancestor => ancestor.Title));
+}
 public sealed record WikiKnowledgePageBatch(IReadOnlyList<WikiKnowledgePage> Pages, bool HasMore);
-public sealed record WikiKnowledgePageContent(string ExternalId, string Title, string PlainText, string Version, DateTime? LastModifiedUtc);
-public sealed record WikiAiIndexStatus(string SourceId, int PageCount, int ChunkCount, DateTime? LastSuccessUtc, string Status, int ProcessedPages = 0, int? TotalPages = null);
+public sealed record WikiKnowledgePageContent(string ExternalId, string Title, string PlainText, string Version, DateTime? LastModifiedUtc, string? StorageMarkup = null);
+public sealed record WikiAiIndexStatus(string SourceId, int PageCount, int ChunkCount, DateTime? LastSuccessUtc, string Status, int ProcessedPages = 0, int? TotalPages = null,
+    int AttachmentCount = 0, int PdfCount = 0, int PdfPageCount = 0, int ImageCount = 0, int OcrSuccessCount = 0, int OcrFailureCount = 0, int DrawIoCount = 0);
+
+public enum WikiKnowledgeContentKind { PageText, List, Table, Code, Pdf, ImageOcr, DrawIo, AttachmentMetadata }
+public sealed record WikiKnowledgeBlock(string SectionTitle, WikiKnowledgeContentKind ContentKind, string Content, int BlockOrdinal,
+    string? AttachmentId = null, string? AttachmentName = null, int? PageNumber = null);
+public sealed record WikiKnowledgeDocument(string SourceId, string ExternalPageId, string SpaceKey, string PageTitle, string PageUrl,
+    IReadOnlyList<WikiKnowledgeBlock> Blocks, string HierarchyPath = "", string? ParentTitle = null);
+public sealed record WikiKnowledgeAttachmentMetadata(string AttachmentId, string ParentPageId, string FileName, string MediaType,
+    string Version, DateTime? LastModifiedUtc, string DownloadUrl, long? Size = null, string? AltText = null, string? Caption = null, string? SectionTitle = null);
+public sealed record WikiKnowledgeAttachmentResult(WikiKnowledgeAttachmentMetadata Metadata, IReadOnlyList<WikiKnowledgeBlock> Blocks,
+    string Status, string? ContentHash, int PdfPageCount = 0, bool OcrSucceeded = false, int ExtractionVersion = 1);
+public sealed record WikiAttachmentPayload(byte[] Content, string Sha256);
