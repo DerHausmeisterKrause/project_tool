@@ -20,7 +20,8 @@ public sealed class AiKnowledgeService : IDisposable
     {
         _settings = settings; _logger = logger; Index = index ?? new AiKnowledgeIndexService(logger); Search = new(Index.IndexPath, logger);
         _debounce = new Timer(async _ => await IndexSafelyAsync(false), null, Timeout.Infinite, Timeout.Infinite);
-        if (settings.Current.AiKnowledgeEnabled) SetEnabled(true);
+        // Startup is deferred until Standard Knowledge has been attached, so enabling
+        // knowledge cannot race an initial user-only index with installation/reindexing.
     }
     public void AttachStandardKnowledge(StandardKnowledgeService service) { StandardKnowledge = service; if (_settings.Current.AiKnowledgeEnabled) SetEnabled(true); }
     public void SetEnabled(bool enabled)
@@ -36,7 +37,17 @@ public sealed class AiKnowledgeService : IDisposable
         _watcher.EnableRaisingEvents = true;
         _ = StandardKnowledge == null ? IndexSafelyAsync(false) : EnsureAndIndexAsync();
     }
-    private async Task EnsureAndIndexAsync() { await StandardKnowledge!.EnsureInstalledAsync(); await IndexSafelyAsync(false); }
+    private async Task EnsureAndIndexAsync()
+    {
+        var indexedDuringInstallation = await StandardKnowledge!.EnsureInstalledAsync();
+        if (indexedDuringInstallation)
+        {
+            try { Status = await Index.GetStatusAsync(); }
+            catch (Exception ex) { Status = Status with { Error = ex.Message }; _logger.Warning($"[AI Knowledge] Status refresh failed error='{ex.Message}'"); }
+            StatusChanged?.Invoke(this, EventArgs.Empty);
+        }
+        else await IndexSafelyAsync(false);
+    }
     public Task RebuildAsync() => IndexSafelyAsync(true);
     public async Task<IReadOnlyList<AiKnowledgeMatch>> SearchAsync(string question, CancellationToken ct = default)
         => !_settings.Current.AiKnowledgeEnabled ? Array.Empty<AiKnowledgeMatch>() : await Search.SearchAsync(question, ct: ct);
