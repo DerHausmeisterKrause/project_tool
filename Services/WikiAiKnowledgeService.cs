@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Collections.Concurrent;
 using System.IO;
+using System.Net.Http;
 using System.Security.Cryptography;
 using System.Text;
 using Microsoft.Data.Sqlite;
@@ -116,7 +117,7 @@ public sealed class WikiAiKnowledgeService : IDisposable
                                     ? previous with { Metadata=contextual,Status="indexed" }
                                     : await _attachmentProcessor.ProcessPayloadAsync(contextual,payload,token));
                             }
-                            catch (Exception ex) when (ex is not OperationCanceledException) { _logger.Warning($"[Wiki AI Attachment] sourceId={source.Id} pageId={page.ExternalId} attachmentId={attachment.AttachmentId} status=update-failed reason={ex.GetType().Name}"); var stale=LoadLatestAttachment(source.Id,page.ExternalId,contextual); processed.Add(stale == null ? new(contextual,[new(page.Title,WikiKnowledgeContentKind.AttachmentMetadata,$"Attachment: {attachment.FileName}",0,attachment.AttachmentId,attachment.FileName)],"failed",null) : stale with { Metadata=contextual,Status="update-failed" }); }
+                            catch (Exception ex) when (ex is not OperationCanceledException) { _logger.Warning($"[Wiki AI Attachment] sourceId={source.Id} pageId={page.ExternalId} attachmentId={attachment.AttachmentId} status=update-failed reason={AttachmentFailureReason(contextual, ex)}"); var stale=LoadLatestAttachment(source.Id,page.ExternalId,contextual); processed.Add(stale == null ? new(contextual,[new(page.Title,WikiKnowledgeContentKind.AttachmentMetadata,$"Attachment: {attachment.FileName}",0,attachment.AttachmentId,attachment.FileName)],"failed",null) : stale with { Metadata=contextual,Status="update-failed" }); }
                         }
                     }
                     lock (loaded)
@@ -150,7 +151,8 @@ public sealed class WikiAiKnowledgeService : IDisposable
             .Where(source => string.Equals(GetFingerprint(source.Id), WikiScopePolicy.Fingerprint(source), StringComparison.Ordinal))
             .ToDictionary(source => source.Id, StringComparer.Ordinal);
         if (eligible.Count == 0) return Array.Empty<AiRetrievalMatch>();
-        var watch = Stopwatch.StartNew(); var result = new List<AiRetrievalMatch>(); var candidates = 0;
+        var queryEvaluation = AiKnowledgeSearchService.EvaluateRelevance(terms, string.Empty, string.Empty, string.Empty);
+        var watch = Stopwatch.StartNew(); var result = new List<(AiRetrievalMatch Match, RelevanceEvaluation Evaluation)>(); var candidates = 0; var rejectedAnchorMismatch = 0;
         await using var db = Open(true); await using var cmd = db.CreateCommand();
         var sourceParameters = eligible.Keys.Select((_, index) => $"$s{index}").ToArray();
         cmd.CommandText = $"SELECT c.content,c.title,s.name,c.url,c.space_key,c.source_id,c.external_id,c.section_title,c.content_kind,c.attachment_name,c.page_number,bm25(wiki_ai_chunks_fts,1,5,4,2,3) FROM wiki_ai_chunks_fts f JOIN wiki_ai_chunks c ON c.id=f.rowid JOIN wiki_ai_source_names s ON s.source_id=c.source_id WHERE wiki_ai_chunks_fts MATCH $q AND c.source_id IN ({string.Join(',', sourceParameters)}) LIMIT $l";
@@ -162,22 +164,29 @@ public sealed class WikiAiKnowledgeService : IDisposable
             candidates++; var source = eligible[reader.GetString(5)]; var space = reader.GetString(4);
             if (!WikiScopePolicy.AllowsSpace(source, space)) continue;
             var content = reader.GetString(0); var title = reader.GetString(1); var section = reader.GetString(7); var kind=Enum.Parse<WikiKnowledgeContentKind>(reader.GetString(8));
-            var score = Score(terms, content, title, section + " " + space) * ContentKindWeight(kind); if (score <= 0) continue;
-            result.Add(new(AiKnowledgeSourceType.Wiki, content, title, reader.GetString(2), reader.GetString(3), score,
-                reader.IsDBNull(10) ? null : reader.GetInt32(10), space, section, kind, reader.IsDBNull(9) ? null : reader.GetString(9), reader.GetString(6)));
+            var evaluation = AiKnowledgeSearchService.EvaluateRelevance(terms, content, title, section + " " + space);
+            if (!evaluation.HasAnchorMatch) { rejectedAnchorMismatch++; continue; }
+            var passesQualityGate = evaluation.IsRelevant && (evaluation.HasSpecificExactMatch || evaluation.HasStrongTitleOrSectionMatch
+                || evaluation.MeaningfulCoverage >= .75 || evaluation.MeaningfulTermCount == 0);
+            if (!passesQualityGate) continue;
+            var score = evaluation.Score * ContentKindWeight(kind);
+            result.Add((new(AiKnowledgeSourceType.Wiki, content, title, reader.GetString(2), reader.GetString(3), score,
+                reader.IsDBNull(10) ? null : reader.GetInt32(10), space, section, kind, reader.IsDBNull(9) ? null : reader.GetString(9), reader.GetString(6)), evaluation));
         }
-        var pages = result.GroupBy(x => $"{x.DisplaySource}:{x.ExternalPageId}", StringComparer.OrdinalIgnoreCase)
-            .Select(group => new { Matches = group.OrderByDescending(x => x.Score).ToArray(), Score = group.Max(x => x.Score) + group.OrderByDescending(x => x.Score).Skip(1).Select(x => x.Score * .15).FirstOrDefault() })
+        var pages = result.GroupBy(x => $"{x.Match.DisplaySource}:{x.Match.ExternalPageId}", StringComparer.OrdinalIgnoreCase)
+            .Select(group => { var ordered = group.OrderByDescending(x => x.Match.Score).ToArray(); var qualified = ordered.Where(x => x.Match.Score >= ordered[0].Match.Score * .70).Take(2).ToArray(); return new { Matches = qualified, Score = ordered[0].Match.Score + qualified.Skip(1).Select(x => x.Match.Score * .15).FirstOrDefault() }; })
             .OrderByDescending(page => page.Score).ToArray();
-        var best = pages.FirstOrDefault()?.Score ?? 0; var acceptedPages = pages.Where(page => page.Score >= best * .55).Take(3).ToArray();
-        var accepted = acceptedPages.SelectMany(page => page.Matches.Take(2)).Take(limit).ToArray();
-        _logger.OperationalInfo($"[AI Wiki] Query completed terms={terms.Length} candidates={candidates} acceptedPages={acceptedPages.Length} acceptedChunks={accepted.Length} durationMs={watch.ElapsedMilliseconds}"); return accepted;
+        var best = pages.FirstOrDefault()?.Score ?? 0; var minimumAcceptedScore = best * .72; var acceptedPages = pages.Where(page => page.Score >= minimumAcceptedScore).Take(3).ToArray();
+        var acceptedEntries = acceptedPages.SelectMany(page => page.Matches).Take(limit).ToArray(); var accepted = acceptedEntries.Select(x => x.Match).ToArray();
+        var bestCoverage = pages.Length == 0 || pages[0].Matches.Length == 0 ? 0 : pages[0].Matches[0].Evaluation.MeaningfulCoverage;
+        var averageCoverage = acceptedEntries.Length == 0 ? 0 : acceptedEntries.Average(x => x.Evaluation.MeaningfulCoverage);
+        _logger.OperationalInfo($"[AI Wiki] Query completed terms={terms.Length} anchors={queryEvaluation.AnchorCount} hardAnchors={queryEvaluation.HardAnchorCount} candidates={candidates} qualifiedCandidates={result.Count} rejectedAnchorMismatch={rejectedAnchorMismatch} acceptedPages={acceptedPages.Length} acceptedChunks={accepted.Length} bestScore={best:F2} minimumAcceptedScore={minimumAcceptedScore:F2} bestCoverage={bestCoverage:F2} acceptedAverageCoverage={averageCoverage:F2} durationMs={watch.ElapsedMilliseconds}"); return accepted;
     }
 
     public WikiAiIndexStatus GetStatus(string sourceId)
     {
         using var db = Open(); using var cmd = db.CreateCommand(); cmd.CommandText = "SELECT status,page_count,chunk_count,last_success_utc FROM wiki_ai_sources WHERE source_id=$s"; cmd.Parameters.AddWithValue("$s", sourceId);
-        using var r = cmd.ExecuteReader(); if(!r.Read()) return new(sourceId,0,0,null,"not-indexed"); var basic=new WikiAiIndexStatus(sourceId,r.GetInt32(1),r.GetInt32(2),r.IsDBNull(3)?null:DateTime.Parse(r.GetString(3)).ToUniversalTime(),r.GetString(0));r.Close();using var counts=db.CreateCommand();counts.CommandText="SELECT count(*),sum(CASE WHEN lower(file_name) LIKE '%.pdf' THEN 1 ELSE 0 END),sum(pdf_page_count),sum(CASE WHEN media_type LIKE 'image/%' THEN 1 ELSE 0 END),sum(ocr_succeeded),sum(CASE WHEN status LIKE 'ocr-%' OR status='failed' AND media_type LIKE 'image/%' THEN 1 ELSE 0 END),sum(CASE WHEN lower(file_name) LIKE '%.drawio' OR media_type LIKE '%drawio%' THEN 1 ELSE 0 END) FROM wiki_ai_attachments WHERE source_id=$s";counts.Parameters.AddWithValue("$s",sourceId);using var cr=counts.ExecuteReader();cr.Read();int V(int i)=>cr.IsDBNull(i)?0:cr.GetInt32(i);return basic with { AttachmentCount=V(0),PdfCount=V(1),PdfPageCount=V(2),ImageCount=V(3),OcrSuccessCount=V(4),OcrFailureCount=V(5),DrawIoCount=V(6) };
+        using var r = cmd.ExecuteReader(); if(!r.Read()) return new(sourceId,0,0,null,"not-indexed"); var basic=new WikiAiIndexStatus(sourceId,r.GetInt32(1),r.GetInt32(2),r.IsDBNull(3)?null:DateTime.Parse(r.GetString(3)).ToUniversalTime(),r.GetString(0));r.Close();using var counts=db.CreateCommand();counts.CommandText="SELECT count(*),sum(CASE WHEN lower(file_name) LIKE '%.pdf' THEN 1 ELSE 0 END),sum(pdf_page_count),sum(CASE WHEN media_type LIKE 'image/%' THEN 1 ELSE 0 END),sum(ocr_succeeded),sum(CASE WHEN media_type LIKE 'image/%' AND ocr_succeeded=0 AND status IN ('ocr-empty','ocr-unavailable','ocr-failed','update-failed','failed') THEN 1 ELSE 0 END),sum(CASE WHEN lower(file_name) LIKE '%.drawio' OR media_type LIKE '%drawio%' THEN 1 ELSE 0 END) FROM wiki_ai_attachments WHERE source_id=$s";counts.Parameters.AddWithValue("$s",sourceId);using var cr=counts.ExecuteReader();cr.Read();int V(int i)=>cr.IsDBNull(i)?0:cr.GetInt32(i);return basic with { AttachmentCount=V(0),PdfCount=V(1),PdfPageCount=V(2),ImageCount=V(3),OcrSuccessCount=V(4),OcrFailureCount=V(5),DrawIoCount=V(6) };
     }
 
     public void Invalidate(string sourceId) { using var db = Open(); using var cmd = db.CreateCommand(); cmd.CommandText = "UPDATE wiki_ai_sources SET scope_fingerprint='' WHERE source_id=$s"; cmd.Parameters.AddWithValue("$s", sourceId); cmd.ExecuteNonQuery(); }
@@ -198,9 +207,17 @@ public sealed class WikiAiKnowledgeService : IDisposable
     private WikiKnowledgeAttachmentResult? LoadLatestAttachment(string source,string page,WikiKnowledgeAttachmentMetadata metadata){using var db=Open();using var c=db.CreateCommand();c.CommandText="SELECT version,last_modified_utc FROM wiki_ai_attachments WHERE source_id=$s AND parent_external_id=$p AND attachment_id=$a";c.Parameters.AddWithValue("$s",source);c.Parameters.AddWithValue("$p",page);c.Parameters.AddWithValue("$a",metadata.AttachmentId);using var r=c.ExecuteReader();if(!r.Read())return null;var cached=metadata with { Version=r.GetString(0),LastModifiedUtc=r.IsDBNull(1)?null:DateTime.Parse(r.GetString(1)).ToUniversalTime() };return LoadCachedAttachment(source,page,cached);}
     private HashSet<string> LoadAttachmentPageIds(string source){using var db=Open();using var c=db.CreateCommand();c.CommandText="SELECT DISTINCT parent_external_id FROM wiki_ai_attachments WHERE source_id=$s";c.Parameters.AddWithValue("$s",source);using var r=c.ExecuteReader();var result=new HashSet<string>(StringComparer.Ordinal);while(r.Read())result.Add(r.GetString(0));return result;}
     private bool AttachmentMetadataChanged(string source,string page,IReadOnlyList<WikiKnowledgeAttachmentMetadata> remote){using var db=Open();using var c=db.CreateCommand();c.CommandText="SELECT attachment_id,file_name,media_type,version,last_modified_utc FROM wiki_ai_attachments WHERE source_id=$s AND parent_external_id=$p";c.Parameters.AddWithValue("$s",source);c.Parameters.AddWithValue("$p",page);using var r=c.ExecuteReader();var local=new Dictionary<string,(string Name,string Media,string Version,string Modified)>(StringComparer.Ordinal);while(r.Read())local[r.GetString(0)]=(r.GetString(1),r.GetString(2),r.GetString(3),r.IsDBNull(4)?string.Empty:r.GetString(4));var relevantRemote=remote.Where(item=>local.ContainsKey(item.AttachmentId)).ToArray();if(relevantRemote.Length!=local.Count)return true;return relevantRemote.Any(item=>{var old=local[item.AttachmentId];return old.Name!=item.FileName||old.Media!=item.MediaType||old.Version!=item.Version||old.Modified!=(item.LastModifiedUtc?.ToString("O")??string.Empty);});}
-    private static double Score(IReadOnlyList<string> terms, string content, string title, string metadata)
-        => AiKnowledgeSearchService.CalculateRelevance(terms, content, title, metadata);
     private static double ContentKindWeight(WikiKnowledgeContentKind kind)=>kind switch{WikiKnowledgeContentKind.AttachmentMetadata=>.55,WikiKnowledgeContentKind.ImageOcr=>.9,WikiKnowledgeContentKind.Table or WikiKnowledgeContentKind.DrawIo=>1.1,_=>1};
+    private static string AttachmentFailureReason(WikiKnowledgeAttachmentMetadata attachment, Exception error)
+    {
+        if (error is HttpRequestException) return "download-failed";
+        if (error is InvalidDataException && error.Message.Contains("size limit", StringComparison.OrdinalIgnoreCase)) return "too-large";
+        var extension = Path.GetExtension(attachment.FileName);
+        if (extension.Equals(".pdf", StringComparison.OrdinalIgnoreCase) || attachment.MediaType.Equals("application/pdf", StringComparison.OrdinalIgnoreCase)) return "invalid-pdf";
+        if (extension.Equals(".drawio", StringComparison.OrdinalIgnoreCase) || attachment.MediaType.Contains("drawio", StringComparison.OrdinalIgnoreCase)) return "invalid-drawio";
+        if (attachment.MediaType.StartsWith("image/", StringComparison.OrdinalIgnoreCase)) return "invalid-image";
+        return "unsupported-format";
+    }
     private void SetTransientStatus(string id,string status,bool invalidateFingerprint){using var db=Open();using var c=db.CreateCommand();c.CommandText="INSERT INTO wiki_ai_sources(source_id,scope_fingerprint,status,page_count,chunk_count) VALUES($s,'',$x,0,0) ON CONFLICT(source_id) DO UPDATE SET status=$x,scope_fingerprint=CASE WHEN $invalidate=1 THEN '' ELSE scope_fingerprint END";c.Parameters.AddWithValue("$s",id);c.Parameters.AddWithValue("$x",status);c.Parameters.AddWithValue("$invalidate",invalidateFingerprint?1:0);c.ExecuteNonQuery();StatusChanged?.Invoke(this,EventArgs.Empty);}
     private void MarkFailed(string id){using var db=Open();using var c=db.CreateCommand();c.CommandText="INSERT INTO wiki_ai_sources(source_id,scope_fingerprint,status,page_count,chunk_count) VALUES($s,'','failed',0,0) ON CONFLICT(source_id) DO UPDATE SET status='failed'";c.Parameters.AddWithValue("$s",id);c.ExecuteNonQuery();}
     private SqliteConnection Open(bool readOnly=false){var db=new SqliteConnection($"Data Source={IndexPath}{(readOnly?";Mode=ReadOnly":"")}");db.Open();using var pragma=db.CreateCommand();pragma.CommandText="PRAGMA busy_timeout=5000";pragma.ExecuteNonQuery();return db;}

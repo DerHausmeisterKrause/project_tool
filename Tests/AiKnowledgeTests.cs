@@ -194,6 +194,50 @@ public sealed class AiKnowledgeTests : IDisposable
         Assert.Contains("gpupdate", terms, StringComparer.OrdinalIgnoreCase);
     }
 
+    [Theory]
+    [InlineData("Server")]
+    [InlineData("Drucker")]
+    [InlineData("Benutzer")]
+    [InlineData("Verbindung")]
+    [InlineData("Netzwerk")]
+    [InlineData("Confluence")]
+    public void IsSpecific_DoesNotTreatOrdinaryTitleCaseWordsAsIdentifiers(string term)
+        => Assert.False(AiKnowledgeSearchService.IsSpecific(term));
+
+    [Theory]
+    [InlineData("HTTP_500")]
+    [InlineData("KB-4711")]
+    [InlineData("srv-prod-01")]
+    [InlineData("TaskTool")]
+    [InlineData("AiKnowledgeIndex")]
+    [InlineData("0xABCDEF12")]
+    [InlineData("ABC123")]
+    [InlineData("PWS")]
+    [InlineData("SAP")]
+    [InlineData("OTRS")]
+    public void IsSpecific_RecognizesTechnicalIdentifiers(string term)
+        => Assert.True(AiKnowledgeSearchService.IsSpecific(term));
+
+    [Theory]
+    [InlineData("IT")]
+    [InlineData("PC")]
+    [InlineData("PDF")]
+    [InlineData("URL")]
+    [InlineData("API")]
+    public void IsSpecific_DoesNotTreatGenericAcronymsAsEntityIdentifiers(string term)
+        => Assert.False(AiKnowledgeSearchService.IsSpecific(term));
+
+    [Fact]
+    public async Task Search_EntityAnchorRejectsGenericLocalLicenseDocument()
+    {
+        var search = await CreateSearchAsync(
+            ("Pentaho/licensing.md", "Pentaho Lizenz am Server einspielen"),
+            ("Windows/licensing.md", "Windows Server Lizenz einspielen"));
+
+        var match = Assert.Single(await search.SearchAsync("Pentaho Lizenz am Server einspielen"));
+        Assert.Equal("Pentaho\\licensing.md", match.RelativePath);
+    }
+
     [Fact]
     public async Task Search_AcceptsSpecificLinuxTokenWithoutFillingTopN()
     {

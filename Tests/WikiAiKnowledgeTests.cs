@@ -36,6 +36,86 @@ public sealed class WikiAiKnowledgeTests : IDisposable
     }
 
     [Fact]
+    public async Task Search_AcceptsTeleportPageButRejectsPagesWithOnlyGenericOverlap()
+    {
+        using var fixture = CreateFixture(
+            ("teleport", "Teleport Reverse Proxy", "Teleport Proxy wird intern über Port 3080 verwendet."),
+            ("printer", "Druckerserver", "Benutzer benötigen Zugriff auf den Server."),
+            ("files", "Fileserver", "Interner Zugriff auf Dateien."));
+        await fixture.Service.SyncAsync(fixture.Source, true);
+
+        var match = Assert.Single(await fixture.Service.SearchAsync("Teleport Proxy interner Zugriff"));
+        Assert.Equal("Teleport Reverse Proxy", match.Title);
+    }
+
+    [Fact]
+    public async Task Search_RejectsBestCandidateWhenEveryPageIsWeak()
+    {
+        using var fixture = CreateFixture(
+            ("linux", "Linux Server", "Server Fehler beim Start."),
+            ("files", "Fileserver", "Ein Fehler wurde protokolliert."));
+        await fixture.Service.SyncAsync(fixture.Source, true);
+
+        Assert.Empty(await fixture.Service.SearchAsync("Wie behebe ich einen Fehler am Drucker?"));
+    }
+
+    [Fact]
+    public async Task Search_ReturnsBothComplementaryStrongPagesWithoutFillingToThree()
+    {
+        using var fixture = CreateFixture(
+            ("proxy", "Teleport Proxy", "Teleport Proxy interner Zugriff Port 3080."),
+            ("cert", "Teleport Zertifikat", "Teleport Proxy interner Zugriff benötigt ein Zertifikat."),
+            ("printer", "Druckerserver", "Benutzer benötigen Zugriff auf den Server."));
+        await fixture.Service.SyncAsync(fixture.Source, true);
+
+        var matches = await fixture.Service.SearchAsync("Teleport Proxy interner Zugriff");
+        Assert.Equal(2, matches.Select(match => match.ExternalPageId).Distinct().Count());
+        Assert.DoesNotContain(matches, match => match.Title == "Druckerserver");
+    }
+
+    [Fact]
+    public async Task Search_PwsAnchorRejectsUnrelatedUserAndPasswordPages()
+    {
+        using var fixture = CreateFixture(
+            ("pws", "Password Safe Benutzerverwaltung", "PWS Benutzer können entsperrt werden."),
+            ("fav", "FAV Neue FAV-User anlegen", "Benutzer anlegen und Passwort setzen."),
+            ("mail", "mail-relay", "User benötigt Zugriff."),
+            ("isms", "ISMS Runde", "Passwort Richtlinien."));
+        await fixture.Service.SyncAsync(fixture.Source, true);
+
+        var match = Assert.Single(await fixture.Service.SearchAsync("wie entsperre ich einen user im Password Safe PWS"));
+        Assert.Equal("pws", match.ExternalPageId);
+    }
+
+    [Fact]
+    public async Task Search_PentahoAnchorRejectsGenericLicensePagesAndReturnsZeroWithoutEntityPage()
+    {
+        using var fixture = CreateFixture(
+            ("pentaho", "Pentaho Lizenzierung", "Lizenzdatei auf dem Pentaho Server einspielen."),
+            ("windows", "Windows Server Lizenz", "Lizenz am Server einspielen."),
+            ("isms", "ISMS Runde", "Server Lizenzen und Software."));
+        await fixture.Service.SyncAsync(fixture.Source, true);
+
+        var match = Assert.Single(await fixture.Service.SearchAsync("Pentaho Lizenz am Server einspielen"));
+        Assert.Equal("pentaho", match.ExternalPageId);
+
+        using var noEntityFixture = CreateFixture(
+            ("windows", "Windows Server Lizenz", "Lizenz am Server einspielen."),
+            ("isms", "ISMS Runde", "Server Lizenzen und Software."));
+        await noEntityFixture.Service.SyncAsync(noEntityFixture.Source, true);
+        Assert.Empty(await noEntityFixture.Service.SearchAsync("Pentaho Lizenz am Server einspielen"));
+    }
+
+    [Fact]
+    public async Task Search_GeneralLinuxQuestionStillUsesNormalTechnicalRetrieval()
+    {
+        using var fixture = CreateFixture(("linux", "Linux Speicher prüfen", "Freien Speicher unter Linux mit df prüfen."));
+        await fixture.Service.SyncAsync(fixture.Source, true);
+
+        Assert.Single(await fixture.Service.SearchAsync("Wie prüfe ich freien Speicher unter Linux?"));
+    }
+
+    [Fact]
     public async Task UseWiki_IsInactiveWithoutSourceAndRestoresPersistedPreferenceWhenSourceAppears()
     {
         Directory.CreateDirectory(_root);
@@ -135,7 +215,7 @@ public sealed class WikiAiKnowledgeTests : IDisposable
             path => new[] { ".pdf", ".png", ".drawio" }.Contains(Path.GetExtension(path), StringComparer.OrdinalIgnoreCase));
         await service.SyncAsync(source, false);
         Assert.Equal(3, provider.DownloadCount);
-        var status = service.GetStatus(source.Id); Assert.Equal(3, status.AttachmentCount); Assert.Equal(1, status.PdfCount); Assert.Equal(1, status.OcrSuccessCount); Assert.Equal(1, status.DrawIoCount);
+        var status = service.GetStatus(source.Id); Assert.Equal(3, status.AttachmentCount); Assert.Equal(1, status.PdfCount); Assert.Equal(1, status.OcrSuccessCount); Assert.Equal(0, status.OcrFailureCount); Assert.Equal(1, status.DrawIoCount);
 
         provider.PdfVersion = "2"; provider.PdfText = "PDFUPDATED4712";
         await service.SyncAsync(source, false);
@@ -154,6 +234,20 @@ public sealed class WikiAiKnowledgeTests : IDisposable
     {
         _ = new WindowsWikiImageOcrService(_root);
         Assert.False(Directory.Exists(Path.Combine(_root,"Plenaro","AI","temp")));
+    }
+
+    [Fact]
+    public async Task GenericXmlAttachment_IsNotParsedAsDrawIo()
+    {
+        var processor = new WikiAttachmentProcessor(new FakePdfExtractor(), new FakeOcr(), new WikiDrawIoExtractor());
+        var page = new WikiKnowledgePage("source", "page", "Page", "https://wiki/page", "IT", "1", null);
+        var metadata = new WikiKnowledgeAttachmentMetadata("xml", "page", "settings.xml", "application/xml", "1", null, "https://wiki/settings.xml", 32);
+        await using var stream = new MemoryStream(System.Text.Encoding.UTF8.GetBytes("<settings><value>test</value></settings>"));
+
+        var result = await processor.ProcessAsync(page, metadata, stream, CancellationToken.None);
+
+        Assert.Equal("unsupported", result.Status);
+        Assert.Equal(WikiKnowledgeContentKind.AttachmentMetadata, Assert.Single(result.Blocks).ContentKind);
     }
 
     private Fixture CreateFixture(params (string Id, string Title, string Content)[] pages)

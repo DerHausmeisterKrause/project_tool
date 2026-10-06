@@ -13,6 +13,8 @@
 - Der Wiki-KI-Index ist strikt an aktivierte Quellen, den aktuellen Scope-Fingerprint und die konfigurierten Confluence-Spaces gebunden; veraltete Scope-Daten werden nicht mehr für Antworten verwendet.
 - Confluence-Seiten werden lokal strukturiert nach Abschnitten, Tabellen, Listen und Codeblöcken indexiert; Tabellen behalten ihre Spalten-/Zeilenzuordnung.
 - Wiki-Retrieval gruppiert Treffer auf Seitenebene, begrenzt Seiten und Chunks und verwirft relativ schwache Treffer statt den Kontext künstlich aufzufüllen.
+- Die Wiki-Suche bewertet aussagekräftige Trefferabdeckung sowie Titel und Abschnitte strenger und verwirft generische oder nur relativ beste, aber fachlich schwache Seiten.
+- Produkt- und Systembegriffe sowie technische Akronyme verankern Wiki- und lokale Knowledge-Treffer; systemspezifische Fragen verwenden keine Quellen, die lediglich allgemeine Begriffe wie Benutzer, Server, Lizenz oder Zugriff teilen, und erzeugen ohne passende interne Quelle einen ausdrücklichen Grounding-Hinweis.
 - Wiki- und lokale Knowledge-Suche laufen parallel; relevanter Wiki-Kontext wird vor eigener und Plenaro Standard-Knowledge angeordnet.
 - Referenzierte Confluence-Anhänge werden lokal, größenbegrenzt und inkrementell verarbeitet; unveränderte Anhänge werden nicht erneut heruntergeladen.
 - Änderungen bereits indexierter Wiki-Anhänge werden auch bei unveränderter Parent-Seite über ihre Metadaten erkannt und gezielt neu verarbeitet.
@@ -21,6 +23,7 @@
 - Bildanhänge werden beim Indexieren offline über die lokale Windows-OCR in durchsuchbares Wissen umgewandelt; ohne verfügbare OCR bleiben Dateiname, Alt-Text und Caption erhalten und temporäre Bilddateien werden zuverlässig entfernt.
 - Die Windows-OCR läuft ohne PowerShell-Unterprozess direkt im Plenaro-Prozess; bildbasierte PDF-Seiten werden nur dann lokal gerendert und OCR-verarbeitet, wenn PdfPig keinen ausreichenden Text liefert.
 - Identische Attachment-Binärinhalte verwenden trotz geänderter Confluence-Metadaten bestehende Extraktionsergebnisse weiter; eine persistierte Extraktionsversion ermöglicht spätere kontrollierte Neuverarbeitung.
+- OCR-Fehlerzähler unterscheiden erfolgreiche Erkennung von leeren, nicht verfügbaren oder fehlgeschlagenen OCR-Läufen; generische XML-Anhänge werden nur bei erkennbarer mxGraph-Struktur als Draw.io verarbeitet.
 - WAL-Modus, kurze Aktivierungstransaktionen und gezielte SQLite-Indizes halten den lokalen Wiki-Index während der Hintergrundsynchronisierung durchsuchbar.
 
 ## Znuny / OTRS

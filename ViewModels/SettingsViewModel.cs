@@ -125,7 +125,7 @@ public class SettingsViewModel : ObservableObject
             var s = ServiceLocator.WikiAiKnowledge.GetStatus(source.Id);
             var status = s.Status == "failed" ? "Synchronisierung fehlgeschlagen – letzter erfolgreicher Stand bleibt verfügbar" : s.Status == "current" ? "Aktuell" : "Noch nicht indexiert";
             var spaces = source.SearchAllSpaces ? "Alle" : string.Join(", ", WikiScopePolicy.GetSpaceKeys(source));
-            return $"Bereiche: {spaces}\nSeiten: {s.PageCount:N0} · Textabschnitte: {s.ChunkCount:N0}\nAnhänge: {s.AttachmentCount:N0} · PDFs: {s.PdfCount:N0} ({s.PdfPageCount:N0} Seiten) · Bilder: {s.ImageCount:N0} · OCR erfolgreich: {s.OcrSuccessCount:N0} · OCR fehlend/fehlgeschlagen: {s.OcrFailureCount:N0} · Draw.io: {s.DrawIoCount:N0}\nLetzter erfolgreicher Abgleich: {(s.LastSuccessUtc?.ToLocalTime().ToString("dd.MM.yyyy HH:mm") ?? "noch nie")}\nStatus: {status}";
+            return $"Bereiche: {spaces}\nSeiten: {s.PageCount:N0} · Textabschnitte: {s.ChunkCount:N0}\nAnhänge: {s.AttachmentCount:N0} · PDFs: {s.PdfCount:N0} ({s.PdfPageCount:N0} Seiten) · Bilder: {s.ImageCount:N0} · OCR erfolgreich: {s.OcrSuccessCount:N0} · OCR ohne Text/fehlgeschlagen: {s.OcrFailureCount:N0} · Draw.io: {s.DrawIoCount:N0}\nLetzter erfolgreicher Abgleich: {(s.LastSuccessUtc?.ToLocalTime().ToString("dd.MM.yyyy HH:mm") ?? "noch nie")}\nStatus: {status}";
         }
     }
     private readonly SemaphoreSlim _updateCheckGate = new(1, 1);

@@ -1,6 +1,7 @@
 using System.IO;
 using System.Security.Cryptography;
 using System.Text;
+using System.Xml.Linq;
 using TaskTool.Models;
 using UglyToad.PdfPig;
 using Windows.Graphics.Imaging;
@@ -63,7 +64,10 @@ public sealed class WikiAttachmentProcessor
         var limit = isPdf ? MaximumPdfBytes : isImage ? MaximumImageBytes : isDraw ? MaximumDrawIoBytes : 0;
         if (limit == 0) return new(metadata, [MetadataBlock(metadata)], "unsupported", null);
         if (metadata.Size > limit) return new(metadata, [MetadataBlock(metadata)], "skipped-too-large", null);
-        var payload = await ReadPayloadAsync(stream, limit, token); return await ProcessPayloadAsync(metadata, payload, isPdf, isImage, isDraw, token);
+        var payload = await ReadPayloadAsync(stream, limit, token);
+        if (extension.Equals(".xml", StringComparison.OrdinalIgnoreCase) && !metadata.MediaType.Contains("drawio", StringComparison.OrdinalIgnoreCase))
+            isDraw = LooksLikeDrawIo(payload.Content);
+        return await ProcessPayloadAsync(metadata, payload, isPdf, isImage, isDraw, token);
     }
     public async Task<WikiAttachmentPayload> ReadPayloadAsync(WikiKnowledgeAttachmentMetadata metadata, Stream stream, CancellationToken token)
     {
@@ -72,7 +76,7 @@ public sealed class WikiAttachmentProcessor
     }
     public async Task<WikiKnowledgeAttachmentResult> ProcessPayloadAsync(WikiKnowledgeAttachmentMetadata metadata, WikiAttachmentPayload payload, CancellationToken token)
     {
-        var extension=Path.GetExtension(metadata.FileName);var isPdf=extension.Equals(".pdf",StringComparison.OrdinalIgnoreCase)||metadata.MediaType.Equals("application/pdf",StringComparison.OrdinalIgnoreCase);var isImage=ImageExtensions.Contains(extension)||metadata.MediaType.StartsWith("image/",StringComparison.OrdinalIgnoreCase);var isDraw=extension.Equals(".drawio",StringComparison.OrdinalIgnoreCase)||extension.Equals(".xml",StringComparison.OrdinalIgnoreCase)||metadata.MediaType.Contains("drawio",StringComparison.OrdinalIgnoreCase);
+        var extension=Path.GetExtension(metadata.FileName);var isPdf=extension.Equals(".pdf",StringComparison.OrdinalIgnoreCase)||metadata.MediaType.Equals("application/pdf",StringComparison.OrdinalIgnoreCase);var isImage=ImageExtensions.Contains(extension)||metadata.MediaType.StartsWith("image/",StringComparison.OrdinalIgnoreCase);var isDraw=extension.Equals(".drawio",StringComparison.OrdinalIgnoreCase)||metadata.MediaType.Contains("drawio",StringComparison.OrdinalIgnoreCase)||(extension.Equals(".xml",StringComparison.OrdinalIgnoreCase)&&LooksLikeDrawIo(payload.Content));
         return await ProcessPayloadAsync(metadata,payload,isPdf,isImage,isDraw,token);
     }
     private async Task<WikiKnowledgeAttachmentResult> ProcessPayloadAsync(WikiKnowledgeAttachmentMetadata metadata,WikiAttachmentPayload payload,bool isPdf,bool isImage,bool isDraw,CancellationToken token)
@@ -88,6 +92,7 @@ public sealed class WikiAttachmentProcessor
             var text = _drawIo.Extract(Encoding.UTF8.GetString(bytes));
             return new(metadata, [new(metadata.SectionTitle ?? string.Empty, WikiKnowledgeContentKind.DrawIo, $"Draw.io Diagramm: {metadata.FileName}\n\n{text}", 0, metadata.AttachmentId, metadata.FileName)], "indexed", hash);
         }
+        if (!isImage) return new(metadata, [MetadataBlock(metadata)], "unsupported", hash);
         var prefix = $"[Bild: {metadata.FileName}]" + (string.IsNullOrWhiteSpace(metadata.AltText) ? string.Empty : $"\nAlt-Text: {metadata.AltText}") + (string.IsNullOrWhiteSpace(metadata.Caption) ? string.Empty : $"\nCaption: {metadata.Caption}");
         if (!_ocr.IsAvailable) return new(metadata, [new(metadata.SectionTitle ?? string.Empty, WikiKnowledgeContentKind.AttachmentMetadata, prefix, 0, metadata.AttachmentId, metadata.FileName)], "ocr-unavailable", hash);
         try
@@ -101,6 +106,15 @@ public sealed class WikiAttachmentProcessor
     }
 
     private static WikiKnowledgeBlock MetadataBlock(WikiKnowledgeAttachmentMetadata value) => new(value.SectionTitle ?? string.Empty, WikiKnowledgeContentKind.AttachmentMetadata, $"Attachment: {value.FileName}", 0, value.AttachmentId, value.FileName);
+    private static bool LooksLikeDrawIo(byte[] content)
+    {
+        try
+        {
+            var document = XDocument.Parse(Encoding.UTF8.GetString(content), LoadOptions.None);
+            return document.Root?.DescendantsAndSelf().Any(element => element.Name.LocalName is "mxfile" or "mxGraphModel" or "diagram") == true;
+        }
+        catch { return false; }
+    }
     private static async Task<WikiAttachmentPayload> ReadPayloadAsync(Stream stream, long maximum, CancellationToken token)
     {
         using var output = new MemoryStream(); var buffer = new byte[81920]; long total = 0;

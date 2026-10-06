@@ -7,6 +7,12 @@ using Microsoft.Data.Sqlite;
 namespace TaskTool.Services;
 
 public sealed record AiKnowledgeMatch(string Content, string RelativePath, string CategoryPath, string FileName, int? PageNumber, double Score, AiKnowledgeSourceKind SourceKind = AiKnowledgeSourceKind.User);
+internal sealed record RelevanceEvaluation(double Score, int MatchedTerms, int MeaningfulMatchedTerms, int MeaningfulTermCount,
+    double MeaningfulCoverage, bool HasSpecificExactMatch, bool HasStrongTitleOrSectionMatch,
+    int AnchorCount = 0, int HardAnchorCount = 0, bool HasAnchorMatch = true)
+{
+    public bool IsRelevant => Score > 0;
+}
 
 public sealed class AiKnowledgeSearchService
 {
@@ -29,6 +35,15 @@ public sealed class AiKnowledgeSearchService
       "langsam", "langsamer", "performance", "leistung", "auslastung", "hängt", "hängen", "ruckelt", "träge", "latency", "latenz" };
     private static readonly HashSet<string> GenericSymptoms = new(StringComparer.OrdinalIgnoreCase)
     { "langsam", "langsamer", "performance", "leistung", "problem", "probleme", "fehler", "auslastung", "hängt", "hängen", "ruckelt", "träge", "latency", "latenz" };
+    private static readonly HashSet<string> GenericIntentTerms = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "user", "benutzer", "konto", "passwort", "kennwort", "benutzerpasswort", "safe", "lizenz", "server", "client", "dienst", "service",
+        "einstellung", "einstellungen", "konfiguration", "konfigurieren", "einspielen", "installieren", "hinzufügen", "anlegen", "entsperren", "entsperre",
+        "sperren", "löschen", "ändern", "zurücksetzen", "zurück", "öffnen", "anmelden", "zugriff", "problem", "fehler", "proxy", "intern", "interner",
+        "interne", "prüfen", "prüfe", "frei", "freien", "speicher", "beheben", "behebe", "setzen", "setze", "drucker", "meldet"
+    };
+    private static readonly HashSet<string> GenericAcronyms = new(StringComparer.OrdinalIgnoreCase)
+    { "IT", "KI", "AI", "PC", "PDF", "URL", "API" };
     private static readonly IReadOnlyDictionary<string, string[]> DomainTerms = new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase)
     {
         ["windows"] = ["windows", "pc", "client", "rechner", "0x80070035"],
@@ -100,11 +115,17 @@ public sealed class AiKnowledgeSearchService
         .ToArray();
 
     internal static double CalculateRelevance(IReadOnlyList<string> terms, string content, string titleOrFile, string category)
+        => EvaluateRelevance(terms, content, titleOrFile, category).Score;
+
+    internal static RelevanceEvaluation EvaluateRelevance(IReadOnlyList<string> terms, string content, string titleOrFile, string category)
     {
         var contentTokens = Tokens(content); var titleTokens = Tokens(titleOrFile); var categoryTokens = Tokens(category);
+        var anchors = AnalyzeEntityAnchors(terms);
+        var anchorMatch = anchors.Primary is null || MatchesAnchor(anchors.Primary, content, titleOrFile, category);
+        if (!anchorMatch) return new(0, 0, 0, 0, 0, false, false, anchors.Count, anchors.HardCount, false);
         var queryDomains = DetectDomains(terms);
         var documentDomains = DetectDomains(contentTokens.Concat(titleTokens).Concat(categoryTokens));
-        if (queryDomains.Count > 0 && documentDomains.Count > 0 && !queryDomains.Overlaps(documentDomains)) return 0;
+        if (queryDomains.Count > 0 && documentDomains.Count > 0 && !queryDomains.Overlaps(documentDomains)) return new(0, 0, 0, 0, 0, false, false, anchors.Count, anchors.HardCount, true);
         var meaningfulTerms = terms.Where(term => !GenericTechnicalTerms.Contains(term)).ToArray();
         var matched = 0; var meaningfulMatches = 0; var symptomMatches = 0; var specificMatch = false; var strongMetadataMatch = false; var score = 0d;
         foreach (var term in terms)
@@ -117,7 +138,8 @@ public sealed class AiKnowledgeSearchService
             if (GenericSymptoms.Contains(term)) symptomMatches++;
             if (specific) specificMatch = true;
             if (!GenericTechnicalTerms.Contains(term) && (inTitle || inCategory)) strongMetadataMatch = true;
-            score += (inContent ? 2 : 0) + (inTitle ? 4 : 0) + (inCategory ? 3 : 0) + (specific ? 6 : 0);
+            var anchorBonus = anchors.Values.Contains(term) ? (inTitle ? 6 : inCategory ? 4 : inContent ? 2 : 0) : 0;
+            score += (inContent ? 2 : 0) + (inTitle ? 4 : 0) + (inCategory ? 3 : 0) + (specific ? 6 : 0) + anchorBonus;
         }
 
         // A unique technical token is sufficient. Otherwise generic platform words do not
@@ -127,13 +149,50 @@ public sealed class AiKnowledgeSearchService
             // A clearly identified domain may combine with a symptom ("Windows PC langsam").
             // The symptom alone, or a conflicting domain, can never qualify a document.
             var matchingDomainAndSymptom = queryDomains.Count > 0 && queryDomains.Overlaps(documentDomains) && symptomMatches > 0;
-            if ((meaningfulTerms.Length == 0 || meaningfulMatches == 0) && !matchingDomainAndSymptom) return 0;
-            if (meaningfulTerms.Length == 1 && !strongMetadataMatch) return 0;
-            if (meaningfulTerms.Length > 1 && meaningfulMatches < 2) return 0;
+            if ((meaningfulTerms.Length == 0 || meaningfulMatches == 0) && !matchingDomainAndSymptom) return new(0, matched, meaningfulMatches, meaningfulTerms.Length, 0, false, strongMetadataMatch, anchors.Count, anchors.HardCount, true);
+            if (meaningfulTerms.Length == 1 && !strongMetadataMatch) return new(0, matched, meaningfulMatches, 1, meaningfulMatches, false, false, anchors.Count, anchors.HardCount, true);
+            if (meaningfulTerms.Length > 1 && (meaningfulMatches < 2 || (double)meaningfulMatches / meaningfulTerms.Length < .5))
+                return new(0, matched, meaningfulMatches, meaningfulTerms.Length, (double)meaningfulMatches / meaningfulTerms.Length, false, strongMetadataMatch, anchors.Count, anchors.HardCount, true);
         }
 
         var meaningfulCoverage = meaningfulTerms.Length == 0 ? 0 : (double)meaningfulMatches / meaningfulTerms.Length;
-        return score + (double)matched / terms.Count * 4 + meaningfulCoverage * 6;
+        return new(score + (double)matched / terms.Count * 4 + meaningfulCoverage * 6, matched, meaningfulMatches,
+            meaningfulTerms.Length, meaningfulCoverage, specificMatch, strongMetadataMatch, anchors.Count, anchors.HardCount, true);
+    }
+
+    internal static bool HasEntityAnchors(string question) => AnalyzeEntityAnchors(NormalizeTerms(question)).Count > 0;
+
+    private static EntityAnchors AnalyzeEntityAnchors(IReadOnlyList<string> terms)
+    {
+        var hard = terms.Where(IsHardAnchor).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+        var soft = terms.Where(term => !StopWords.Contains(term) && !GenericTechnicalTerms.Contains(term) && !GenericIntentTerms.Contains(term))
+            .Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+        var phrases = terms.Zip(terms.Skip(1), (first, second) => (first, second))
+            .Where(pair => pair.first.Length >= 3 && pair.second.Length >= 3 && char.IsUpper(pair.first[0]) && char.IsUpper(pair.second[0])
+                && !GenericTechnicalTerms.Contains(pair.first) && !GenericTechnicalTerms.Contains(pair.second))
+            .Select(pair => $"{pair.first} {pair.second}").Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+        var values = hard.Concat(phrases).Concat(soft).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+        var primary = hard.FirstOrDefault() ?? (soft.Length >= 2 ? phrases.FirstOrDefault() : null) ?? soft.FirstOrDefault() ?? phrases.FirstOrDefault();
+        return new(values, primary, hard.Length);
+    }
+
+    private static bool MatchesAnchor(string anchor, params string[] values)
+    {
+        if (!anchor.Contains(' ')) return values.Any(value => Tokens(value).Contains(anchor));
+        var pattern = $@"(?<![\p{{L}}\p{{N}}]){Regex.Escape(anchor).Replace("\\ ", @"[\s_-]+")}(?![\p{{L}}\p{{N}}])";
+        return values.Any(value => Regex.IsMatch(value, pattern, RegexOptions.IgnoreCase));
+    }
+
+    private static bool IsHardAcronym(string term) => term.Length is >= 3 and <= 8 && !GenericAcronyms.Contains(term)
+        && term.All(character => !char.IsLetter(character) || char.IsUpper(character)) && term.Any(char.IsLetter);
+
+    private static bool IsHardAnchor(string term) => IsHardAcronym(term) || term.Contains('_') || term.Contains('-') || term.Any(char.IsDigit)
+        || (term.Length >= 6 && term.Skip(1).Any(char.IsUpper) && term.Any(char.IsLower))
+        || (term.Length > 8 && !GenericAcronyms.Contains(term) && term.All(character => !char.IsLetter(character) || char.IsUpper(character)) && term.Any(char.IsLetter));
+
+    private sealed record EntityAnchors(IReadOnlyList<string> Values, string? Primary, int HardCount)
+    {
+        public int Count => Values.Count;
     }
 
     private static HashSet<string> DetectDomains(IEnumerable<string> tokens)
@@ -142,12 +201,13 @@ public sealed class AiKnowledgeSearchService
         return DomainTerms.Where(domain => domain.Value.Any(values.Contains)).Select(domain => domain.Key).ToHashSet(StringComparer.OrdinalIgnoreCase);
     }
 
-    private static bool IsSpecific(string term) => !GenericTechnicalTerms.Contains(term) && (KnownSpecificTerms.Contains(term)
+    internal static bool IsSpecific(string term) => !GenericTechnicalTerms.Contains(term) && (KnownSpecificTerms.Contains(term)
         || term.Contains('_') || term.Contains('-')
         || Regex.IsMatch(term, @"^0x[0-9a-f]{6,}$", RegexOptions.IgnoreCase)
         || term.Any(char.IsDigit)
+        || IsHardAcronym(term)
         || (term.Length >= 5 && term.All(character => !char.IsLetter(character) || char.IsUpper(character)))
-        || (term.Length >= 6 && term.Any(char.IsUpper) && term.Any(char.IsLower)));
+        || (term.Length >= 6 && term.Skip(1).Any(char.IsUpper) && term.Any(char.IsLower)));
 
     private static IEnumerable<string> ExpandTokens(string value)
     {

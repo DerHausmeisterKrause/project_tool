@@ -143,7 +143,10 @@ public sealed class AiChatViewModel : ObservableObject
             var matches = await localTask; var wikiMatches = await wikiTask;
             var combined = matches.Select(x => new AiRetrievalMatch(AiKnowledgeSourceType.LocalFiles, x.Content, x.FileName, $"{(x.SourceKind == AiKnowledgeSourceKind.Standard ? "Plenaro Knowledge" : "Eigene Knowledge")}: {x.RelativePath}", null, x.Score, x.PageNumber)).Concat(wikiMatches);
             var knowledge = AiCombinedContextBuilder.Prepare(combined);
-            var request = BuildRequestMessages(knowledge.Text);
+            var knowledgeText = knowledge.Text;
+            if (knowledge.IncludedMatches.Count == 0 && AiKnowledgeSearchService.HasEntityAnchors(text))
+                knowledgeText = "Für das konkret genannte interne System wurde keine ausreichend passende interne Wissensquelle gefunden. Erfinde keine internen URLs, Menüpfade, Buttons, Servernamen oder Arbeitsschritte. Sage transparent, dass keine passende interne Wissensquelle gefunden wurde.";
+            var request = BuildRequestMessages(knowledgeText);
             if (knowledge.Text.Length > 0) ServiceLocator.Logger?.OperationalInfo($"[AI Knowledge] Context prepared sources={knowledge.IncludedMatches.Count} characters={knowledge.Text.Length}");
             var answer = await _ai.ChatAsync(request, new AiRequestOptions(0.1, 1024), cancellationToken);
             var sources = knowledge.IncludedMatches.Select(x => new AiKnowledgeSource(x.SourceType == AiKnowledgeSourceType.Wiki

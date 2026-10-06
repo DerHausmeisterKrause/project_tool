@@ -112,6 +112,19 @@ public sealed class AiChatViewModelTests
         Assert.Contains("LOKALES PLENARO-WISSEN", request[0].Content);
     }
 
+    [Fact]
+    public async Task EntitySpecificQuestionWithoutKnowledgeAddsGroundingInstruction()
+    {
+        var ai = new FakeAi();
+        var viewModel = CreateViewModel(ai);
+        viewModel.InputText = "Pentaho Lizenz einspielen";
+
+        await viewModel.SendAsync();
+
+        Assert.Contains("keine ausreichend passende interne Wissensquelle", ai.LastMessages![0].Content);
+        Assert.Empty(viewModel.Messages.Last().KnowledgeSources!);
+    }
+
     private sealed class FakeAi : IAiChatService
     {
         public bool IsEnabled { get; set; } = true;
