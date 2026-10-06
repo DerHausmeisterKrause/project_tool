@@ -45,7 +45,7 @@ public sealed class ConfluenceKnowledgeParser
             else Add(blocks, section, WikiKnowledgeContentKind.PageText, Clean(element.TextContent), ref ordinal);
         }
         if (blocks.Count == 0) Add(blocks, string.Empty, WikiKnowledgeContentKind.PageText, content.PlainText, ref ordinal);
-        return new(page.SourceId, page.ExternalId, page.SpaceKey, page.Title, page.Url, blocks);
+        return new(page.SourceId, page.ExternalId, page.SpaceKey, page.Title, page.Url, blocks, page.HierarchyPath, page.ParentTitle);
     }
 
     private static void Add(List<WikiKnowledgeBlock> blocks, string section, WikiKnowledgeContentKind kind, string value, ref int ordinal)

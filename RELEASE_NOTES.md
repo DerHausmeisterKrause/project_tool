@@ -15,6 +15,7 @@
 - Wiki-Retrieval gruppiert Treffer auf Seitenebene, begrenzt Seiten und Chunks und verwirft relativ schwache Treffer statt den Kontext künstlich aufzufüllen.
 - Die Wiki-Suche bewertet aussagekräftige Trefferabdeckung sowie Titel und Abschnitte strenger und verwirft generische oder nur relativ beste, aber fachlich schwache Seiten.
 - Produkt- und Systembegriffe sowie technische Akronyme verankern Wiki- und lokale Knowledge-Treffer; systemspezifische Fragen verwenden keine Quellen, die lediglich allgemeine Begriffe wie Benutzer, Server, Lizenz oder Zugriff teilen, und erzeugen ohne passende interne Quelle einen ausdrücklichen Grounding-Hinweis.
+- Wiki-Unterseiten erben beim Indexieren die Titel ihrer letzten Confluence-Vorfahren; Produkt- und Systemnamen aus Parent-/Ancestor-Seiten werden für Suche, Ranking, KI-Kontext und Quellenpfade berücksichtigt, ohne Inhalte der Elternseiten zu duplizieren.
 - Wiki- und lokale Knowledge-Suche laufen parallel; relevanter Wiki-Kontext wird vor eigener und Plenaro Standard-Knowledge angeordnet.
 - Referenzierte Confluence-Anhänge werden lokal, größenbegrenzt und inkrementell verarbeitet; unveränderte Anhänge werden nicht erneut heruntergeladen.
 - Änderungen bereits indexierter Wiki-Anhänge werden auch bei unveränderter Parent-Seite über ihre Metadaten erkannt und gezielt neu verarbeitet.

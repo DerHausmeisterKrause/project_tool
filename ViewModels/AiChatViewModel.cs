@@ -150,7 +150,7 @@ public sealed class AiChatViewModel : ObservableObject
             if (knowledge.Text.Length > 0) ServiceLocator.Logger?.OperationalInfo($"[AI Knowledge] Context prepared sources={knowledge.IncludedMatches.Count} characters={knowledge.Text.Length}");
             var answer = await _ai.ChatAsync(request, new AiRequestOptions(0.1, 1024), cancellationToken);
             var sources = knowledge.IncludedMatches.Select(x => new AiKnowledgeSource(x.SourceType == AiKnowledgeSourceType.Wiki
-                ? $"{x.DisplaySource} · {x.SpaceKey} · {x.Title}{(string.IsNullOrWhiteSpace(x.SectionTitle) ? string.Empty : $" · {x.SectionTitle}")}{(string.IsNullOrWhiteSpace(x.AttachmentName) ? string.Empty : $" · {x.AttachmentName}")}"
+                ? $"{x.DisplaySource} · {x.SpaceKey} · {ShortHierarchy(x.HierarchyPath, x.Title)}{(string.IsNullOrWhiteSpace(x.SectionTitle) ? string.Empty : $" · {x.SectionTitle}")}{(string.IsNullOrWhiteSpace(x.AttachmentName) ? string.Empty : $" · {x.AttachmentName}")}"
                 : x.DisplaySource, x.PageNumber, x.SourceType == AiKnowledgeSourceType.Wiki ? "Wiki" : "Plenaro Knowledge", x.Url)).Distinct().ToArray();
             ReplaceTypingMessage(typingMessage, new AiChatMessage(AiChatRole.Assistant, answer, DateTime.Now, sources));
         }
@@ -165,6 +165,12 @@ public sealed class AiChatViewModel : ObservableObject
             IsSending = false;
             ClearCommand.RaiseCanExecuteChanged();
         }
+    }
+
+    private static string ShortHierarchy(string? hierarchyPath, string title)
+    {
+        var ancestors = (hierarchyPath ?? string.Empty).Split(" > ", StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).TakeLast(2);
+        return string.Join(" > ", ancestors.Append(title));
     }
 
     private async Task<IReadOnlyList<AiKnowledgeMatch>> SearchLocalSafelyAsync(string text, CancellationToken token)

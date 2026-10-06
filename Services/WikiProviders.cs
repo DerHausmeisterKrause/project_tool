@@ -109,7 +109,7 @@ public class ConfluenceDataCenterWikiProvider(SettingsService settings) : HttpWi
     {
         var cql = "type=page" + WikiScopePolicy.BuildConfluenceClause(source);
         var apiBase = ProviderType == "ConfluenceCloud" ? Regex.Replace(source.BaseUrl.TrimEnd('/'), "/wiki$", "", RegexOptions.IgnoreCase) : source.BaseUrl.TrimEnd('/');
-        var endpoint = apiBase + ApiPath + "?cql=" + Uri.EscapeDataString(cql) + "&start=" + offset + "&limit=" + limit + "&expand=content.version,content.space";
+        var endpoint = apiBase + ApiPath + "?cql=" + Uri.EscapeDataString(cql) + "&start=" + offset + "&limit=" + limit + "&expand=content.version,content.space,content.ancestors";
         using var client = CreateClient(source); using var response = await client.GetAsync(endpoint, token); response.EnsureSuccessStatusCode();
         using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync(token)); var root = doc.RootElement;
         var baseUrl = root.TryGetProperty("_links", out var links) && links.TryGetProperty("base", out var b) ? b.GetString() : source.BaseUrl;
@@ -124,7 +124,13 @@ public class ConfluenceDataCenterWikiProvider(SettingsService settings) : HttpWi
             DateTime? modified = content.TryGetProperty("version", out v) && v.TryGetProperty("when", out var when) && DateTime.TryParse(when.GetString(), out var parsed) ? parsed.ToUniversalTime() : null;
             var url = item.TryGetProperty("url", out var u) ? u.GetString() ?? "" : "";
             if (!Uri.IsWellFormedUriString(url, UriKind.Absolute)) url = new Uri(new Uri((baseUrl ?? source.BaseUrl).TrimEnd('/') + "/"), url.TrimStart('/')).ToString();
-            pages.Add(new(source.Id, id, Clean(title), url, space, version, modified));
+            var ancestors = content.TryGetProperty("ancestors", out var ancestorItems) && ancestorItems.ValueKind == JsonValueKind.Array
+                ? ancestorItems.EnumerateArray().Select(ancestor => new WikiKnowledgeAncestor(
+                    ancestor.TryGetProperty("id", out var ancestorId) ? ancestorId.GetString() ?? string.Empty : string.Empty,
+                    Clean(ancestor.TryGetProperty("title", out var ancestorTitle) ? ancestorTitle.GetString() : string.Empty)))
+                    .Where(ancestor => !string.IsNullOrWhiteSpace(ancestor.Title)).TakeLast(6).ToArray()
+                : Array.Empty<WikiKnowledgeAncestor>();
+            pages.Add(new(source.Id, id, Clean(title), url, space, version, modified, ancestors));
         }
         return new(pages, pages.Count == limit);
     }

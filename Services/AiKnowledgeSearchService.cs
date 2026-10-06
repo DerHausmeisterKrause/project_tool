@@ -44,6 +44,8 @@ public sealed class AiKnowledgeSearchService
     };
     private static readonly HashSet<string> GenericAcronyms = new(StringComparer.OrdinalIgnoreCase)
     { "IT", "KI", "AI", "PC", "PDF", "URL", "API" };
+    private static readonly HashSet<string> GenericHierarchyTerms = new(StringComparer.OrdinalIgnoreCase)
+    { "it", "ita", "wiki", "home", "dokumentation", "anwendungen", "allgemein" };
     private static readonly IReadOnlyDictionary<string, string[]> DomainTerms = new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase)
     {
         ["windows"] = ["windows", "pc", "client", "rechner", "0x80070035"],
@@ -117,29 +119,33 @@ public sealed class AiKnowledgeSearchService
     internal static double CalculateRelevance(IReadOnlyList<string> terms, string content, string titleOrFile, string category)
         => EvaluateRelevance(terms, content, titleOrFile, category).Score;
 
-    internal static RelevanceEvaluation EvaluateRelevance(IReadOnlyList<string> terms, string content, string titleOrFile, string category)
+    internal static RelevanceEvaluation EvaluateRelevance(IReadOnlyList<string> terms, string content, string titleOrFile, string category,
+        string hierarchyPath = "", string parentTitle = "")
     {
         var contentTokens = Tokens(content); var titleTokens = Tokens(titleOrFile); var categoryTokens = Tokens(category);
+        var hierarchyTokens = Tokens(hierarchyPath).Where(term => !GenericHierarchyTerms.Contains(term)).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var parentTokens = Tokens(parentTitle).Where(term => !GenericHierarchyTerms.Contains(term)).ToHashSet(StringComparer.OrdinalIgnoreCase);
         var anchors = AnalyzeEntityAnchors(terms);
-        var anchorMatch = anchors.Primary is null || MatchesAnchor(anchors.Primary, content, titleOrFile, category);
+        var anchorMatch = anchors.Primary is null || MatchesAnchor(anchors.Primary, content, titleOrFile, category, hierarchyPath, parentTitle);
         if (!anchorMatch) return new(0, 0, 0, 0, 0, false, false, anchors.Count, anchors.HardCount, false);
         var queryDomains = DetectDomains(terms);
-        var documentDomains = DetectDomains(contentTokens.Concat(titleTokens).Concat(categoryTokens));
+        var documentDomains = DetectDomains(contentTokens.Concat(titleTokens).Concat(categoryTokens).Concat(hierarchyTokens));
         if (queryDomains.Count > 0 && documentDomains.Count > 0 && !queryDomains.Overlaps(documentDomains)) return new(0, 0, 0, 0, 0, false, false, anchors.Count, anchors.HardCount, true);
         var meaningfulTerms = terms.Where(term => !GenericTechnicalTerms.Contains(term)).ToArray();
         var matched = 0; var meaningfulMatches = 0; var symptomMatches = 0; var specificMatch = false; var strongMetadataMatch = false; var score = 0d;
         foreach (var term in terms)
         {
             var inContent = contentTokens.Contains(term); var inTitle = titleTokens.Contains(term); var inCategory = categoryTokens.Contains(term);
-            if (!inContent && !inTitle && !inCategory) continue;
+            var inHierarchy = hierarchyTokens.Contains(term); var inParent = parentTokens.Contains(term);
+            if (!inContent && !inTitle && !inCategory && !inHierarchy) continue;
             matched++;
             var specific = IsSpecific(term);
             if (!GenericTechnicalTerms.Contains(term)) meaningfulMatches++;
             if (GenericSymptoms.Contains(term)) symptomMatches++;
             if (specific) specificMatch = true;
-            if (!GenericTechnicalTerms.Contains(term) && (inTitle || inCategory)) strongMetadataMatch = true;
-            var anchorBonus = anchors.Values.Contains(term) ? (inTitle ? 6 : inCategory ? 4 : inContent ? 2 : 0) : 0;
-            score += (inContent ? 2 : 0) + (inTitle ? 4 : 0) + (inCategory ? 3 : 0) + (specific ? 6 : 0) + anchorBonus;
+            if (!GenericTechnicalTerms.Contains(term) && (inTitle || inCategory || inHierarchy)) strongMetadataMatch = true;
+            var anchorBonus = anchors.Values.Contains(term) ? (inTitle ? 6 : inParent ? 5 : inCategory ? 4 : inHierarchy ? 3 : inContent ? 2 : 0) : 0;
+            score += (inContent ? 2 : 0) + (inTitle ? 4 : 0) + (inCategory ? 3 : 0) + (inParent ? 3 : inHierarchy ? 2 : 0) + (specific ? 6 : 0) + anchorBonus;
         }
 
         // A unique technical token is sufficient. Otherwise generic platform words do not
@@ -165,14 +171,14 @@ public sealed class AiKnowledgeSearchService
     private static EntityAnchors AnalyzeEntityAnchors(IReadOnlyList<string> terms)
     {
         var hard = terms.Where(IsHardAnchor).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
-        var soft = terms.Where(term => !StopWords.Contains(term) && !GenericTechnicalTerms.Contains(term) && !GenericIntentTerms.Contains(term))
+        var soft = terms.Where(term => !StopWords.Contains(term) && !GenericTechnicalTerms.Contains(term) && !GenericIntentTerms.Contains(term) && !GenericHierarchyTerms.Contains(term))
             .Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
         var phrases = terms.Zip(terms.Skip(1), (first, second) => (first, second))
             .Where(pair => pair.first.Length >= 3 && pair.second.Length >= 3 && char.IsUpper(pair.first[0]) && char.IsUpper(pair.second[0])
                 && !GenericTechnicalTerms.Contains(pair.first) && !GenericTechnicalTerms.Contains(pair.second))
             .Select(pair => $"{pair.first} {pair.second}").Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
         var values = hard.Concat(phrases).Concat(soft).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
-        var primary = hard.FirstOrDefault() ?? (soft.Length >= 2 ? phrases.FirstOrDefault() : null) ?? soft.FirstOrDefault() ?? phrases.FirstOrDefault();
+        var primary = (soft.Length >= 2 ? phrases.FirstOrDefault() : null) ?? soft.FirstOrDefault() ?? phrases.FirstOrDefault() ?? hard.FirstOrDefault();
         return new(values, primary, hard.Length);
     }
 
@@ -288,7 +294,7 @@ public static class AiCombinedContextBuilder
         {
             var match = selected[index];
             var label = match.SourceType == AiKnowledgeSourceType.Wiki
-                ? $"PRIORITÄT 1 – WIKI\nQuelle: Wiki · {match.DisplaySource} · {match.SpaceKey} · {match.Title}{(string.IsNullOrWhiteSpace(match.SectionTitle) ? string.Empty : $" · {match.SectionTitle}")}{(string.IsNullOrWhiteSpace(match.AttachmentName) ? string.Empty : $"\nAttachment: {match.AttachmentName}")}{(match.PageNumber is int wikiPage ? $" · Seite {wikiPage}" : string.Empty)}"
+                ? $"PRIORITÄT 1 – WIKI\nQuelle: Wiki · {match.DisplaySource}\nSpace: {match.SpaceKey}{(string.IsNullOrWhiteSpace(match.HierarchyPath) ? string.Empty : $"\nPfad: {match.HierarchyPath}")}\nSeite: {match.Title}{(string.IsNullOrWhiteSpace(match.SectionTitle) ? string.Empty : $"\nAbschnitt: {match.SectionTitle}")}{(string.IsNullOrWhiteSpace(match.AttachmentName) ? string.Empty : $"\nAttachment: {match.AttachmentName}")}{(match.PageNumber is int wikiPage ? $" · Seite {wikiPage}" : string.Empty)}"
                 : $"PRIORITÄT 2 – LOKALE KNOWLEDGE\nQuelle: {match.DisplaySource}";
             var header = $"{label}\n---\n";
             var pendingLocal = selected.Skip(index + 1).FirstOrDefault(x => x.SourceType == AiKnowledgeSourceType.LocalFiles);
