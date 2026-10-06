@@ -249,6 +249,32 @@ public sealed class AiKnowledgeTests : IDisposable
         Assert.DoesNotContain("USER_UNIQUE4711 USER", analysis.Anchors, StringComparer.OrdinalIgnoreCase);
     }
 
+    [Theory]
+    [InlineData("PWS Benutzer entsperren")]
+    [InlineData("Password Safe Kennwort zurücksetzen")]
+    [InlineData("PasswordSafe User entsperren")]
+    [InlineData("Password-Safe Benutzer entsperren")]
+    [InlineData("Passwort Safe Kennwort zurücksetzen")]
+    public void QueryAnalysis_ResolvesPasswordSecureAliases(string question)
+    {
+        var analysis = AiKnowledgeSearchService.AnalyzeQuery(question);
+
+        Assert.Equal("Password Secure", analysis.Entity);
+        Assert.Contains("Password Secure", analysis.EntityAliases!);
+        Assert.NotEmpty(analysis.IntentTerms!);
+    }
+
+    [Fact]
+    public void QueryAnalysis_UsesAliasesForRetrievalButNotSemanticCoverage()
+    {
+        var analysis = AiKnowledgeSearchService.AnalyzeQuery("Password Secure Kennwort zurücksetzen");
+
+        Assert.DoesNotContain("PWS", analysis.SearchTerms, StringComparer.OrdinalIgnoreCase);
+        Assert.Contains("PWS", analysis.RetrievalTerms, StringComparer.OrdinalIgnoreCase);
+        Assert.Equal("zurücksetzen", Assert.Single(analysis.ActionTerms!));
+        Assert.Equal("Kennwort", Assert.Single(analysis.SubjectTerms!));
+    }
+
     [Fact]
     public async Task Search_EntityAnchorRejectsGenericLocalLicenseDocument()
     {

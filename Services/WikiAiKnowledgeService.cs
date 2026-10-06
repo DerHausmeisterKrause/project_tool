@@ -153,11 +153,11 @@ public sealed class WikiAiKnowledgeService : IDisposable
             .ToDictionary(source => source.Id, StringComparer.Ordinal);
         if (eligible.Count == 0) return Array.Empty<AiRetrievalMatch>();
         var queryEvaluation = AiKnowledgeSearchService.EvaluateRelevance(query, string.Empty, string.Empty, string.Empty);
-        var watch = Stopwatch.StartNew(); var result = new List<(AiRetrievalMatch Match, RelevanceEvaluation Evaluation)>(); var candidates = 0; var rejectedAnchorMismatch = 0;
+        var watch = Stopwatch.StartNew(); var result = new List<(AiRetrievalMatch Match, RelevanceEvaluation Evaluation)>(); var candidates = 0; var rejectedAnchorMismatch = 0; var rejectedActionMismatch = 0; var rejectedQualityGate = 0; var entityMatched = 0; var actionMatched = 0; var subjectMatched = 0;
         await using var db = Open(true); await using var cmd = db.CreateCommand();
         var sourceParameters = eligible.Keys.Select((_, index) => $"$s{index}").ToArray();
-        cmd.CommandText = $"SELECT c.content,c.title,s.name,c.url,c.space_key,c.source_id,c.external_id,c.section_title,c.content_kind,c.attachment_name,c.page_number,c.hierarchy_path,c.parent_title,bm25(wiki_ai_chunks_fts,1,5,4,3,2,3) FROM wiki_ai_chunks_fts f JOIN wiki_ai_chunks c ON c.id=f.rowid JOIN wiki_ai_source_names s ON s.source_id=c.source_id WHERE wiki_ai_chunks_fts MATCH $q AND c.source_id IN ({string.Join(',', sourceParameters)}) LIMIT $l";
-        cmd.Parameters.AddWithValue("$q", string.Join(" OR ", terms.Select(x => $"\"{x}\"*"))); cmd.Parameters.AddWithValue("$l", Math.Max(limit * 8, 32));
+        cmd.CommandText = $"SELECT c.content,c.title,s.name,c.url,c.space_key,c.source_id,c.external_id,c.section_title,c.content_kind,c.attachment_name,c.page_number,c.hierarchy_path,c.parent_title,bm25(wiki_ai_chunks_fts,1,5,4,3,2,3) AS rank FROM wiki_ai_chunks_fts f JOIN wiki_ai_chunks c ON c.id=f.rowid JOIN wiki_ai_source_names s ON s.source_id=c.source_id WHERE wiki_ai_chunks_fts MATCH $q AND c.source_id IN ({string.Join(',', sourceParameters)}) ORDER BY rank LIMIT $l";
+        cmd.Parameters.AddWithValue("$q", string.Join(" OR ", query.RetrievalTerms.Select(x => $"\"{x}\"*"))); cmd.Parameters.AddWithValue("$l", Math.Max(limit * 8, 32));
         var parameterIndex = 0; foreach (var sourceId in eligible.Keys) cmd.Parameters.AddWithValue(sourceParameters[parameterIndex++], sourceId);
         await using var reader = await cmd.ExecuteReaderAsync(token);
         while (await reader.ReadAsync(token))
@@ -168,9 +168,13 @@ public sealed class WikiAiKnowledgeService : IDisposable
             var hierarchy = reader.GetString(11); var parentTitle = reader.IsDBNull(12) ? string.Empty : reader.GetString(12);
             var evaluation = AiKnowledgeSearchService.EvaluateRelevance(query, content, title, section + " " + space, hierarchy, parentTitle);
             if (!evaluation.HasAnchorMatch) { rejectedAnchorMismatch++; continue; }
+            entityMatched++;
+            if (!evaluation.HasIntentMatch) { rejectedActionMismatch++; continue; }
+            actionMatched++;
+            if (evaluation.HasSubjectMatch) subjectMatched++;
             var passesQualityGate = evaluation.IsRelevant && (evaluation.HasSpecificExactMatch || evaluation.HasStrongTitleOrSectionMatch
                 || evaluation.MeaningfulCoverage >= .75 || evaluation.MeaningfulTermCount == 0);
-            if (!passesQualityGate) continue;
+            if (!passesQualityGate) { rejectedQualityGate++; continue; }
             var score = evaluation.Score * ContentKindWeight(kind);
             result.Add((new(AiKnowledgeSourceType.Wiki, content, title, reader.GetString(2), reader.GetString(3), score,
                 reader.IsDBNull(10) ? null : reader.GetInt32(10), space, section, kind, reader.IsDBNull(9) ? null : reader.GetString(9), reader.GetString(6), hierarchy), evaluation));
@@ -182,7 +186,7 @@ public sealed class WikiAiKnowledgeService : IDisposable
         var acceptedEntries = acceptedPages.SelectMany(page => page.Matches).Take(limit).ToArray(); var accepted = acceptedEntries.Select(x => x.Match).ToArray();
         var bestCoverage = pages.Length == 0 || pages[0].Matches.Length == 0 ? 0 : pages[0].Matches[0].Evaluation.MeaningfulCoverage;
         var averageCoverage = acceptedEntries.Length == 0 ? 0 : acceptedEntries.Average(x => x.Evaluation.MeaningfulCoverage);
-        _logger.OperationalInfo($"[AI Wiki] Query completed terms={terms.Length} anchors={queryEvaluation.AnchorCount} hardAnchors={queryEvaluation.HardAnchorCount} candidates={candidates} qualifiedCandidates={result.Count} rejectedAnchorMismatch={rejectedAnchorMismatch} acceptedPages={acceptedPages.Length} acceptedChunks={accepted.Length} bestScore={best:F2} minimumAcceptedScore={minimumAcceptedScore:F2} bestCoverage={bestCoverage:F2} acceptedAverageCoverage={averageCoverage:F2} durationMs={watch.ElapsedMilliseconds}"); return accepted;
+        _logger.OperationalInfo($"[AI Wiki] Query completed terms={terms.Length} retrievalTerms={query.RetrievalTerms.Length} entityDetected={query.Entity is not null} aliases={query.EntityAliases?.Count ?? 0} actionTerms={query.ActionTerms?.Count ?? 0} subjectTerms={query.SubjectTerms?.Count ?? 0} anchors={queryEvaluation.AnchorCount} hardAnchors={queryEvaluation.HardAnchorCount} candidates={candidates} entityMatched={entityMatched} actionMatched={actionMatched} subjectMatched={subjectMatched} qualifiedCandidates={result.Count} rejectedEntity={rejectedAnchorMismatch} rejectedAction={rejectedActionMismatch} rejectedQualityGate={rejectedQualityGate} acceptedPages={acceptedPages.Length} acceptedChunks={accepted.Length} bestScore={best:F2} minimumAcceptedScore={minimumAcceptedScore:F2} bestCoverage={bestCoverage:F2} acceptedAverageCoverage={averageCoverage:F2} durationMs={watch.ElapsedMilliseconds}"); return accepted;
     }
 
     public WikiAiIndexStatus GetStatus(string sourceId)
