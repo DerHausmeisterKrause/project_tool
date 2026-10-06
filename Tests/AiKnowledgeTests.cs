@@ -144,6 +144,7 @@ public sealed class AiKnowledgeTests : IDisposable
         Assert.True(context.IncludedMatches.Count <= AiKnowledgeContextBuilder.MaximumChunks);
         Assert.Contains(context.IncludedMatches, x => x.SourceType == AiKnowledgeSourceType.Wiki);
         Assert.Contains(context.IncludedMatches, x => x.SourceType == AiKnowledgeSourceType.LocalFiles);
+        Assert.Equal(AiKnowledgeSourceType.Wiki, context.IncludedMatches[0].SourceType);
     }
 
     [Theory]

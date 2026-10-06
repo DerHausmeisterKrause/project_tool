@@ -5,7 +5,9 @@ using System.Windows.Media;
 using Markdig;
 using Markdig.Syntax;
 using Markdig.Syntax.Inlines;
+using Markdig.Extensions.Tables;
 using MarkdownBlock = Markdig.Syntax.Block;
+using MarkdownTableRow = Markdig.Extensions.Tables.TableRow;
 
 namespace TaskTool.Views.Controls;
 
@@ -31,6 +33,23 @@ public partial class MarkdownMessageView : UserControl
 
     private static void AppendBlock(BlockCollection target, MarkdownBlock block)
     {
+        if (block is Markdig.Extensions.Tables.Table markdownTable)
+        {
+            var table = new System.Windows.Documents.Table { CellSpacing = 0, Margin = new Thickness(0, 4, 0, 10) };
+            var group = new TableRowGroup(); table.RowGroups.Add(group);
+            foreach (MarkdownTableRow markdownRow in markdownTable)
+            {
+                var row = new System.Windows.Documents.TableRow(); group.Rows.Add(row);
+                foreach (Markdig.Extensions.Tables.TableCell markdownCell in markdownRow)
+                {
+                    var cell = new System.Windows.Documents.TableCell { Padding = new Thickness(7, 5, 7, 5), BorderBrush = new SolidColorBrush(Color.FromRgb(100, 116, 139)), BorderThickness = new Thickness(.5) };
+                    foreach (var child in markdownCell) AppendBlock(cell.Blocks, child);
+                    if (markdownRow.IsHeader) { cell.FontWeight = FontWeights.SemiBold; cell.Background = new SolidColorBrush(Color.FromRgb(226, 232, 240)); }
+                    row.Cells.Add(cell);
+                }
+            }
+            target.Add(table); return;
+        }
         if (block is CodeBlock codeBlock)
         {
             var code = new TextBox { Text = codeBlock.Lines.ToString(), IsReadOnly = true, AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, FontFamily = new FontFamily("Consolas"), Background = new SolidColorBrush(Color.FromRgb(15, 23, 42)), Foreground = new SolidColorBrush(Color.FromRgb(226, 232, 240)), BorderThickness = new Thickness(0), Padding = new Thickness(12) };
@@ -70,6 +89,8 @@ public partial class MarkdownMessageView : UserControl
                 case LineBreakInline: target.Add(new LineBreak()); break;
                 case EmphasisInline emphasis:
                     var span = new Span(); AddInlines(span.Inlines, emphasis.FirstChild); if (emphasis.DelimiterCount >= 2) span.FontWeight = FontWeights.Bold; else span.FontStyle = FontStyles.Italic; target.Add(span); break;
+                case LinkInline link:
+                    var hyperlink = new Hyperlink(); AddInlines(hyperlink.Inlines, link.FirstChild); if (Uri.TryCreate(link.Url, UriKind.Absolute, out var uri) && uri.Scheme is Uri.UriSchemeHttp or Uri.UriSchemeHttps) hyperlink.NavigateUri = uri; target.Add(hyperlink); break;
                 case ContainerInline container: var nested = new Span(); AddInlines(nested.Inlines, container.FirstChild); target.Add(nested); break;
             }
             current = current.NextSibling;
