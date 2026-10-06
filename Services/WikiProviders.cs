@@ -1,3 +1,4 @@
+using System.IO;
 using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
@@ -22,6 +23,10 @@ public interface IWikiKnowledgeProvider
 {
     Task<WikiKnowledgePageBatch> GetPagesAsync(WikiSourceSettings source, int offset, int limit, CancellationToken token);
     Task<WikiKnowledgePageContent> GetPageContentAsync(WikiSourceSettings source, string externalId, CancellationToken token);
+    Task<IReadOnlyList<WikiKnowledgeAttachmentMetadata>> GetAttachmentsAsync(WikiSourceSettings source, string pageId, CancellationToken token)
+        => Task.FromResult<IReadOnlyList<WikiKnowledgeAttachmentMetadata>>(Array.Empty<WikiKnowledgeAttachmentMetadata>());
+    Task<Stream> DownloadAttachmentAsync(WikiSourceSettings source, WikiKnowledgeAttachmentMetadata attachment, CancellationToken token)
+        => Task.FromException<Stream>(new NotSupportedException("Attachments are not supported by this provider."));
 }
 
 public abstract class HttpWikiProvider(SettingsService settings) : IWikiProvider
@@ -135,7 +140,48 @@ public class ConfluenceDataCenterWikiProvider(SettingsService settings) : HttpWi
         var markup = root.TryGetProperty("body", out var body) && body.TryGetProperty("storage", out var storage) && storage.TryGetProperty("value", out var value) ? value.GetString() : "";
         var version = root.TryGetProperty("version", out var v) && v.TryGetProperty("number", out var n) ? n.ToString() : "";
         DateTime? modified = root.TryGetProperty("version", out v) && v.TryGetProperty("when", out var w) && DateTime.TryParse(w.GetString(), out var parsed) ? parsed.ToUniversalTime() : null;
-        return new(externalId, Clean(title), ConfluencePlainText.Convert(markup), version, modified);
+        return new(externalId, Clean(title), ConfluencePlainText.Convert(markup), version, modified, markup);
+    }
+
+    public async Task<IReadOnlyList<WikiKnowledgeAttachmentMetadata>> GetAttachmentsAsync(WikiSourceSettings source, string pageId, CancellationToken token)
+    {
+        var prefix = ProviderType == "ConfluenceCloud" ? "/wiki/rest/api/content/" : "/rest/api/content/";
+        var apiBase = ProviderType == "ConfluenceCloud" ? Regex.Replace(source.BaseUrl.TrimEnd('/'), "/wiki$", "", RegexOptions.IgnoreCase) : source.BaseUrl.TrimEnd('/');
+        using var client = CreateClient(source); var result = new List<WikiKnowledgeAttachmentMetadata>(); const int limit = 200; var start = 0;
+        while (true)
+        {
+            var endpoint = apiBase + prefix + Uri.EscapeDataString(pageId) + $"/child/attachment?start={start}&limit={limit}&expand=version";
+            using var response = await client.GetAsync(endpoint, token); response.EnsureSuccessStatusCode(); using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync(token));
+            var items = doc.RootElement.GetProperty("results").EnumerateArray().ToArray();
+            foreach (var item in items)
+            {
+                var id = item.GetProperty("id").GetString() ?? string.Empty; var name = item.GetProperty("title").GetString() ?? string.Empty;
+                var media = item.TryGetProperty("metadata", out var metadata) && metadata.TryGetProperty("mediaType", out var mt) ? mt.GetString() ?? string.Empty : string.Empty;
+                var size = metadata.ValueKind == JsonValueKind.Object && metadata.TryGetProperty("fileSize", out var fs) && fs.TryGetInt64(out var bytes) ? bytes : (long?)null;
+                var version = item.TryGetProperty("version", out var v) && v.TryGetProperty("number", out var number) ? number.ToString() : string.Empty;
+                DateTime? modified = item.TryGetProperty("version", out v) && v.TryGetProperty("when", out var when) && DateTime.TryParse(when.GetString(), out var parsed) ? parsed.ToUniversalTime() : null;
+                var download = item.TryGetProperty("_links", out var links) && links.TryGetProperty("download", out var dl) ? dl.GetString() ?? string.Empty : string.Empty;
+                if (!Uri.IsWellFormedUriString(download, UriKind.Absolute)) download = new Uri(new Uri(apiBase + "/"), download.TrimStart('/')).ToString();
+                result.Add(new(id, pageId, name, media, version, modified, download, size));
+            }
+            if (items.Length < limit) break; start += items.Length;
+        }
+        return result;
+    }
+
+    public async Task<Stream> DownloadAttachmentAsync(WikiSourceSettings source, WikiKnowledgeAttachmentMetadata attachment, CancellationToken token)
+    {
+        var baseUri = new Uri(source.BaseUrl); var uri = new Uri(attachment.DownloadUrl);
+        var isHttp = string.Equals(uri.Scheme, Uri.UriSchemeHttp, StringComparison.OrdinalIgnoreCase);
+        var isHttps = string.Equals(uri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase);
+        if ((!isHttp && !isHttps) || !uri.Host.Equals(baseUri.Host, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException("Attachment download URL is outside the configured Confluence host.");
+        using var client = CreateClient(source); using var response = await client.GetAsync(uri, HttpCompletionOption.ResponseHeadersRead, token); response.EnsureSuccessStatusCode();
+        const long maximum = WikiAttachmentProcessor.MaximumPdfBytes;
+        if (response.Content.Headers.ContentLength > maximum) throw new InvalidDataException("Attachment exceeds the configured size limit.");
+        await using var input = await response.Content.ReadAsStreamAsync(token); var memory = new MemoryStream(); var buffer = new byte[81920]; long total = 0;
+        for (var read = await input.ReadAsync(buffer, token); read > 0; read = await input.ReadAsync(buffer, token)) { total += read; if (total > maximum) { memory.Dispose(); throw new InvalidDataException("Attachment exceeds the configured size limit."); } await memory.WriteAsync(buffer.AsMemory(0, read), token); }
+        memory.Position = 0; return memory;
     }
 }
 
@@ -161,8 +207,15 @@ public sealed class ConfluenceCloudWikiProvider(SettingsService settings) : Conf
     protected override string ApiPath => "/wiki/rest/api/search";
     public override Task<IReadOnlyList<WikiProviderResult>> SearchAsync(WikiSourceSettings source, IReadOnlyList<string> terms, int limit, CancellationToken token)
     {
-        source.BaseUrl = Regex.Replace(source.BaseUrl.TrimEnd('/'), "/wiki$", "", RegexOptions.IgnoreCase);
-        return base.SearchAsync(source, terms, limit, token);
+        var normalized = Regex.Replace(source.BaseUrl.TrimEnd('/'), "/wiki$", "", RegexOptions.IgnoreCase);
+        var copy = new WikiSourceSettings
+        {
+            Id = source.Id, Name = source.Name, Enabled = source.Enabled, ProviderType = source.ProviderType, BaseUrl = normalized,
+            AuthMode = source.AuthMode, Username = source.Username, SecretEncrypted = source.SecretEncrypted,
+            ApiKeyHeaderName = source.ApiKeyHeaderName, SpaceKey = source.SpaceKey, SearchAllSpaces = source.SearchAllSpaces,
+            SpaceKeys = source.SpaceKeys.ToList(), MaxResults = source.MaxResults
+        };
+        return base.SearchAsync(copy, terms, limit, token);
     }
 }
 

@@ -5,6 +5,26 @@
 - Plenaro lädt die Standard-Wissensbasis beim Aktivieren des lokalen Wissens automatisch aus dem zur laufenden Version passenden GitHub Release, prüft ihre SHA256-Prüfsumme und indexiert sie.
 - Standard-Wissen und eigene Knowledge-Dateien werden getrennt gespeichert und gemeinsam für lokale KI-Antworten durchsucht.
 - Release-Artefakte enthalten zusätzlich die Plenaro Standard Knowledge Base inklusive SHA256-Prüfsumme.
+- Die lokale Knowledge-Suche erkennt technische Bezeichner mit Unterstrichen und Bindestrichen sowohl als exakte Kennung als auch über ihre sinnvollen Teilbegriffe.
+- Eigene und Standard-Knowledge-Dateien mit demselben relativen Pfad bleiben getrennt auffindbar; bei identischer Relevanz wird eigenes Wissen als Tie-Breaker bevorzugt.
+- Installation und Aktualisierung der Standard-Wissensbasis sind gegen beschädigte Metadaten, unvollständige Archive und fehlgeschlagene Austauschvorgänge abgesichert; Knowledge und Metadaten werden gemeinsam zurückgerollt.
+- Die Aktualisierung einzelner Knowledge-Dokumente erfolgt transaktional, sodass ein zuvor funktionierender Indexeintrag bei Lese- oder Schreibfehlern erhalten bleibt.
+- Beim Aktivieren der Standard-Wissensbasis wurde ein doppelter unmittelbar aufeinanderfolgender Indexlauf entfernt.
+- Der Wiki-KI-Index ist strikt an aktivierte Quellen, den aktuellen Scope-Fingerprint und die konfigurierten Confluence-Spaces gebunden; veraltete Scope-Daten werden nicht mehr für Antworten verwendet.
+- Confluence-Seiten werden lokal strukturiert nach Abschnitten, Tabellen, Listen und Codeblöcken indexiert; Tabellen behalten ihre Spalten-/Zeilenzuordnung.
+- Wiki-Retrieval gruppiert Treffer auf Seitenebene, begrenzt Seiten und Chunks und verwirft relativ schwache Treffer statt den Kontext künstlich aufzufüllen.
+- Die Wiki-Suche bewertet aussagekräftige Trefferabdeckung sowie Titel und Abschnitte strenger und verwirft generische oder nur relativ beste, aber fachlich schwache Seiten.
+- Produkt- und Systembegriffe sowie technische Akronyme verankern Wiki- und lokale Knowledge-Treffer; systemspezifische Fragen verwenden keine Quellen, die lediglich allgemeine Begriffe wie Benutzer, Server, Lizenz oder Zugriff teilen, und erzeugen ohne passende interne Quelle einen ausdrücklichen Grounding-Hinweis.
+- Wiki- und lokale Knowledge-Suche laufen parallel; relevanter Wiki-Kontext wird vor eigener und Plenaro Standard-Knowledge angeordnet.
+- Referenzierte Confluence-Anhänge werden lokal, größenbegrenzt und inkrementell verarbeitet; unveränderte Anhänge werden nicht erneut heruntergeladen.
+- Änderungen bereits indexierter Wiki-Anhänge werden auch bei unveränderter Parent-Seite über ihre Metadaten erkannt und gezielt neu verarbeitet.
+- PDF-Anhänge werden seitenweise mit Parent-Seite, Attachmentname und Seitenzahl indexiert; Draw.io-Anhänge werden als Knoten und Verbindungen aufbereitet.
+- Originale PDF-, Bild- und Draw.io-Dateien werden nur im begrenzten Arbeitsspeicher verarbeitet und nicht dauerhaft gespeichert; erhalten bleiben ausschließlich extrahierte Inhalte, Metadaten und SHA256-Prüfsummen.
+- Bildanhänge werden beim Indexieren offline über die lokale Windows-OCR in durchsuchbares Wissen umgewandelt; ohne verfügbare OCR bleiben Dateiname, Alt-Text und Caption erhalten und temporäre Bilddateien werden zuverlässig entfernt.
+- Die Windows-OCR läuft ohne PowerShell-Unterprozess direkt im Plenaro-Prozess; bildbasierte PDF-Seiten werden nur dann lokal gerendert und OCR-verarbeitet, wenn PdfPig keinen ausreichenden Text liefert.
+- Identische Attachment-Binärinhalte verwenden trotz geänderter Confluence-Metadaten bestehende Extraktionsergebnisse weiter; eine persistierte Extraktionsversion ermöglicht spätere kontrollierte Neuverarbeitung.
+- OCR-Fehlerzähler unterscheiden erfolgreiche Erkennung von leeren, nicht verfügbaren oder fehlgeschlagenen OCR-Läufen; generische XML-Anhänge werden nur bei erkennbarer mxGraph-Struktur als Draw.io verarbeitet.
+- WAL-Modus, kurze Aktivierungstransaktionen und gezielte SQLite-Indizes halten den lokalen Wiki-Index während der Hintergrundsynchronisierung durchsuchbar.
 
 ## Znuny / OTRS
 
@@ -93,6 +113,9 @@
 
 ## KI
 
+- Der GPU-Modus fällt jetzt auch bei Download-, Prüfsummen- oder Installationsproblemen der Vulkan-Runtime kontrolliert auf die CPU zurück, ohne die gespeicherte GPU-Auswahl zu überschreiben.
+- CI-Testregressionen bei der Knowledge-Suche und der Znuny-Agentenroute mit API-Basispfad wurden behoben.
+- KI-Antworten können Markdown-Tabellen als native, markierbare WPF-Tabellen mit formatierten Kopfzeilen darstellen.
 - Fehlerhafte SHA256-Prüfsumme der Vulkan llama.cpp Runtime korrigiert, sodass die optionale GPU-Beschleunigung installiert werden kann
 - Markdown-Darstellung im KI-Chat für verschachtelte geordnete und ungeordnete Listen korrigiert
 - KI-Retrieval bei allgemeinen Performance-Fragen um Fachbereichs- und Entity-Abgleich erweitert, damit generische Symptome keine fachfremden lokalen oder Wiki-Quellen legitimieren
