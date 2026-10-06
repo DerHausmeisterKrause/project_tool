@@ -165,6 +165,41 @@ public sealed class WikiAiKnowledgeTests : IDisposable
         Assert.Equal("Password Secure", match.HierarchyPath);
     }
 
+    [Theory]
+    [InlineData("wie kann ich das kennwort eines Password safe users zurücksetzen?", "reset")]
+    [InlineData("wie entsperre ich einen Passwordsafe user aus PWS?", "unlock")]
+    [InlineData("PWS Benutzer entsperren", "unlock")]
+    [InlineData("Password Secure Kennwort zurücksetzen", "reset")]
+    public async Task Search_EntityAliasesStayInsidePasswordSecureBranchAndMatchIntent(string question, string expectedPage)
+    {
+        Directory.CreateDirectory(_root); var settings = new SettingsService(_logger, Path.Combine(_root, "settings.json")); var source = ValidSource(); settings.Current.WikiSources.Add(source);
+        var provider = new HierarchyProvider(
+            new("reset", "Kennwort zurücksetzen", "Wähle den Benutzer und setze das Kennwort zurück.", [new("password", "Password Secure"), new("users", "Benutzerverwaltung")]),
+            new("unlock", "Benutzer entsperren", "Wähle den gesperrten Benutzer und entsperre ihn.", [new("password", "Password Secure"), new("users", "Benutzerverwaltung")]),
+            new("export", "Wöchentlicher Export", "Exportiere die Daten wöchentlich.", [new("password", "Password Secure")]),
+            new("wordpress", "Wordpress Passwort zurücksetzen", "Benutzer Passwort zurücksetzen.", [new("wordpress-root", "Wordpress")]),
+            new("fav", "Neue User anlegen", "User anlegen und Passwort setzen.", [new("fav-root", "FAV")]),
+            new("bitwarden", "Bitwarden Benutzer", "Benutzer Passwort ändern.", [new("bitwarden-root", "Bitwarden")]));
+        using var service = new WikiAiKnowledgeService(settings, _logger, [("ConfluenceDataCenter", (IWikiKnowledgeProvider)provider)], _root);
+        await service.SyncAsync(source, true);
+
+        var matches = await service.SearchAsync(question);
+
+        Assert.NotEmpty(matches);
+        Assert.All(matches, match => Assert.Equal(expectedPage, match.ExternalPageId));
+    }
+
+    [Fact]
+    public async Task Search_EntityBranchWithoutIntentMatchReturnsNoSource()
+    {
+        Directory.CreateDirectory(_root); var settings = new SettingsService(_logger, Path.Combine(_root, "settings.json")); var source = ValidSource(); settings.Current.WikiSources.Add(source);
+        var provider = new HierarchyProvider(new HierarchyPage("export", "Wöchentlicher Export", "Exportiere die Daten wöchentlich.", [new("password", "Password Secure")]));
+        using var service = new WikiAiKnowledgeService(settings, _logger, [("ConfluenceDataCenter", (IWikiKnowledgeProvider)provider)], _root);
+        await service.SyncAsync(source, true);
+
+        Assert.Empty(await service.SearchAsync("PWS Kennwort zurücksetzen"));
+    }
+
     [Fact]
     public async Task UseWiki_IsInactiveWithoutSourceAndRestoresPersistedPreferenceWhenSourceAppears()
     {
