@@ -137,7 +137,7 @@ public sealed class WikiAiKnowledgeTests : IDisposable
     public async Task Search_UsesGrandparentAndDetectsHierarchyMoveWithoutBodyVersionChange()
     {
         Directory.CreateDirectory(_root); var settings = new SettingsService(_logger, Path.Combine(_root, "settings.json")); var source = ValidSource(); settings.Current.WikiSources.Add(source);
-        var provider = new HierarchyProvider(new("child", "2FA zurücksetzen", "Wähle den betroffenen Benutzer.", [new("general", "Allgemein")]));
+        var provider = new HierarchyProvider(new HierarchyPage("child", "2FA zurücksetzen", "Wähle den betroffenen Benutzer.", [new("general", "Allgemein")]));
         using var service = new WikiAiKnowledgeService(settings, _logger, [("ConfluenceDataCenter", (IWikiKnowledgeProvider)provider)], _root);
         await service.SyncAsync(source, true);
         Assert.Empty(await service.SearchAsync("Password Secure 2FA zurücksetzen"));
@@ -158,7 +158,9 @@ public sealed class WikiAiKnowledgeTests : IDisposable
         using var service = new WikiAiKnowledgeService(settings, _logger, [("ConfluenceDataCenter", (IWikiKnowledgeProvider)provider)], _root, processor);
         await service.SyncAsync(source, true);
 
-        var match = Assert.Single((await service.SearchAsync("Password Secure entsperren")).Where(result => result.ContentKind == WikiKnowledgeContentKind.ImageOcr));
+        var match = Assert.Single(
+            await service.SearchAsync("Password Secure entsperren"),
+            result => result.ContentKind == WikiKnowledgeContentKind.ImageOcr);
         Assert.Equal(WikiKnowledgeContentKind.ImageOcr, match.ContentKind);
         Assert.Equal("Password Secure", match.HierarchyPath);
     }
