@@ -124,7 +124,8 @@ public class SettingsViewModel : ObservableObject
             if (!WikiScopePolicy.SupportsAiKnowledge(source)) return "Dieser Provider unterstützt den lokalen KI-Wiki-Index noch nicht.";
             var s = ServiceLocator.WikiAiKnowledge.GetStatus(source.Id);
             var status = s.Status == "failed" ? "Synchronisierung fehlgeschlagen – letzter erfolgreicher Stand bleibt verfügbar" : s.Status == "current" ? "Aktuell" : "Noch nicht indexiert";
-            return $"Seiten: {s.PageCount:N0} · Textabschnitte: {s.ChunkCount:N0}\nLetzter erfolgreicher Abgleich: {(s.LastSuccessUtc?.ToLocalTime().ToString("dd.MM.yyyy HH:mm") ?? "noch nie")}\nStatus: {status}";
+            var spaces = source.SearchAllSpaces ? "Alle" : string.Join(", ", WikiScopePolicy.GetSpaceKeys(source));
+            return $"Bereiche: {spaces}\nSeiten: {s.PageCount:N0} · Textabschnitte: {s.ChunkCount:N0}\nAnhänge: {s.AttachmentCount:N0} · PDFs: {s.PdfCount:N0} ({s.PdfPageCount:N0} Seiten) · Bilder: {s.ImageCount:N0} · OCR erfolgreich: {s.OcrSuccessCount:N0} · OCR fehlend/fehlgeschlagen: {s.OcrFailureCount:N0} · Draw.io: {s.DrawIoCount:N0}\nLetzter erfolgreicher Abgleich: {(s.LastSuccessUtc?.ToLocalTime().ToString("dd.MM.yyyy HH:mm") ?? "noch nie")}\nStatus: {status}";
         }
     }
     private readonly SemaphoreSlim _updateCheckGate = new(1, 1);
@@ -300,6 +301,7 @@ public class SettingsViewModel : ObservableObject
         _ai = ai;
         _aiKnowledge = aiKnowledge;
         _aiKnowledge.StatusChanged += (_, _) => Application.Current?.Dispatcher.BeginInvoke(new Action(() => Raise(nameof(AiKnowledgeStatus))));
+        ServiceLocator.WikiAiKnowledge.StatusChanged += (_, _) => Application.Current?.Dispatcher.BeginInvoke(new Action(() => Raise(nameof(WikiAiIndexStatus))));
         if (_aiKnowledge.StandardKnowledge != null) _aiKnowledge.StandardKnowledge.StatusChanged += (_, _) => Application.Current?.Dispatcher.BeginInvoke(new Action(() => Raise(nameof(StandardKnowledgeStatus))));
         _ai.LocalServer.StateChanged += (_, _) => Application.Current?.Dispatcher.BeginInvoke(new Action(RaiseAiState));
         _tasksChanged = tasksChanged;

@@ -13,6 +13,7 @@ public sealed class AiKnowledgeSearchService
     public const int DefaultTopN = 4;
     private const int MaximumQueryTerms = 12;
     private static readonly Regex TokenPattern = new(@"[\p{L}\p{N}_-]{2,}", RegexOptions.Compiled);
+    private static readonly Regex TokenPartPattern = new(@"[\p{L}\p{N}]{2,}", RegexOptions.Compiled);
     private static readonly HashSet<string> StopWords = new(StringComparer.OrdinalIgnoreCase)
     {
         "der", "die", "das", "den", "dem", "des", "ein", "eine", "einer", "einen", "einem",
@@ -83,15 +84,16 @@ public sealed class AiKnowledgeSearchService
                 candidates.Add(new(content, relativePath, category, file, reader.IsDBNull(4) ? null : reader.GetInt32(4), relevance, Enum.Parse<AiKnowledgeSourceKind>(reader.GetString(5))));
         }
 
-        var ordered = candidates.OrderByDescending(x => x.Score).ThenBy(x => x.RelativePath, StringComparer.OrdinalIgnoreCase).ToArray();
+        var ordered = candidates.OrderByDescending(x => x.Score)
+            .ThenBy(x => x.SourceKind == AiKnowledgeSourceKind.User ? 0 : 1)
+            .ThenBy(x => x.RelativePath, StringComparer.OrdinalIgnoreCase).ToArray();
         var firstPerDocument = ordered.GroupBy(x => $"{x.SourceKind}:{x.RelativePath}", StringComparer.OrdinalIgnoreCase).Select(group => group.First());
         var result = firstPerDocument.Concat(ordered.Where(x => !firstPerDocument.Contains(x))).Take(Math.Max(0, topN)).ToArray();
         _logger.OperationalInfo($"[AI Knowledge] Query completed candidates={candidateCount} accepted={result.Length} durationMs={watch.ElapsedMilliseconds}");
         return result;
     }
 
-    internal static string[] NormalizeTerms(string question) => TokenPattern.Matches(question)
-        .Select(match => match.Value.Replace("\"", ""))
+    internal static string[] NormalizeTerms(string question) => ExpandTokens(question)
         .Where(term => !StopWords.Contains(term))
         .Distinct(StringComparer.OrdinalIgnoreCase)
         .Take(MaximumQueryTerms)
@@ -141,14 +143,24 @@ public sealed class AiKnowledgeSearchService
     }
 
     private static bool IsSpecific(string term) => !GenericTechnicalTerms.Contains(term) && (KnownSpecificTerms.Contains(term)
+        || term.Contains('_') || term.Contains('-')
         || Regex.IsMatch(term, @"^0x[0-9a-f]{6,}$", RegexOptions.IgnoreCase)
         || term.Any(char.IsDigit)
         || (term.Length >= 5 && term.All(character => !char.IsLetter(character) || char.IsUpper(character)))
         || (term.Length >= 6 && term.Any(char.IsUpper) && term.Any(char.IsLower)));
 
-    private static HashSet<string> Tokens(string value) => Regex.Matches(value, @"[\p{L}\p{N}]+")
-        .Select(match => match.Value)
-        .ToHashSet(StringComparer.OrdinalIgnoreCase);
+    private static IEnumerable<string> ExpandTokens(string value)
+    {
+        foreach (Match match in TokenPattern.Matches(value))
+        {
+            yield return match.Value;
+            if (!match.Value.Contains('_') && !match.Value.Contains('-')) continue;
+            foreach (Match part in TokenPartPattern.Matches(match.Value))
+                if (!part.Value.Equals(match.Value, StringComparison.OrdinalIgnoreCase)) yield return part.Value;
+        }
+    }
+
+    private static HashSet<string> Tokens(string value) => ExpandTokens(value).ToHashSet(StringComparer.OrdinalIgnoreCase);
 }
 
 public sealed record AiKnowledgeContext(string Text, IReadOnlyList<AiKnowledgeMatch> IncludedMatches);
@@ -200,13 +212,29 @@ public static class AiCombinedContextBuilder
             Erfinde keine Quellen oder internen Fakten.
 
             """;
-        var selected = matches.OrderByDescending(x => x.Score).Take(AiKnowledgeContextBuilder.MaximumChunks).ToArray();
+        var materialized = matches
+            .DistinctBy(x => new { x.SourceType, x.DisplaySource, x.Title, x.SectionTitle, x.AttachmentName, x.PageNumber })
+            .ToArray();
+        var wiki = materialized.Where(x => x.SourceType == AiKnowledgeSourceType.Wiki).OrderByDescending(x => x.Score).Take(3).ToArray();
+        var local = materialized.Where(x => x.SourceType == AiKnowledgeSourceType.LocalFiles).OrderByDescending(x => x.Score).ToArray();
+        var selected = wiki.Take(1)
+            .Concat(local.Take(1))
+            .Concat(wiki.Skip(1).Concat(local.Skip(1)).OrderByDescending(x => x.Score))
+            .Take(AiKnowledgeContextBuilder.MaximumChunks).ToArray();
         if (selected.Length == 0) return new(string.Empty, Array.Empty<AiRetrievalMatch>());
         var text = instruction; var included = new List<AiRetrievalMatch>();
-        foreach (var match in selected)
+        for (var index = 0; index < selected.Length; index++)
         {
-            var label = match.SourceType == AiKnowledgeSourceType.Wiki ? $"Wiki: {match.DisplaySource} · {match.Title}" : match.DisplaySource;
-            var header = $"Quelle: {label}\n---\n"; var available = AiKnowledgeContextBuilder.MaximumContextCharacters - text.Length - header.Length - 6;
+            var match = selected[index];
+            var label = match.SourceType == AiKnowledgeSourceType.Wiki
+                ? $"PRIORITÄT 1 – WIKI\nQuelle: Wiki · {match.DisplaySource} · {match.SpaceKey} · {match.Title}{(string.IsNullOrWhiteSpace(match.SectionTitle) ? string.Empty : $" · {match.SectionTitle}")}{(string.IsNullOrWhiteSpace(match.AttachmentName) ? string.Empty : $"\nAttachment: {match.AttachmentName}")}{(match.PageNumber is int wikiPage ? $" · Seite {wikiPage}" : string.Empty)}"
+                : $"PRIORITÄT 2 – LOKALE KNOWLEDGE\nQuelle: {match.DisplaySource}";
+            var header = $"{label}\n---\n";
+            var pendingLocal = selected.Skip(index + 1).FirstOrDefault(x => x.SourceType == AiKnowledgeSourceType.LocalFiles);
+            var reservedForLocal = match.SourceType == AiKnowledgeSourceType.Wiki && pendingLocal is not null
+                ? $"PRIORITÄT 2 – LOKALE KNOWLEDGE\nQuelle: {pendingLocal.DisplaySource}\n---\n".Length + Math.Min(pendingLocal.Content.Length, 400) + 6
+                : 0;
+            var available = AiKnowledgeContextBuilder.MaximumContextCharacters - text.Length - header.Length - 6 - reservedForLocal;
             if (available <= 0) break; text += header + match.Content[..Math.Min(match.Content.Length, available)] + "\n---\n"; included.Add(match);
         }
         return new(text[..Math.Min(text.Length, AiKnowledgeContextBuilder.MaximumContextCharacters)], included);
