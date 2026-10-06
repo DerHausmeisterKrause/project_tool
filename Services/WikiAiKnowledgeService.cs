@@ -147,12 +147,12 @@ public sealed class WikiAiKnowledgeService : IDisposable
 
     public async Task<IReadOnlyList<AiRetrievalMatch>> SearchAsync(string question, int limit = 10, CancellationToken token = default)
     {
-        var terms = AiKnowledgeSearchService.NormalizeTerms(question); if (terms.Length == 0 || !File.Exists(IndexPath)) return Array.Empty<AiRetrievalMatch>();
+        var query = AiKnowledgeSearchService.AnalyzeQuery(question); var terms = query.SearchTerms; if (terms.Length == 0 || !File.Exists(IndexPath)) return Array.Empty<AiRetrievalMatch>();
         var eligible = _settings.Current.WikiSources.Where(IsIndexable)
             .Where(source => string.Equals(GetFingerprint(source.Id), WikiScopePolicy.Fingerprint(source), StringComparison.Ordinal))
             .ToDictionary(source => source.Id, StringComparer.Ordinal);
         if (eligible.Count == 0) return Array.Empty<AiRetrievalMatch>();
-        var queryEvaluation = AiKnowledgeSearchService.EvaluateRelevance(terms, string.Empty, string.Empty, string.Empty);
+        var queryEvaluation = AiKnowledgeSearchService.EvaluateRelevance(query, string.Empty, string.Empty, string.Empty);
         var watch = Stopwatch.StartNew(); var result = new List<(AiRetrievalMatch Match, RelevanceEvaluation Evaluation)>(); var candidates = 0; var rejectedAnchorMismatch = 0;
         await using var db = Open(true); await using var cmd = db.CreateCommand();
         var sourceParameters = eligible.Keys.Select((_, index) => $"$s{index}").ToArray();
@@ -166,7 +166,7 @@ public sealed class WikiAiKnowledgeService : IDisposable
             if (!WikiScopePolicy.AllowsSpace(source, space)) continue;
             var content = reader.GetString(0); var title = reader.GetString(1); var section = reader.GetString(7); var kind=Enum.Parse<WikiKnowledgeContentKind>(reader.GetString(8));
             var hierarchy = reader.GetString(11); var parentTitle = reader.IsDBNull(12) ? string.Empty : reader.GetString(12);
-            var evaluation = AiKnowledgeSearchService.EvaluateRelevance(terms, content, title, section + " " + space, hierarchy, parentTitle);
+            var evaluation = AiKnowledgeSearchService.EvaluateRelevance(query, content, title, section + " " + space, hierarchy, parentTitle);
             if (!evaluation.HasAnchorMatch) { rejectedAnchorMismatch++; continue; }
             var passesQualityGate = evaluation.IsRelevant && (evaluation.HasSpecificExactMatch || evaluation.HasStrongTitleOrSectionMatch
                 || evaluation.MeaningfulCoverage >= .75 || evaluation.MeaningfulTermCount == 0);

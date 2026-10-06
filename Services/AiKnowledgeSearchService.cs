@@ -13,6 +13,8 @@ internal sealed record RelevanceEvaluation(double Score, int MatchedTerms, int M
 {
     public bool IsRelevant => Score > 0;
 }
+internal sealed record KnowledgeQueryAnalysis(string[] SearchTerms, string[] OriginalTerms, IReadOnlyList<string> Anchors,
+    string? PrimaryAnchor, int HardAnchorCount, HashSet<string> Domains);
 
 public sealed class AiKnowledgeSearchService
 {
@@ -40,7 +42,8 @@ public sealed class AiKnowledgeSearchService
         "user", "benutzer", "konto", "passwort", "kennwort", "benutzerpasswort", "safe", "lizenz", "server", "client", "dienst", "service",
         "einstellung", "einstellungen", "konfiguration", "konfigurieren", "einspielen", "installieren", "hinzufügen", "anlegen", "entsperren", "entsperre",
         "sperren", "löschen", "ändern", "zurücksetzen", "zurück", "öffnen", "anmelden", "zugriff", "problem", "fehler", "proxy", "intern", "interner",
-        "interne", "prüfen", "prüfe", "frei", "freien", "speicher", "beheben", "behebe", "setzen", "setze", "drucker", "meldet"
+        "interne", "prüfen", "prüfe", "frei", "freien", "speicher", "beheben", "behebe", "setzen", "setze", "drucker", "meldet",
+        "bedeutet", "funktioniert", "problembehebung", "möglichkeit", "information", "informationen"
     };
     private static readonly HashSet<string> GenericAcronyms = new(StringComparer.OrdinalIgnoreCase)
     { "IT", "KI", "AI", "PC", "PDF", "URL", "API" };
@@ -75,6 +78,7 @@ public sealed class AiKnowledgeSearchService
         }
 
         var watch = Stopwatch.StartNew();
+        var query = AnalyzeQuery(question);
         await using var db = new SqliteConnection($"Data Source={_indexPath};Mode=ReadOnly");
         await db.OpenAsync(ct);
         await using var cmd = db.CreateCommand();
@@ -96,7 +100,7 @@ public sealed class AiKnowledgeSearchService
             var relativePath = reader.GetString(1);
             var category = reader.GetString(2);
             var file = reader.GetString(3);
-            var relevance = CalculateRelevance(terms, content, file, category);
+            var relevance = EvaluateRelevance(query, content, file, category).Score;
             if (relevance > 0)
                 candidates.Add(new(content, relativePath, category, file, reader.IsDBNull(4) ? null : reader.GetInt32(4), relevance, Enum.Parse<AiKnowledgeSourceKind>(reader.GetString(5))));
         }
@@ -117,20 +121,24 @@ public sealed class AiKnowledgeSearchService
         .ToArray();
 
     internal static double CalculateRelevance(IReadOnlyList<string> terms, string content, string titleOrFile, string category)
-        => EvaluateRelevance(terms, content, titleOrFile, category).Score;
+        => EvaluateRelevance(AnalyzeTerms(terms), content, titleOrFile, category).Score;
 
     internal static RelevanceEvaluation EvaluateRelevance(IReadOnlyList<string> terms, string content, string titleOrFile, string category,
         string hierarchyPath = "", string parentTitle = "")
+        => EvaluateRelevance(AnalyzeTerms(terms), content, titleOrFile, category, hierarchyPath, parentTitle);
+
+    internal static RelevanceEvaluation EvaluateRelevance(KnowledgeQueryAnalysis query, string content, string titleOrFile, string category,
+        string hierarchyPath = "", string parentTitle = "")
     {
+        var terms = query.SearchTerms;
         var contentTokens = Tokens(content); var titleTokens = Tokens(titleOrFile); var categoryTokens = Tokens(category);
         var hierarchyTokens = Tokens(hierarchyPath).Where(term => !GenericHierarchyTerms.Contains(term)).ToHashSet(StringComparer.OrdinalIgnoreCase);
         var parentTokens = Tokens(parentTitle).Where(term => !GenericHierarchyTerms.Contains(term)).ToHashSet(StringComparer.OrdinalIgnoreCase);
-        var anchors = AnalyzeEntityAnchors(terms);
-        var anchorMatch = anchors.Primary is null || MatchesAnchor(anchors.Primary, content, titleOrFile, category, hierarchyPath, parentTitle);
-        if (!anchorMatch) return new(0, 0, 0, 0, 0, false, false, anchors.Count, anchors.HardCount, false);
-        var queryDomains = DetectDomains(terms);
+        var anchorMatch = query.PrimaryAnchor is null || MatchesAnchor(query.PrimaryAnchor, content, titleOrFile, category, hierarchyPath, parentTitle);
+        if (!anchorMatch) return new(0, 0, 0, 0, 0, false, false, query.Anchors.Count, query.HardAnchorCount, false);
+        var queryDomains = query.Domains;
         var documentDomains = DetectDomains(contentTokens.Concat(titleTokens).Concat(categoryTokens).Concat(hierarchyTokens));
-        if (queryDomains.Count > 0 && documentDomains.Count > 0 && !queryDomains.Overlaps(documentDomains)) return new(0, 0, 0, 0, 0, false, false, anchors.Count, anchors.HardCount, true);
+        if (queryDomains.Count > 0 && documentDomains.Count > 0 && !queryDomains.Overlaps(documentDomains)) return new(0, 0, 0, 0, 0, false, false, query.Anchors.Count, query.HardAnchorCount, true);
         var meaningfulTerms = terms.Where(term => !GenericTechnicalTerms.Contains(term)).ToArray();
         var matched = 0; var meaningfulMatches = 0; var symptomMatches = 0; var specificMatch = false; var strongMetadataMatch = false; var score = 0d;
         foreach (var term in terms)
@@ -144,7 +152,7 @@ public sealed class AiKnowledgeSearchService
             if (GenericSymptoms.Contains(term)) symptomMatches++;
             if (specific) specificMatch = true;
             if (!GenericTechnicalTerms.Contains(term) && (inTitle || inCategory || inHierarchy)) strongMetadataMatch = true;
-            var anchorBonus = anchors.Values.Contains(term) ? (inTitle ? 6 : inParent ? 5 : inCategory ? 4 : inHierarchy ? 3 : inContent ? 2 : 0) : 0;
+            var anchorBonus = query.Anchors.Contains(term) ? (inTitle ? 6 : inParent ? 5 : inCategory ? 4 : inHierarchy ? 3 : inContent ? 2 : 0) : 0;
             score += (inContent ? 2 : 0) + (inTitle ? 4 : 0) + (inCategory ? 3 : 0) + (inParent ? 3 : inHierarchy ? 2 : 0) + (specific ? 6 : 0) + anchorBonus;
         }
 
@@ -155,31 +163,47 @@ public sealed class AiKnowledgeSearchService
             // A clearly identified domain may combine with a symptom ("Windows PC langsam").
             // The symptom alone, or a conflicting domain, can never qualify a document.
             var matchingDomainAndSymptom = queryDomains.Count > 0 && queryDomains.Overlaps(documentDomains) && symptomMatches > 0;
-            if ((meaningfulTerms.Length == 0 || meaningfulMatches == 0) && !matchingDomainAndSymptom) return new(0, matched, meaningfulMatches, meaningfulTerms.Length, 0, false, strongMetadataMatch, anchors.Count, anchors.HardCount, true);
-            if (meaningfulTerms.Length == 1 && !strongMetadataMatch) return new(0, matched, meaningfulMatches, 1, meaningfulMatches, false, false, anchors.Count, anchors.HardCount, true);
+            if ((meaningfulTerms.Length == 0 || meaningfulMatches == 0) && !matchingDomainAndSymptom) return new(0, matched, meaningfulMatches, meaningfulTerms.Length, 0, false, strongMetadataMatch, query.Anchors.Count, query.HardAnchorCount, true);
+            if (meaningfulTerms.Length == 1 && !strongMetadataMatch) return new(0, matched, meaningfulMatches, 1, meaningfulMatches, false, false, query.Anchors.Count, query.HardAnchorCount, true);
             if (meaningfulTerms.Length > 1 && (meaningfulMatches < 2 || (double)meaningfulMatches / meaningfulTerms.Length < .5))
-                return new(0, matched, meaningfulMatches, meaningfulTerms.Length, (double)meaningfulMatches / meaningfulTerms.Length, false, strongMetadataMatch, anchors.Count, anchors.HardCount, true);
+                return new(0, matched, meaningfulMatches, meaningfulTerms.Length, (double)meaningfulMatches / meaningfulTerms.Length, false, strongMetadataMatch, query.Anchors.Count, query.HardAnchorCount, true);
         }
 
         var meaningfulCoverage = meaningfulTerms.Length == 0 ? 0 : (double)meaningfulMatches / meaningfulTerms.Length;
         return new(score + (double)matched / terms.Count * 4 + meaningfulCoverage * 6, matched, meaningfulMatches,
-            meaningfulTerms.Length, meaningfulCoverage, specificMatch, strongMetadataMatch, anchors.Count, anchors.HardCount, true);
+            meaningfulTerms.Length, meaningfulCoverage, specificMatch, strongMetadataMatch, query.Anchors.Count, query.HardAnchorCount, true);
     }
 
-    internal static bool HasEntityAnchors(string question) => AnalyzeEntityAnchors(NormalizeTerms(question)).Count > 0;
+    internal static bool HasEntityAnchors(string question) => AnalyzeQuery(question).Anchors.Count > 0;
 
-    private static EntityAnchors AnalyzeEntityAnchors(IReadOnlyList<string> terms)
+    internal static KnowledgeQueryAnalysis AnalyzeQuery(string question)
     {
-        var hard = terms.Where(IsHardAnchor).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
-        var soft = terms.Where(term => !StopWords.Contains(term) && !GenericTechnicalTerms.Contains(term) && !GenericIntentTerms.Contains(term) && !GenericHierarchyTerms.Contains(term))
+        var originals = TokenPattern.Matches(question).Cast<Match>().Select(match => match.Value).Where(term => !StopWords.Contains(term))
+            .Distinct(StringComparer.OrdinalIgnoreCase).Take(MaximumQueryTerms).ToArray();
+        return CreateAnalysis(NormalizeTerms(question), originals);
+    }
+
+    private static KnowledgeQueryAnalysis AnalyzeTerms(IReadOnlyList<string> terms)
+    {
+        var derived = terms.Where(term => terms.Any(parent => (parent.Contains('_') || parent.Contains('-')) && !parent.Equals(term, StringComparison.OrdinalIgnoreCase)
+            && TokenPartPattern.Matches(parent).Cast<Match>().Any(part => part.Value.Equals(term, StringComparison.OrdinalIgnoreCase)))).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        return CreateAnalysis(terms.ToArray(), terms.Where(term => !derived.Contains(term)).ToArray());
+    }
+
+    private static KnowledgeQueryAnalysis CreateAnalysis(string[] searchTerms, string[] originalTerms)
+    {
+        var hard = originalTerms.Where(IsHardAnchor).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+        var soft = originalTerms.Where(term => !StopWords.Contains(term) && !GenericTechnicalTerms.Contains(term) && !GenericIntentTerms.Contains(term) && !GenericHierarchyTerms.Contains(term))
             .Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
-        var phrases = terms.Zip(terms.Skip(1), (first, second) => (first, second))
+        var phrases = originalTerms.Zip(originalTerms.Skip(1), (first, second) => (first, second))
             .Where(pair => pair.first.Length >= 3 && pair.second.Length >= 3 && char.IsUpper(pair.first[0]) && char.IsUpper(pair.second[0])
-                && !GenericTechnicalTerms.Contains(pair.first) && !GenericTechnicalTerms.Contains(pair.second))
+                && !GenericTechnicalTerms.Contains(pair.first) && !GenericTechnicalTerms.Contains(pair.second)
+                && ((!GenericIntentTerms.Contains(pair.first) && !GenericIntentTerms.Contains(pair.second)) || soft.Length == 0))
             .Select(pair => $"{pair.first} {pair.second}").Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+        var strongHard = hard.Where(term => !term.All(char.IsDigit) && !(term.Length <= 3 && term.Any(char.IsDigit))).ToArray();
         var values = hard.Concat(phrases).Concat(soft).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
-        var primary = (soft.Length >= 2 ? phrases.FirstOrDefault() : null) ?? soft.FirstOrDefault() ?? phrases.FirstOrDefault() ?? hard.FirstOrDefault();
-        return new(values, primary, hard.Length);
+        var primary = strongHard.FirstOrDefault() ?? phrases.FirstOrDefault() ?? soft.FirstOrDefault() ?? hard.FirstOrDefault();
+        return new(searchTerms, originalTerms, values, primary, hard.Length, DetectDomains(searchTerms));
     }
 
     private static bool MatchesAnchor(string anchor, params string[] values)
@@ -195,11 +219,6 @@ public sealed class AiKnowledgeSearchService
     private static bool IsHardAnchor(string term) => IsHardAcronym(term) || term.Contains('_') || term.Contains('-') || term.Any(char.IsDigit)
         || (term.Length >= 6 && term.Skip(1).Any(char.IsUpper) && term.Any(char.IsLower))
         || (term.Length > 8 && !GenericAcronyms.Contains(term) && term.All(character => !char.IsLetter(character) || char.IsUpper(character)) && term.Any(char.IsLetter));
-
-    private sealed record EntityAnchors(IReadOnlyList<string> Values, string? Primary, int HardCount)
-    {
-        public int Count => Values.Count;
-    }
 
     private static HashSet<string> DetectDomains(IEnumerable<string> tokens)
     {

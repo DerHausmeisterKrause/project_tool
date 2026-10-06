@@ -227,6 +227,28 @@ public sealed class AiKnowledgeTests : IDisposable
     public void IsSpecific_DoesNotTreatGenericAcronymsAsEntityIdentifiers(string term)
         => Assert.False(AiKnowledgeSearchService.IsSpecific(term));
 
+    [Theory]
+    [InlineData("USER_UNIQUE4711", "USER_UNIQUE4711")]
+    [InlineData("PLENARO-OCR-4711", "PLENARO-OCR-4711")]
+    [InlineData("Was bedeutet 0x80070035?", "0x80070035")]
+    public void QueryAnalysis_UsesOriginalCompositeOrErrorCodeAsPrimaryAnchor(string question, string expectedAnchor)
+    {
+        var analysis = AiKnowledgeSearchService.AnalyzeQuery(question);
+
+        Assert.Equal(expectedAnchor, analysis.PrimaryAnchor);
+        Assert.Contains(expectedAnchor, analysis.OriginalTerms, StringComparer.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void QueryAnalysis_KeepsDerivedCompositePartsForSearchButNotAnchorPhrases()
+    {
+        var analysis = AiKnowledgeSearchService.AnalyzeQuery("USER_UNIQUE4711");
+
+        Assert.Contains("USER", analysis.SearchTerms, StringComparer.OrdinalIgnoreCase);
+        Assert.Contains("UNIQUE4711", analysis.SearchTerms, StringComparer.OrdinalIgnoreCase);
+        Assert.DoesNotContain("USER_UNIQUE4711 USER", analysis.Anchors, StringComparer.OrdinalIgnoreCase);
+    }
+
     [Fact]
     public async Task Search_EntityAnchorRejectsGenericLocalLicenseDocument()
     {
