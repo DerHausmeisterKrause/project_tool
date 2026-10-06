@@ -170,7 +170,7 @@ public sealed class AiKnowledgeSearchService
         }
 
         var meaningfulCoverage = meaningfulTerms.Length == 0 ? 0 : (double)meaningfulMatches / meaningfulTerms.Length;
-        return new(score + (double)matched / terms.Count * 4 + meaningfulCoverage * 6, matched, meaningfulMatches,
+        return new(score + (double)matched / terms.Length * 4 + meaningfulCoverage * 6, matched, meaningfulMatches,
             meaningfulTerms.Length, meaningfulCoverage, specificMatch, strongMetadataMatch, query.Anchors.Count, query.HardAnchorCount, true);
     }
 
