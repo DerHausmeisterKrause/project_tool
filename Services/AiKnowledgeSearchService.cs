@@ -222,6 +222,7 @@ public static class AiCombinedContextBuilder
             .Concat(wiki.Skip(1).Concat(local.Skip(1)).OrderByDescending(x => x.Score))
             .Take(AiKnowledgeContextBuilder.MaximumChunks).ToArray();
         if (selected.Length == 0) return new(string.Empty, Array.Empty<AiRetrievalMatch>());
+        const string separator = "\n---\n";
         var text = instruction; var included = new List<AiRetrievalMatch>();
         for (var index = 0; index < selected.Length; index++)
         {
@@ -232,10 +233,10 @@ public static class AiCombinedContextBuilder
             var header = $"{label}\n---\n";
             var pendingLocal = selected.Skip(index + 1).FirstOrDefault(x => x.SourceType == AiKnowledgeSourceType.LocalFiles);
             var reservedForLocal = match.SourceType == AiKnowledgeSourceType.Wiki && pendingLocal is not null
-                ? $"PRIORITÄT 2 – LOKALE KNOWLEDGE\nQuelle: {pendingLocal.DisplaySource}\n---\n".Length + Math.Min(pendingLocal.Content.Length, 400) + 6
+                ? $"PRIORITÄT 2 – LOKALE KNOWLEDGE\nQuelle: {pendingLocal.DisplaySource}\n---\n".Length + Math.Min(pendingLocal.Content.Length, 400) + separator.Length
                 : 0;
-            var available = AiKnowledgeContextBuilder.MaximumContextCharacters - text.Length - header.Length - 6 - reservedForLocal;
-            if (available <= 0) break; text += header + match.Content[..Math.Min(match.Content.Length, available)] + "\n---\n"; included.Add(match);
+            var available = AiKnowledgeContextBuilder.MaximumContextCharacters - text.Length - header.Length - separator.Length - reservedForLocal;
+            if (available <= 0) break; text += header + match.Content[..Math.Min(match.Content.Length, available)] + separator; included.Add(match);
         }
         return new(text[..Math.Min(text.Length, AiKnowledgeContextBuilder.MaximumContextCharacters)], included);
     }
