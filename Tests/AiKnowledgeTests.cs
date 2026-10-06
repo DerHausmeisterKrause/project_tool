@@ -73,6 +73,58 @@ public sealed class AiKnowledgeTests : IDisposable
         Assert.Equal(AiKnowledgeSourceKind.Standard, Assert.Single(await search.SearchAsync("STANDARD_UNIQUE4712")).SourceKind);
     }
 
+    [Theory]
+    [InlineData("USER_UNIQUE4711 eigenes Wissen", "USER_UNIQUE4711")]
+    [InlineData("Znuny request-budget-exceeded", "request-budget-exceeded")]
+    [InlineData("Windows Fehler 0x80070035", "0x80070035")]
+    public async Task Search_FindsExactTechnicalCompositeIdentifiers(string content, string query)
+    {
+        var search = await CreateSearchAsync(("Technik/identifier.md", content));
+
+        Assert.Single(await search.SearchAsync(query));
+    }
+
+    [Fact]
+    public async Task Search_PrefersUserKnowledgeOnlyWhenScoresAreEqual()
+    {
+        var index = new AiKnowledgeIndexService(_logger, localAppData: _root);
+        Directory.CreateDirectory(index.KnowledgePath); Directory.CreateDirectory(index.DefaultKnowledgePath);
+        await File.WriteAllTextAsync(Path.Combine(index.KnowledgePath, "same.md"), "EXACT_IDENTIFIER4711");
+        await File.WriteAllTextAsync(Path.Combine(index.DefaultKnowledgePath, "same.md"), "EXACT_IDENTIFIER4711");
+        await index.IndexAsync();
+
+        var results = await new AiKnowledgeSearchService(index.IndexPath, _logger).SearchAsync("EXACT_IDENTIFIER4711", 2);
+
+        Assert.Equal(2, results.Count);
+        Assert.Equal(AiKnowledgeSourceKind.User, results[0].SourceKind);
+        Assert.Equal(AiKnowledgeSourceKind.Standard, results[1].SourceKind);
+    }
+
+    [Fact]
+    public async Task FailedDocumentReplacement_RollsBackAndKeepsPreviousIndexEntry()
+    {
+        var index = new AiKnowledgeIndexService(_logger, localAppData: _root);
+        Directory.CreateDirectory(index.KnowledgePath);
+        var path = Path.Combine(index.KnowledgePath, "transaction.md");
+        await File.WriteAllTextAsync(path, "OLD_IDENTIFIER4711");
+        await index.IndexAsync();
+        await using (var db = new SqliteConnection($"Data Source={index.IndexPath}"))
+        {
+            await db.OpenAsync();
+            await using var command = db.CreateCommand();
+            command.CommandText = "CREATE TRIGGER reject_new_chunk BEFORE INSERT ON knowledge_chunks BEGIN SELECT RAISE(ABORT, 'simulated failure'); END;";
+            await command.ExecuteNonQueryAsync();
+        }
+        await File.WriteAllTextAsync(path, "NEW_IDENTIFIER4712 with changed length");
+        File.SetLastWriteTimeUtc(path, DateTime.UtcNow.AddSeconds(1));
+
+        await index.IndexAsync();
+
+        var search = new AiKnowledgeSearchService(index.IndexPath, _logger);
+        Assert.Single(await search.SearchAsync("OLD_IDENTIFIER4711"));
+        Assert.Empty(await search.SearchAsync("NEW_IDENTIFIER4712"));
+    }
+
     [Fact]
     public void Context_HonorsCharacterBudgetAndTopNConstant()
     {
@@ -92,6 +144,33 @@ public sealed class AiKnowledgeTests : IDisposable
         Assert.True(context.IncludedMatches.Count <= AiKnowledgeContextBuilder.MaximumChunks);
         Assert.Contains(context.IncludedMatches, x => x.SourceType == AiKnowledgeSourceType.Wiki);
         Assert.Contains(context.IncludedMatches, x => x.SourceType == AiKnowledgeSourceType.LocalFiles);
+        Assert.Equal(AiKnowledgeSourceType.Wiki, context.IncludedMatches[0].SourceType);
+    }
+
+    [Fact]
+    public void CombinedContext_ReservesLocalSpaceWhenTopWikiChunkIsVeryLarge()
+    {
+        var context = AiCombinedContextBuilder.Prepare([
+            new(AiKnowledgeSourceType.Wiki, new string('w', 10000), "Wiki", "Internes Confluence", null, 100),
+            new(AiKnowledgeSourceType.LocalFiles, new string('l', 1000), "Local", "local.md", null, 95)
+        ]);
+
+        Assert.Equal(new[] { AiKnowledgeSourceType.Wiki, AiKnowledgeSourceType.LocalFiles }, context.IncludedMatches.Select(x => x.SourceType));
+        Assert.True(context.Text.Length <= AiKnowledgeContextBuilder.MaximumContextCharacters);
+    }
+
+    [Theory]
+    [InlineData(AiKnowledgeSourceType.Wiki)]
+    [InlineData(AiKnowledgeSourceType.LocalFiles)]
+    public void CombinedContext_SingleSourceUsesSharedBudgetWithoutOtherSourceReservation(AiKnowledgeSourceType sourceType)
+    {
+        var context = AiCombinedContextBuilder.Prepare([
+            new(sourceType, new string('x', 10000), "Titel", "Quelle", null, 100)
+        ]);
+
+        Assert.Single(context.IncludedMatches);
+        Assert.Equal(sourceType, context.IncludedMatches[0].SourceType);
+        Assert.Equal(AiKnowledgeContextBuilder.MaximumContextCharacters, context.Text.Length);
     }
 
     [Theory]
@@ -113,6 +192,98 @@ public sealed class AiKnowledgeTests : IDisposable
         Assert.DoesNotContain(terms, term => new[] { "habe", "dieses", "meinem", "kann", "man", "dagegen", "machen" }.Contains(term, StringComparer.OrdinalIgnoreCase));
         Assert.Contains("pc", terms, StringComparer.OrdinalIgnoreCase);
         Assert.Contains("gpupdate", terms, StringComparer.OrdinalIgnoreCase);
+    }
+
+    [Theory]
+    [InlineData("Server")]
+    [InlineData("Drucker")]
+    [InlineData("Benutzer")]
+    [InlineData("Verbindung")]
+    [InlineData("Netzwerk")]
+    [InlineData("Confluence")]
+    public void IsSpecific_DoesNotTreatOrdinaryTitleCaseWordsAsIdentifiers(string term)
+        => Assert.False(AiKnowledgeSearchService.IsSpecific(term));
+
+    [Theory]
+    [InlineData("HTTP_500")]
+    [InlineData("KB-4711")]
+    [InlineData("srv-prod-01")]
+    [InlineData("TaskTool")]
+    [InlineData("AiKnowledgeIndex")]
+    [InlineData("0xABCDEF12")]
+    [InlineData("ABC123")]
+    [InlineData("PWS")]
+    [InlineData("SAP")]
+    [InlineData("OTRS")]
+    public void IsSpecific_RecognizesTechnicalIdentifiers(string term)
+        => Assert.True(AiKnowledgeSearchService.IsSpecific(term));
+
+    [Theory]
+    [InlineData("IT")]
+    [InlineData("PC")]
+    [InlineData("PDF")]
+    [InlineData("URL")]
+    [InlineData("API")]
+    public void IsSpecific_DoesNotTreatGenericAcronymsAsEntityIdentifiers(string term)
+        => Assert.False(AiKnowledgeSearchService.IsSpecific(term));
+
+    [Theory]
+    [InlineData("USER_UNIQUE4711", "USER_UNIQUE4711")]
+    [InlineData("PLENARO-OCR-4711", "PLENARO-OCR-4711")]
+    [InlineData("Was bedeutet 0x80070035?", "0x80070035")]
+    public void QueryAnalysis_UsesOriginalCompositeOrErrorCodeAsPrimaryAnchor(string question, string expectedAnchor)
+    {
+        var analysis = AiKnowledgeSearchService.AnalyzeQuery(question);
+
+        Assert.Equal(expectedAnchor, analysis.PrimaryAnchor);
+        Assert.Contains(expectedAnchor, analysis.OriginalTerms, StringComparer.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void QueryAnalysis_KeepsDerivedCompositePartsForSearchButNotAnchorPhrases()
+    {
+        var analysis = AiKnowledgeSearchService.AnalyzeQuery("USER_UNIQUE4711");
+
+        Assert.Contains("USER", analysis.SearchTerms, StringComparer.OrdinalIgnoreCase);
+        Assert.Contains("UNIQUE4711", analysis.SearchTerms, StringComparer.OrdinalIgnoreCase);
+        Assert.DoesNotContain("USER_UNIQUE4711 USER", analysis.Anchors, StringComparer.OrdinalIgnoreCase);
+    }
+
+    [Theory]
+    [InlineData("PWS Benutzer entsperren")]
+    [InlineData("Password Safe Kennwort zurücksetzen")]
+    [InlineData("PasswordSafe User entsperren")]
+    [InlineData("Password-Safe Benutzer entsperren")]
+    [InlineData("Passwort Safe Kennwort zurücksetzen")]
+    public void QueryAnalysis_ResolvesPasswordSecureAliases(string question)
+    {
+        var analysis = AiKnowledgeSearchService.AnalyzeQuery(question);
+
+        Assert.Equal("Password Secure", analysis.Entity);
+        Assert.Contains("Password Secure", analysis.EntityAliases!);
+        Assert.NotEmpty(analysis.IntentTerms!);
+    }
+
+    [Fact]
+    public void QueryAnalysis_UsesAliasesForRetrievalButNotSemanticCoverage()
+    {
+        var analysis = AiKnowledgeSearchService.AnalyzeQuery("Password Secure Kennwort zurücksetzen");
+
+        Assert.DoesNotContain("PWS", analysis.SearchTerms, StringComparer.OrdinalIgnoreCase);
+        Assert.Contains("PWS", analysis.RetrievalTerms, StringComparer.OrdinalIgnoreCase);
+        Assert.Equal("zurücksetzen", Assert.Single(analysis.ActionTerms!));
+        Assert.Equal("Kennwort", Assert.Single(analysis.SubjectTerms!));
+    }
+
+    [Fact]
+    public async Task Search_EntityAnchorRejectsGenericLocalLicenseDocument()
+    {
+        var search = await CreateSearchAsync(
+            ("Pentaho/licensing.md", "Pentaho Lizenz am Server einspielen"),
+            ("Windows/licensing.md", "Windows Server Lizenz einspielen"));
+
+        var match = Assert.Single(await search.SearchAsync("Pentaho Lizenz am Server einspielen"));
+        Assert.Equal("Pentaho\\licensing.md", match.RelativePath);
     }
 
     [Fact]
