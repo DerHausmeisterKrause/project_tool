@@ -1,5 +1,6 @@
 using System.Linq;
 using System.Collections.ObjectModel;
+using System.IO;
 using System.Text.RegularExpressions;
 using System.Windows;
 using System.Windows.Threading;
@@ -595,7 +596,6 @@ public class TodayViewModel : ObservableObject
         _outlookCalendar = outlookCalendar;
         _ticketSystem = ticketSystem;
         _textRewrite = textRewrite;
-        if (_textRewrite != null) _textRewrite.AvailabilityChanged += (_, _) => Application.Current?.Dispatcher.BeginInvoke(new Action(() => { Raise(nameof(CanRewriteTicketReply)); Raise(nameof(RewriteTicketReplyToolTip)); RewriteTicketReplyCommand.RaiseCanExecuteChanged(); }));
         _ticketSystem.CandidateTicketsChanged += OnCandidateTicketsChanged;
         _homeOffice = homeOffice;
         _homeOffice.Changed += Refresh;
@@ -653,6 +653,8 @@ public class TodayViewModel : ObservableObject
         SendTicketReplyCommand = new RelayCommand(async () => await SendTicketReplyAsync(), () => IsTicketReplyMode && !IsSendingTicketReply && !IsRewritingTicketReply && !string.IsNullOrWhiteSpace(TicketReplyText) && !string.IsNullOrWhiteSpace(TicketReplyRecipient));
         RewriteTicketReplyCommand = new RelayCommand(async () => await RewriteTicketReplyAsync(), () => CanRewriteTicketReply);
         RestoreOriginalTicketReplyCommand = new RelayCommand(RestoreOriginalTicketReply, () => HasOriginalTicketReply && !IsRewritingTicketReply && IsTicketReplyMode);
+        if (_textRewrite != null)
+            _textRewrite.AvailabilityChanged += OnTextRewriteAvailabilityChanged;
 
         SelectTaskCommand = new RelayCommand<TaskItem>(task => SelectedTask = task, task => task != null);
         StartTaskCommand = new RelayCommand<TaskItem>(StartTaskFromCard);
@@ -1904,6 +1906,25 @@ public class TodayViewModel : ObservableObject
             TicketReplyRewriteStatus = "Die Antwort konnte nicht umformuliert werden. Dein ursprünglicher Text wurde nicht verändert.";
         }
         finally { IsRewritingTicketReply = false; }
+    }
+
+    private void OnTextRewriteAvailabilityChanged(object? sender, EventArgs args)
+    {
+        void Refresh()
+        {
+            Raise(nameof(CanRewriteTicketReply));
+            Raise(nameof(RewriteTicketReplyToolTip));
+            RewriteTicketReplyCommand.RaiseCanExecuteChanged();
+        }
+
+        var dispatcher = Application.Current?.Dispatcher;
+        if (dispatcher != null && !dispatcher.CheckAccess())
+        {
+            dispatcher.BeginInvoke(new Action(Refresh));
+            return;
+        }
+
+        Refresh();
     }
 
     private void RestoreOriginalTicketReply()
