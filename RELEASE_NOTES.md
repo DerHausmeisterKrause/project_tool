@@ -11,14 +11,15 @@
 - Die Aktualisierung einzelner Knowledge-Dokumente erfolgt transaktional, sodass ein zuvor funktionierender Indexeintrag bei Lese- oder Schreibfehlern erhalten bleibt.
 - Beim Aktivieren der Standard-Wissensbasis wurde ein doppelter unmittelbar aufeinanderfolgender Indexlauf entfernt.
 - Der Wiki-KI-Index ist strikt an aktivierte Quellen, den aktuellen Scope-Fingerprint und die konfigurierten Confluence-Spaces gebunden; veraltete Scope-Daten werden nicht mehr für Antworten verwendet.
-- Confluence-Seiten werden lokal strukturiert nach Abschnitten, Tabellen, Listen und Codeblöcken indexiert; Tabellen behalten ihre Spalten-/Zeilenzuordnung.
+- Confluence-Seiten werden lokal strukturiert nach vollständigen Abschnittspfaden, verschachtelten Überschriften, Makro-/Panel-Inhalten, Tabellen, Listen, Zitaten und Codeblöcken indexiert; Container werden ohne Textduplikate durchlaufen und Tabellen behalten ihre Spalten-/Zeilenzuordnung.
 - Wiki-Retrieval gruppiert Treffer auf Seitenebene, begrenzt Seiten und Chunks und verwirft relativ schwache Treffer statt den Kontext künstlich aufzufüllen.
 - Die Wiki-Suche bewertet aussagekräftige Trefferabdeckung sowie Titel und Abschnitte strenger und verwirft generische oder nur relativ beste, aber fachlich schwache Seiten.
 - Produkt- und Systembegriffe sowie technische Akronyme verankern Wiki- und lokale Knowledge-Treffer; systemspezifische Fragen verwenden keine Quellen, die lediglich allgemeine Begriffe wie Benutzer, Server, Lizenz oder Zugriff teilen, und erzeugen ohne passende interne Quelle einen ausdrücklichen Grounding-Hinweis.
 - Technische Composite-Identifier bleiben bei der Anchor-Analyse kanonisch; ihre für FTS und Scoring erzeugten Teilbegriffe können den exakten Identifier nicht mehr durch künstliche Entity-Phrasen verdrängen.
-- Wiki-Unterseiten erben beim Indexieren die Titel ihrer letzten Confluence-Vorfahren; Produkt- und Systemnamen aus Parent-/Ancestor-Seiten werden für Suche, Ranking, KI-Kontext und Quellenpfade berücksichtigt, ohne Inhalte der Elternseiten zu duplizieren.
+- Eine erweiterbare Entity-Alias-Auflösung führt Schreibweisen und Abkürzungen auf einen kanonischen Anwendungskontext zurück; Aliasvarianten erweitern nur die FTS-Kandidatensuche, während Abdeckung und Qualitätsprüfung auf den tatsächlichen Suchbegriffen sowie getrennten Aktions- und Objektbegriffen beruhen. Wiki-Treffer müssen sowohl zum Entity-Zweig als auch zur angefragten Aktion passen, bevor sie als Quelle verwendet werden.
+- Wiki-Unterseiten erben beim Indexieren ihren vollständigen sinnvollen Confluence-Breadcrumb (mit Sicherheitsgrenze von 32 Ebenen); Produkt- und Systemnamen aus Parent-/Ancestor-Seiten werden für den lokalen Entity-Wortschatz, Suche, Ranking, KI-Kontext und Quellenpfade berücksichtigt, ohne Inhalte der Elternseiten zu duplizieren.
 - Wiki- und lokale Knowledge-Suche laufen parallel; relevanter Wiki-Kontext wird vor eigener und Plenaro Standard-Knowledge angeordnet.
-- Referenzierte Confluence-Anhänge werden lokal, größenbegrenzt und inkrementell verarbeitet; unveränderte Anhänge werden nicht erneut heruntergeladen.
+- Unterstützte Confluence-Anhänge werden lokal, größenbegrenzt und inkrementell verarbeitet, auch wenn sie nicht im Seiten-Markup referenziert sind; referenzierte Anhänge erhalten beim Ranking weiterhin höhere Vertrauenswürdigkeit und unveränderte Anhänge werden nicht erneut heruntergeladen.
 - Änderungen bereits indexierter Wiki-Anhänge werden auch bei unveränderter Parent-Seite über ihre Metadaten erkannt und gezielt neu verarbeitet.
 - PDF-Anhänge werden seitenweise mit Parent-Seite, Attachmentname und Seitenzahl indexiert; Draw.io-Anhänge werden als Knoten und Verbindungen aufbereitet.
 - Originale PDF-, Bild- und Draw.io-Dateien werden nur im begrenzten Arbeitsspeicher verarbeitet und nicht dauerhaft gespeichert; erhalten bleiben ausschließlich extrahierte Inhalte, Metadaten und SHA256-Prüfsummen.
@@ -27,6 +28,8 @@
 - Identische Attachment-Binärinhalte verwenden trotz geänderter Confluence-Metadaten bestehende Extraktionsergebnisse weiter; eine persistierte Extraktionsversion ermöglicht spätere kontrollierte Neuverarbeitung.
 - OCR-Fehlerzähler unterscheiden erfolgreiche Erkennung von leeren, nicht verfügbaren oder fehlgeschlagenen OCR-Läufen; generische XML-Anhänge werden nur bei erkennbarer mxGraph-Struktur als Draw.io verarbeitet.
 - WAL-Modus, kurze Aktivierungstransaktionen und gezielte SQLite-Indizes halten den lokalen Wiki-Index während der Hintergrundsynchronisierung durchsuchbar.
+- Ein Full-Rebuild meldet Seiten-/Attachment-Fortschritt, validiert Seiten-, Chunk- und FTS-Konsistenz vor dem Commit und lässt bei einem Fehler den letzten transaktional konsistenten Index aktiv.
+- Die Wiki-Einstellungen bieten eine rein lokale Retrieval-Diagnose mit Rang, Breadcrumb, Abschnitt, Inhaltstyp, Score sowie Entity-/Action-/Subject- und Ablehnungsstatus, ohne eine LLM- oder Live-Confluence-Anfrage auszulösen.
 
 ## Znuny / OTRS
 

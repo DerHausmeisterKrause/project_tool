@@ -84,28 +84,28 @@ public sealed class WikiAttachmentProcessor
         var bytes=payload.Content;var hash=payload.Sha256;
         if (isPdf)
         {
-            var pages = await _pdf.ExtractAsync(bytes, token); var blocks = pages.Select((text, index) => new WikiKnowledgeBlock(metadata.SectionTitle ?? string.Empty, WikiKnowledgeContentKind.Pdf, text.Text, index, metadata.AttachmentId, metadata.FileName, text.PageNumber)).ToArray();
+            var pages = await _pdf.ExtractAsync(bytes, token); var blocks = pages.Select((text, index) => new WikiKnowledgeBlock(metadata.SectionTitle ?? string.Empty, WikiKnowledgeContentKind.Pdf, text.Text, index, metadata.AttachmentId, metadata.FileName, text.PageNumber, metadata.IsReferenced)).ToArray();
             return new(metadata, blocks.Length == 0 ? [MetadataBlock(metadata)] : blocks, blocks.Length == 0 ? "metadata-only" : "indexed", hash, pages.Count);
         }
         if (isDraw)
         {
             var text = _drawIo.Extract(Encoding.UTF8.GetString(bytes));
-            return new(metadata, [new(metadata.SectionTitle ?? string.Empty, WikiKnowledgeContentKind.DrawIo, $"Draw.io Diagramm: {metadata.FileName}\n\n{text}", 0, metadata.AttachmentId, metadata.FileName)], "indexed", hash);
+            return new(metadata, [new(metadata.SectionTitle ?? string.Empty, WikiKnowledgeContentKind.DrawIo, $"Draw.io Diagramm: {metadata.FileName}\n\n{text}", 0, metadata.AttachmentId, metadata.FileName, null, metadata.IsReferenced)], "indexed", hash);
         }
         if (!isImage) return new(metadata, [MetadataBlock(metadata)], "unsupported", hash);
         var prefix = $"[Bild: {metadata.FileName}]" + (string.IsNullOrWhiteSpace(metadata.AltText) ? string.Empty : $"\nAlt-Text: {metadata.AltText}") + (string.IsNullOrWhiteSpace(metadata.Caption) ? string.Empty : $"\nCaption: {metadata.Caption}");
-        if (!_ocr.IsAvailable) return new(metadata, [new(metadata.SectionTitle ?? string.Empty, WikiKnowledgeContentKind.AttachmentMetadata, prefix, 0, metadata.AttachmentId, metadata.FileName)], "ocr-unavailable", hash);
+        if (!_ocr.IsAvailable) return new(metadata, [new(metadata.SectionTitle ?? string.Empty, WikiKnowledgeContentKind.AttachmentMetadata, prefix, 0, metadata.AttachmentId, metadata.FileName, null, metadata.IsReferenced)], "ocr-unavailable", hash);
         try
         {
             await OcrThrottle.WaitAsync(token); string ocr; try { ocr = await _ocr.RecognizeAsync(bytes, metadata.MediaType, token); } finally { OcrThrottle.Release(); }
             var meaningful = ocr.Split((char[]?)null,StringSplitOptions.RemoveEmptyEntries).Sum(x=>x.Length) >= 8;
-            return new(metadata, [new(metadata.SectionTitle ?? string.Empty, meaningful ? WikiKnowledgeContentKind.ImageOcr : WikiKnowledgeContentKind.AttachmentMetadata, prefix + (meaningful ? $"\nOCR:\n{ocr}" : string.Empty), 0, metadata.AttachmentId, metadata.FileName)], meaningful ? "ocr-success" : "ocr-empty", hash, OcrSucceeded: meaningful);
+            return new(metadata, [new(metadata.SectionTitle ?? string.Empty, meaningful ? WikiKnowledgeContentKind.ImageOcr : WikiKnowledgeContentKind.AttachmentMetadata, prefix + (meaningful ? $"\nOCR:\n{ocr}" : string.Empty), 0, metadata.AttachmentId, metadata.FileName, null, metadata.IsReferenced)], meaningful ? "ocr-success" : "ocr-empty", hash, OcrSucceeded: meaningful);
         }
         catch (OperationCanceledException) { throw; }
-        catch { return new(metadata,[new(metadata.SectionTitle ?? string.Empty,WikiKnowledgeContentKind.AttachmentMetadata,prefix,0,metadata.AttachmentId,metadata.FileName)],"ocr-failed",hash); }
+        catch { return new(metadata,[new(metadata.SectionTitle ?? string.Empty,WikiKnowledgeContentKind.AttachmentMetadata,prefix,0,metadata.AttachmentId,metadata.FileName,null,metadata.IsReferenced)],"ocr-failed",hash); }
     }
 
-    private static WikiKnowledgeBlock MetadataBlock(WikiKnowledgeAttachmentMetadata value) => new(value.SectionTitle ?? string.Empty, WikiKnowledgeContentKind.AttachmentMetadata, $"Attachment: {value.FileName}", 0, value.AttachmentId, value.FileName);
+    private static WikiKnowledgeBlock MetadataBlock(WikiKnowledgeAttachmentMetadata value) => new(value.SectionTitle ?? string.Empty, WikiKnowledgeContentKind.AttachmentMetadata, $"Attachment: {value.FileName}", 0, value.AttachmentId, value.FileName, null, value.IsReferenced);
     private static bool LooksLikeDrawIo(byte[] content)
     {
         try

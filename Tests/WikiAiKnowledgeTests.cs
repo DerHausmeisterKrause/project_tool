@@ -165,6 +165,45 @@ public sealed class WikiAiKnowledgeTests : IDisposable
         Assert.Equal("Password Secure", match.HierarchyPath);
     }
 
+    [Theory]
+    [InlineData("wie kann ich das kennwort eines Password safe users zurücksetzen?", "reset")]
+    [InlineData("wie entsperre ich einen Passwordsafe user aus PWS?", "unlock")]
+    [InlineData("PWS Benutzer entsperren", "unlock")]
+    [InlineData("Password Secure Kennwort zurücksetzen", "reset")]
+    public async Task Search_EntityAliasesStayInsidePasswordSecureBranchAndMatchIntent(string question, string expectedPage)
+    {
+        Directory.CreateDirectory(_root); var settings = new SettingsService(_logger, Path.Combine(_root, "settings.json")); var source = ValidSource(); settings.Current.WikiSources.Add(source);
+        var provider = new HierarchyProvider(
+            new("reset", "Kennwort zurücksetzen", "Wähle den Benutzer und setze das Kennwort zurück.", [new("password", "Password Secure"), new("users", "Benutzerverwaltung")]),
+            new("unlock", "Benutzer entsperren", "Wähle den gesperrten Benutzer und entsperre ihn.", [new("password", "Password Secure"), new("users", "Benutzerverwaltung")]),
+            new("export", "Wöchentlicher Export", "Exportiere die Daten wöchentlich.", [new("password", "Password Secure")]),
+            new("wordpress", "Wordpress Passwort zurücksetzen", "Benutzer Passwort zurücksetzen.", [new("wordpress-root", "Wordpress")]),
+            new("fav", "Neue User anlegen", "User anlegen und Passwort setzen.", [new("fav-root", "FAV")]),
+            new("bitwarden", "Bitwarden Benutzer", "Benutzer Passwort ändern.", [new("bitwarden-root", "Bitwarden")]));
+        using var service = new WikiAiKnowledgeService(settings, _logger, [("ConfluenceDataCenter", (IWikiKnowledgeProvider)provider)], _root);
+        await service.SyncAsync(source, true);
+
+        var matches = await service.SearchAsync(question);
+
+        Assert.NotEmpty(matches);
+        Assert.All(matches, match => Assert.Equal(expectedPage, match.ExternalPageId));
+
+        var diagnostics = await service.DiagnoseAsync(question, source.Id);
+        Assert.Contains(diagnostics, candidate => candidate.Accepted && candidate.Title == matches[0].Title && candidate.EntityMatch && candidate.ActionMatch);
+        Assert.DoesNotContain(diagnostics, candidate => candidate.Title == "Wöchentlicher Export" && candidate.Accepted);
+    }
+
+    [Fact]
+    public async Task Search_EntityBranchWithoutIntentMatchReturnsNoSource()
+    {
+        Directory.CreateDirectory(_root); var settings = new SettingsService(_logger, Path.Combine(_root, "settings.json")); var source = ValidSource(); settings.Current.WikiSources.Add(source);
+        var provider = new HierarchyProvider(new HierarchyPage("export", "Wöchentlicher Export", "Exportiere die Daten wöchentlich.", [new("password", "Password Secure")]));
+        using var service = new WikiAiKnowledgeService(settings, _logger, [("ConfluenceDataCenter", (IWikiKnowledgeProvider)provider)], _root);
+        await service.SyncAsync(source, true);
+
+        Assert.Empty(await service.SearchAsync("PWS Kennwort zurücksetzen"));
+    }
+
     [Fact]
     public async Task UseWiki_IsInactiveWithoutSourceAndRestoresPersistedPreferenceWhenSourceAppears()
     {
@@ -239,6 +278,29 @@ public sealed class WikiAiKnowledgeTests : IDisposable
     }
 
     [Fact]
+    public void StructuredParser_PreservesNestedSectionPathsAndMacroBodiesWithoutDuplicates()
+    {
+        const string markup = "<h1>Administration</h1><div class='layout'><h2>Benutzerverwaltung</h2><ac:structured-macro ac:name='info'><ac:parameter ac:name='title'>Kennwort</ac:parameter><ac:rich-text-body><p>Benutzer auswählen.</p></ac:rich-text-body></ac:structured-macro><h3>Entsperren</h3><blockquote>Konto prüfen.</blockquote></div>";
+        var page = new WikiKnowledgePage("s", "p", "Password Secure", "https://wiki/p", "IT", "1", null);
+
+        var parsed = new ConfluenceKnowledgeParser().Parse(page, new("p", page.Title, "", "1", null, markup));
+
+        Assert.Contains(parsed.Blocks, block => block.SectionTitle == "Administration > Benutzerverwaltung > Kennwort" && block.Content == "Benutzer auswählen.");
+        Assert.Contains(parsed.Blocks, block => block.SectionTitle == "Administration > Benutzerverwaltung > Entsperren" && block.Content == "Konto prüfen.");
+        Assert.Equal(1, parsed.Blocks.Count(block => block.Content.Contains("Benutzer auswählen.")));
+    }
+
+    [Fact]
+    public void HierarchyPath_KeepsUpToThirtyTwoAncestors()
+    {
+        var ancestors = Enumerable.Range(1, 12).Select(index => new WikiKnowledgeAncestor(index.ToString(), $"Level {index}")).ToArray();
+        var page = new WikiKnowledgePage("s", "p", "Child", "https://wiki/p", "IT", "1", null, ancestors);
+
+        Assert.StartsWith("Level 1 > Level 2", page.HierarchyPath);
+        Assert.EndsWith("Level 11 > Level 12", page.HierarchyPath);
+    }
+
+    [Fact]
     public void DrawIoExtractor_PreservesNodesAndRelations()
     {
         const string xml = "<mxGraphModel><root><mxCell id='1' vertex='1' value='Client'/><mxCell id='2' vertex='1' value='Reverse Proxy'/><mxCell id='3' vertex='1' value='Database'/><mxCell id='4' edge='1' source='1' target='2' value='HTTPS'/><mxCell id='5' edge='1' source='2' target='3'/></root></mxGraphModel>";
@@ -277,6 +339,37 @@ public sealed class WikiAiKnowledgeTests : IDisposable
         Assert.Equal(5,provider.DownloadCount); Assert.Equal(2,pdfExtractor.CallCount);
         await using(var db=new SqliteConnection($"Data Source={service.IndexPath}")){await db.OpenAsync();await using var command=db.CreateCommand();command.CommandText="UPDATE wiki_ai_attachments SET extraction_version=0 WHERE attachment_id='pdf'";await command.ExecuteNonQueryAsync();}
         provider.PdfVersion="4";await service.SyncAsync(source,false);Assert.Equal(6,provider.DownloadCount);Assert.Equal(3,pdfExtractor.CallCount);
+    }
+
+    [Fact]
+    public async Task SupportedUnreferencedAttachment_IsIndexedWithLowerConfidence()
+    {
+        Directory.CreateDirectory(_root); var settings = new SettingsService(_logger, Path.Combine(_root, "settings.json")); var source = ValidSource(); settings.Current.WikiSources.Add(source);
+        var provider = new AttachmentProvider { IncludeUnreferencedPdf = true };
+        using var service = new WikiAiKnowledgeService(settings, _logger, [("ConfluenceDataCenter", (IWikiKnowledgeProvider)provider)], _root,
+            new WikiAttachmentProcessor(new FakePdfExtractor(), new FakeOcr(), new WikiDrawIoExtractor()));
+
+        await service.SyncAsync(source, true);
+
+        var match = Assert.Single(await service.SearchAsync("UNREFERENCED-PDF-9001"));
+        Assert.Equal("background.pdf", match.AttachmentName);
+        Assert.Equal(4, provider.DownloadCount);
+    }
+
+    [Fact]
+    public async Task FailedFullRebuild_RetainsPreviouslySearchableIndex()
+    {
+        Directory.CreateDirectory(_root); var settings = new SettingsService(_logger, Path.Combine(_root, "settings.json")); var source = ValidSource(); settings.Current.WikiSources.Add(source);
+        var provider = new FailingRebuildProvider();
+        using var service = new WikiAiKnowledgeService(settings, _logger, [("ConfluenceDataCenter", (IWikiKnowledgeProvider)provider)], _root);
+        await service.SyncAsync(source, true);
+        Assert.Single(await service.SearchAsync("STABLE-WIKI-4711"));
+
+        provider.ThrowOnContent = true;
+        await service.SyncAsync(source, true);
+
+        Assert.Single(await service.SearchAsync("STABLE-WIKI-4711"));
+        Assert.Equal("failed", service.GetStatus(source.Id).Status);
     }
 
     [Fact]
@@ -356,17 +449,32 @@ public sealed class WikiAiKnowledgeTests : IDisposable
         }
     }
 
+    private sealed class FailingRebuildProvider : IWikiKnowledgeProvider
+    {
+        public bool ThrowOnContent { get; set; }
+        public Task<WikiKnowledgePageBatch> GetPagesAsync(WikiSourceSettings source, int offset, int limit, CancellationToken token)
+            => Task.FromResult(new WikiKnowledgePageBatch(offset == 0 ? [new(source.Id, "stable", "Stable", "https://wiki/stable", "IT", "1", null)] : [], false));
+        public Task<WikiKnowledgePageContent> GetPageContentAsync(WikiSourceSettings source, string externalId, CancellationToken token)
+            => ThrowOnContent ? Task.FromException<WikiKnowledgePageContent>(new InvalidDataException("simulated rebuild failure"))
+                : Task.FromResult(new WikiKnowledgePageContent("stable", "Stable", "STABLE-WIKI-4711", "1", null));
+    }
+
     private sealed class AttachmentProvider : IWikiKnowledgeProvider
     {
         public int DownloadCount { get; private set; }
         public string PdfVersion { get; set; } = "1";
         public string PdfText { get; set; } = "PDFORIGINAL4711";
         public IReadOnlyList<WikiKnowledgeAncestor> Ancestors { get; set; } = [];
+        public bool IncludeUnreferencedPdf { get; set; }
         public Task<WikiKnowledgePageBatch> GetPagesAsync(WikiSourceSettings source, int offset, int limit, CancellationToken token) => Task.FromResult(new WikiKnowledgePageBatch(offset == 0 ? [new(source.Id,"p","Serverbetrieb","https://wiki/p","IT","1",null,Ancestors)] : [], false));
         public Task<WikiKnowledgePageContent> GetPageContentAsync(WikiSourceSettings source,string externalId,CancellationToken token) => Task.FromResult(new WikiKnowledgePageContent("p","Serverbetrieb","Seitentext","1",null,"<p>Seitentext</p><ac:image><ri:attachment ri:filename='screen.png'/></ac:image><a><ri:attachment ri:filename='manual.pdf'/></a><ac:structured-macro ac:name='drawio'><ac:parameter>network.drawio</ac:parameter></ac:structured-macro>"));
-        public Task<IReadOnlyList<WikiKnowledgeAttachmentMetadata>> GetAttachmentsAsync(WikiSourceSettings source,string pageId,CancellationToken token) => Task.FromResult<IReadOnlyList<WikiKnowledgeAttachmentMetadata>>([
-            new("pdf","p","manual.pdf","application/pdf",PdfVersion,null,"https://wiki/manual.pdf",10), new("img","p","screen.png","image/png","1",null,"https://wiki/screen.png",10), new("draw","p","network.drawio","application/vnd.jgraph.mxfile","1",null,"https://wiki/network.drawio",100)]);
-        public Task<Stream> DownloadAttachmentAsync(WikiSourceSettings source,WikiKnowledgeAttachmentMetadata attachment,CancellationToken token) { DownloadCount++; var value=attachment.FileName.EndsWith(".drawio")?"<mxGraphModel><root><mxCell id='1' vertex='1' value='Reverse Proxy'/><mxCell id='2' vertex='1' value='Database'/><mxCell id='3' edge='1' source='1' target='2'/></root></mxGraphModel>":attachment.FileName.EndsWith(".pdf")?PdfText:"bytes";return Task.FromResult<Stream>(new MemoryStream(System.Text.Encoding.UTF8.GetBytes(value))); }
+        public Task<IReadOnlyList<WikiKnowledgeAttachmentMetadata>> GetAttachmentsAsync(WikiSourceSettings source,string pageId,CancellationToken token)
+        {
+            var items = new List<WikiKnowledgeAttachmentMetadata> { new("pdf","p","manual.pdf","application/pdf",PdfVersion,null,"https://wiki/manual.pdf",10), new("img","p","screen.png","image/png","1",null,"https://wiki/screen.png",10), new("draw","p","network.drawio","application/vnd.jgraph.mxfile","1",null,"https://wiki/network.drawio",100) };
+            if (IncludeUnreferencedPdf) items.Add(new("background", "p", "background.pdf", "application/pdf", "1", null, "https://wiki/background.pdf", 10));
+            return Task.FromResult<IReadOnlyList<WikiKnowledgeAttachmentMetadata>>(items);
+        }
+        public Task<Stream> DownloadAttachmentAsync(WikiSourceSettings source,WikiKnowledgeAttachmentMetadata attachment,CancellationToken token) { DownloadCount++; var value=attachment.FileName.EndsWith(".drawio")?"<mxGraphModel><root><mxCell id='1' vertex='1' value='Reverse Proxy'/><mxCell id='2' vertex='1' value='Database'/><mxCell id='3' edge='1' source='1' target='2'/></root></mxGraphModel>":attachment.FileName=="background.pdf"?"UNREFERENCED-PDF-9001":attachment.FileName.EndsWith(".pdf")?PdfText:"bytes";return Task.FromResult<Stream>(new MemoryStream(System.Text.Encoding.UTF8.GetBytes(value))); }
     }
     private sealed class FakePdfExtractor : IWikiPdfExtractor { public int CallCount{get;private set;} public Task<IReadOnlyList<ExtractedKnowledgeText>> ExtractAsync(byte[] content,CancellationToken token){CallCount++;return Task.FromResult<IReadOnlyList<ExtractedKnowledgeText>>([new("Allgemein",1),new(System.Text.Encoding.UTF8.GetString(content),2)]);} }
     private sealed class FakeOcr(string text = "PLENARO-OCR-4711") : IWikiImageOcrService { public bool IsAvailable=>true; public Task<string> RecognizeAsync(byte[] content,string mediaType,CancellationToken token)=>Task.FromResult(text); }

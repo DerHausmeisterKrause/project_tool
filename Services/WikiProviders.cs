@@ -128,7 +128,7 @@ public class ConfluenceDataCenterWikiProvider(SettingsService settings) : HttpWi
                 ? ancestorItems.EnumerateArray().Select(ancestor => new WikiKnowledgeAncestor(
                     ancestor.TryGetProperty("id", out var ancestorId) ? ancestorId.GetString() ?? string.Empty : string.Empty,
                     Clean(ancestor.TryGetProperty("title", out var ancestorTitle) ? ancestorTitle.GetString() : string.Empty)))
-                    .Where(ancestor => !string.IsNullOrWhiteSpace(ancestor.Title)).TakeLast(6).ToArray()
+                    .Where(ancestor => !string.IsNullOrWhiteSpace(ancestor.Title)).TakeLast(32).ToArray()
                 : Array.Empty<WikiKnowledgeAncestor>();
             pages.Add(new(source.Id, id, Clean(title), url, space, version, modified, ancestors));
         }

@@ -32,20 +32,48 @@ public sealed class ConfluenceKnowledgeParser
     {
         var markup = string.IsNullOrWhiteSpace(content.StorageMarkup) ? $"<p>{WebUtility.HtmlEncode(content.PlainText)}</p>" : content.StorageMarkup;
         var document = new HtmlParser().ParseDocument(markup ?? string.Empty);
-        var blocks = new List<WikiKnowledgeBlock>(); var section = string.Empty; var ordinal = 0;
+        var blocks = new List<WikiKnowledgeBlock>(); var headings = new string[6]; var ordinal = 0;
         foreach (var element in document.Body?.Children.AsEnumerable() ?? Enumerable.Empty<IElement>())
-        {
-            var tag = element.TagName.ToLowerInvariant();
-            if (tag is "h1" or "h2" or "h3" or "h4" or "h5" or "h6") { section = Clean(element.TextContent); continue; }
-            if (tag == "table") Add(blocks, section, WikiKnowledgeContentKind.Table, RenderTable(element), ref ordinal);
-            else if (tag is "ul" or "ol") Add(blocks, section, WikiKnowledgeContentKind.List, RenderList(element, 0), ref ordinal);
-            else if (tag is "pre" or "code") Add(blocks, section, WikiKnowledgeContentKind.Code, element.TextContent.Trim(), ref ordinal);
-            else if (tag is "ac:image" or "img") Add(blocks, section, WikiKnowledgeContentKind.AttachmentMetadata, RenderImage(element), ref ordinal);
-            else if (tag.Contains("structured-macro") && IsDrawIo(element)) Add(blocks, section, WikiKnowledgeContentKind.AttachmentMetadata, RenderDrawIoReference(element), ref ordinal);
-            else Add(blocks, section, WikiKnowledgeContentKind.PageText, Clean(element.TextContent), ref ordinal);
-        }
+            Visit(element, headings, blocks, ref ordinal);
         if (blocks.Count == 0) Add(blocks, string.Empty, WikiKnowledgeContentKind.PageText, content.PlainText, ref ordinal);
         return new(page.SourceId, page.ExternalId, page.SpaceKey, page.Title, page.Url, blocks, page.HierarchyPath, page.ParentTitle);
+    }
+
+    private static void Visit(IElement element, string[] headings, List<WikiKnowledgeBlock> blocks, ref int ordinal)
+    {
+        var tag = element.TagName.ToLowerInvariant();
+        if (tag.Length == 2 && tag[0] == 'h' && tag[1] is >= '1' and <= '6')
+        {
+            var level = tag[1] - '1'; headings[level] = Clean(element.TextContent);
+            for (var index = level + 1; index < headings.Length; index++) headings[index] = string.Empty;
+            return;
+        }
+        var sectionPath = string.Join(" > ", headings.Where(value => !string.IsNullOrWhiteSpace(value)));
+        if (tag == "table") { Add(blocks, sectionPath, WikiKnowledgeContentKind.Table, RenderTable(element), ref ordinal); return; }
+        if (tag is "ul" or "ol") { Add(blocks, sectionPath, WikiKnowledgeContentKind.List, RenderList(element, 0), ref ordinal); return; }
+        if (tag is "pre" or "code") { Add(blocks, sectionPath, WikiKnowledgeContentKind.Code, element.TextContent.Trim(), ref ordinal); return; }
+        if (tag is "ac:image" or "img") { Add(blocks, sectionPath, WikiKnowledgeContentKind.AttachmentMetadata, RenderImage(element), ref ordinal); return; }
+        if (tag.Contains("structured-macro"))
+        {
+            if (IsDrawIo(element)) Add(blocks, sectionPath, WikiKnowledgeContentKind.AttachmentMetadata, RenderDrawIoReference(element), ref ordinal);
+            else
+            {
+                var macroTitle = element.QuerySelectorAll("*").FirstOrDefault(child => child.TagName.Contains("PARAMETER", StringComparison.OrdinalIgnoreCase)
+                    && child.Attributes.Any(attribute => attribute.Name.EndsWith("name", StringComparison.OrdinalIgnoreCase) && attribute.Value.Equals("title", StringComparison.OrdinalIgnoreCase)))?.TextContent;
+                var body = element.QuerySelectorAll("*").FirstOrDefault(child => child.TagName.Contains("RICH-TEXT-BODY", StringComparison.OrdinalIgnoreCase));
+                if (!string.IsNullOrWhiteSpace(macroTitle))
+                {
+                    var level = Array.FindLastIndex(headings, value => !string.IsNullOrWhiteSpace(value)) + 1;
+                    if (level < headings.Length) headings[level] = Clean(macroTitle);
+                }
+                if (body != null) foreach (var child in body.Children) Visit(child, headings, blocks, ref ordinal);
+            }
+            return;
+        }
+        if (tag is "p" or "blockquote") { Add(blocks, sectionPath, WikiKnowledgeContentKind.PageText, Clean(element.TextContent), ref ordinal); return; }
+        // Confluence layout/section/column and other containers are traversed rather than
+        // flattened, preventing their complete descendant text from being indexed twice.
+        foreach (var child in element.Children) Visit(child, headings, blocks, ref ordinal);
     }
 
     private static void Add(List<WikiKnowledgeBlock> blocks, string section, WikiKnowledgeContentKind kind, string value, ref int ordinal)
