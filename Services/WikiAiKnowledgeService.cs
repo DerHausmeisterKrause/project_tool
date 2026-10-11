@@ -184,7 +184,7 @@ public sealed class WikiAiKnowledgeService : IDisposable
             if (!evaluation.HasIntentMatch) { rejectedActionMismatch++; continue; }
             actionMatched++;
             if (evaluation.HasSubjectMatch) subjectMatched++;
-            var passesQualityGate = evaluation.IsRelevant && (evaluation.HasSpecificExactMatch || evaluation.HasStrongTitleOrSectionMatch
+            var passesQualityGate = evaluation.IsRelevant && (evaluation.HasStrongSemanticMatch || evaluation.HasSpecificExactMatch || evaluation.HasStrongTitleOrSectionMatch
                 || evaluation.MeaningfulCoverage >= .75 || evaluation.MeaningfulTermCount == 0);
             if (!passesQualityGate) { rejectedQualityGate++; continue; }
             var score = evaluation.Score * ContentKindWeight(kind) * (reader.GetInt32(13) == 0 ? .82 : 1);
@@ -222,7 +222,7 @@ public sealed class WikiAiKnowledgeService : IDisposable
             var source = eligible[reader.GetString(3)]; if (!WikiScopePolicy.AllowsSpace(source, reader.GetString(2))) continue;
             var kind = Enum.Parse<WikiKnowledgeContentKind>(reader.GetString(5));
             var evaluation = AiKnowledgeSearchService.EvaluateRelevance(query, reader.GetString(0), reader.GetString(1), reader.GetString(4) + " " + reader.GetString(2), reader.GetString(6), reader.IsDBNull(7) ? "" : reader.GetString(7));
-            var quality = evaluation.IsRelevant && (evaluation.HasSpecificExactMatch || evaluation.HasStrongTitleOrSectionMatch || evaluation.MeaningfulCoverage >= .75 || evaluation.MeaningfulTermCount == 0);
+            var quality = evaluation.IsRelevant && (evaluation.HasStrongSemanticMatch || evaluation.HasSpecificExactMatch || evaluation.HasStrongTitleOrSectionMatch || evaluation.MeaningfulCoverage >= .75 || evaluation.MeaningfulTermCount == 0);
             var reason = !evaluation.HasAnchorMatch ? "entity-mismatch" : !evaluation.HasIntentMatch ? "action-mismatch" : !quality ? "quality-gate" : "";
             var score = evaluation.Score * ContentKindWeight(kind) * (reader.GetInt32(8) == 0 ? .82 : 1);
             diagnostics.Add(new(0, reader.GetString(1), reader.GetString(6), reader.GetString(4), kind, score,

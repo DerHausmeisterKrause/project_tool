@@ -276,6 +276,20 @@ public sealed class AiKnowledgeTests : IDisposable
     }
 
     [Fact]
+    public void RelevanceEvaluation_TreatsActionAndSubjectSynonymsAsFieldAwareTitleMatches()
+    {
+        var analysis = AiKnowledgeSearchService.AnalyzeQuery("wie entsperre ich einen Passwordsafe user aus PWS?");
+
+        var evaluation = AiKnowledgeSearchService.EvaluateRelevance(
+            analysis, "Wähle den gesperrten Benutzer.", "Benutzer entsperren", "IT", "Password Secure > Benutzerverwaltung");
+
+        Assert.True(evaluation.HasStrongSemanticMatch);
+        Assert.True(evaluation.HasStrongTitleOrSectionMatch);
+        Assert.True(evaluation.HasSubjectMatch);
+        Assert.Equal(1, evaluation.MeaningfulCoverage);
+    }
+
+    [Fact]
     public async Task Search_EntityAnchorRejectsGenericLocalLicenseDocument()
     {
         var search = await CreateSearchAsync(

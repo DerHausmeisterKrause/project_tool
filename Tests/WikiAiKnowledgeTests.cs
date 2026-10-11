@@ -168,6 +168,11 @@ public sealed class WikiAiKnowledgeTests : IDisposable
     [Theory]
     [InlineData("wie kann ich das kennwort eines Password safe users zurücksetzen?", "reset")]
     [InlineData("wie entsperre ich einen Passwordsafe user aus PWS?", "unlock")]
+    [InlineData("wie entsperre ich einen PWS User?", "unlock")]
+    [InlineData("PWS user entsperren", "unlock")]
+    [InlineData("Password Safe Benutzer entsperre", "unlock")]
+    [InlineData("Wie entsperrt man einen PWS Benutzer?", "unlock")]
+    [InlineData("Wie kann ich einen Benutzer aus PWS entsperren?", "unlock")]
     [InlineData("PWS Benutzer entsperren", "unlock")]
     [InlineData("Password Secure Kennwort zurücksetzen", "reset")]
     public async Task Search_EntityAliasesStayInsidePasswordSecureBranchAndMatchIntent(string question, string expectedPage)
@@ -202,6 +207,17 @@ public sealed class WikiAiKnowledgeTests : IDisposable
         await service.SyncAsync(source, true);
 
         Assert.Empty(await service.SearchAsync("PWS Kennwort zurücksetzen"));
+    }
+
+    [Fact]
+    public async Task Search_EntityBranchWithDifferentActionReturnsNoSource()
+    {
+        Directory.CreateDirectory(_root); var settings = new SettingsService(_logger, Path.Combine(_root, "settings.json")); var source = ValidSource(); settings.Current.WikiSources.Add(source);
+        var provider = new HierarchyProvider(new HierarchyPage("reset", "Kennwort zurücksetzen", "Wähle den Benutzer und setze das Kennwort zurück.", [new("password", "Password Secure")]));
+        using var service = new WikiAiKnowledgeService(settings, _logger, [("ConfluenceDataCenter", (IWikiKnowledgeProvider)provider)], _root);
+        await service.SyncAsync(source, true);
+
+        Assert.Empty(await service.SearchAsync("PWS Benutzer entsperren"));
     }
 
     [Fact]

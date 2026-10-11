@@ -10,7 +10,7 @@ public sealed record AiKnowledgeMatch(string Content, string RelativePath, strin
 internal sealed record RelevanceEvaluation(double Score, int MatchedTerms, int MeaningfulMatchedTerms, int MeaningfulTermCount,
     double MeaningfulCoverage, bool HasSpecificExactMatch, bool HasStrongTitleOrSectionMatch,
     int AnchorCount = 0, int HardAnchorCount = 0, bool HasAnchorMatch = true, bool HasIntentMatch = true,
-    bool HasSubjectMatch = true)
+    bool HasSubjectMatch = true, bool HasStrongSemanticMatch = false)
 {
     public bool IsRelevant => Score > 0;
 }
@@ -28,11 +28,11 @@ public sealed class AiKnowledgeSearchService
     private static readonly Regex TokenPartPattern = new(@"[\p{L}\p{N}]{2,}", RegexOptions.Compiled);
     private static readonly HashSet<string> StopWords = new(StringComparer.OrdinalIgnoreCase)
     {
-        "der", "die", "das", "den", "dem", "des", "ein", "eine", "einer", "einen", "einem",
-        "und", "oder", "aber", "mit", "ohne", "von", "für", "auf", "in", "im", "am", "an", "zu", "zum", "zur",
+        "der", "die", "das", "den", "dem", "des", "ein", "eine", "einer", "eines", "einen", "einem",
+        "und", "oder", "aber", "mit", "ohne", "von", "vom", "für", "auf", "in", "im", "am", "an", "aus", "bei", "beim", "zu", "zum", "zur",
         "ist", "sind", "war", "wie", "was", "wer", "wo", "wann", "warum", "welche", "welcher", "welches",
         "ich", "du", "mir", "mich", "mein", "meine", "meinem", "meinen", "bitte", "nur", "antworte", "antwort", "sage", "sag", "schreibe", "schreib",
-        "habe", "hast", "hat", "haben", "dass", "dies", "dieses", "dieser", "sehr", "auch", "noch",
+        "habe", "hast", "hat", "haben", "dass", "dies", "dieses", "dieser", "sehr", "auch", "noch", "dabei", "dazu",
         "kann", "könnte", "können", "man", "dagegen", "tun", "machen", "sein",
         "test", "hallo", "danke", "the", "a", "an", "and", "or", "with", "without", "please", "answer", "reply"
     };
@@ -151,22 +151,29 @@ public sealed class AiKnowledgeSearchService
         var actionMatch = actions.Count == 0 || actions.Any(action => MatchesIntent(action, searchableValues));
         var subjectMatch = subjects.Count == 0 || subjects.Any(subject => MatchesSubject(subject, searchableValues));
         var intentMatch = query.Entity is null || actionMatch;
-        if (!anchorMatch || !intentMatch) return new(0, 0, 0, 0, 0, false, false, query.Anchors.Count, query.HardAnchorCount, anchorMatch, intentMatch, subjectMatch);
+        var strongSemanticMatch = query.Entity is not null && anchorMatch && actions.Count > 0 && actionMatch && (subjects.Count == 0 || subjectMatch);
+        if (!anchorMatch || !intentMatch) return new(0, 0, 0, 0, 0, false, false, query.Anchors.Count, query.HardAnchorCount, anchorMatch, intentMatch, subjectMatch, false);
         var queryDomains = query.Domains;
         var documentDomains = DetectDomains(contentTokens.Concat(titleTokens).Concat(categoryTokens).Concat(hierarchyTokens));
         if (queryDomains.Count > 0 && documentDomains.Count > 0 && !queryDomains.Overlaps(documentDomains)) return new(0, 0, 0, 0, 0, false, false, query.Anchors.Count, query.HardAnchorCount, true);
-        var meaningfulTerms = terms.Where(term => !GenericTechnicalTerms.Contains(term) && !IsEntityTerm(term, aliases)).ToArray();
+        var structuredSemanticTerms = actions.Concat(subjects).Concat(query.ProblemTerms ?? []).Concat(query.Identifiers ?? [])
+            .Distinct(StringComparer.OrdinalIgnoreCase).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var meaningfulTerms = terms.Where(term => !GenericTechnicalTerms.Contains(term) && !IsEntityTerm(term, aliases)
+            && (query.Entity is null || structuredSemanticTerms.Count == 0 || structuredSemanticTerms.Contains(term))).ToArray();
         var matched = 0; var meaningfulMatches = 0; var symptomMatches = 0; var specificMatch = false; var strongMetadataMatch = false; var score = 0d;
         foreach (var term in terms)
         {
-            var equivalentMatch = (actions.Contains(term, StringComparer.OrdinalIgnoreCase) && actionMatch)
-                || (subjects.Contains(term, StringComparer.OrdinalIgnoreCase) && subjectMatch);
-            var inContent = contentTokens.Contains(term) || equivalentMatch; var inTitle = titleTokens.Contains(term); var inCategory = categoryTokens.Contains(term);
-            var inHierarchy = hierarchyTokens.Contains(term); var inParent = parentTokens.Contains(term);
+            var actionTerm = actions.Contains(term, StringComparer.OrdinalIgnoreCase);
+            var subjectTerm = subjects.Contains(term, StringComparer.OrdinalIgnoreCase);
+            var inContent = MatchesSemanticTerm(term, actionTerm, subjectTerm, content, contentTokens);
+            var inTitle = MatchesSemanticTerm(term, actionTerm, subjectTerm, titleOrFile, titleTokens);
+            var inCategory = MatchesSemanticTerm(term, actionTerm, subjectTerm, category, categoryTokens);
+            var inHierarchy = MatchesSemanticTerm(term, actionTerm, subjectTerm, hierarchyPath, hierarchyTokens);
+            var inParent = MatchesSemanticTerm(term, actionTerm, subjectTerm, parentTitle, parentTokens);
             if (!inContent && !inTitle && !inCategory && !inHierarchy) continue;
             matched++;
             var specific = IsSpecific(term);
-            if (!GenericTechnicalTerms.Contains(term)) meaningfulMatches++;
+            if (meaningfulTerms.Contains(term, StringComparer.OrdinalIgnoreCase)) meaningfulMatches++;
             if (GenericSymptoms.Contains(term)) symptomMatches++;
             if (specific) specificMatch = true;
             if (!GenericTechnicalTerms.Contains(term) && (inTitle || inCategory || inHierarchy)) strongMetadataMatch = true;
@@ -178,7 +185,7 @@ public sealed class AiKnowledgeSearchService
         // establish relevance: require two meaningful terms, or one backed by strong metadata.
         if (!specificMatch)
         {
-            var entityActionQualified = query.Entity is not null && actions.Count > 0 && actionMatch;
+            var entityActionQualified = strongSemanticMatch;
             // A clearly identified domain may combine with a symptom ("Windows PC langsam").
             // The symptom alone, or a conflicting domain, can never qualify a document.
             var matchingDomainAndSymptom = queryDomains.Count > 0 && queryDomains.Overlaps(documentDomains) && symptomMatches > 0;
@@ -190,7 +197,7 @@ public sealed class AiKnowledgeSearchService
 
         var meaningfulCoverage = meaningfulTerms.Length == 0 ? 0 : (double)meaningfulMatches / meaningfulTerms.Length;
         return new(score + (double)matched / terms.Length * 4 + meaningfulCoverage * 6, matched, meaningfulMatches,
-            meaningfulTerms.Length, meaningfulCoverage, specificMatch, strongMetadataMatch, query.Anchors.Count, query.HardAnchorCount, true, true, subjectMatch);
+            meaningfulTerms.Length, meaningfulCoverage, specificMatch, strongMetadataMatch, query.Anchors.Count, query.HardAnchorCount, true, true, subjectMatch, strongSemanticMatch);
     }
 
     internal static bool HasEntityAnchors(string question) => AnalyzeQuery(question).Anchors.Count > 0;
@@ -270,6 +277,9 @@ public sealed class AiKnowledgeSearchService
         var tokens = values.SelectMany(Tokens).ToHashSet(StringComparer.OrdinalIgnoreCase);
         return alternatives.Any(tokens.Contains);
     }
+
+    private static bool MatchesSemanticTerm(string term, bool actionTerm, bool subjectTerm, string value, IReadOnlySet<string> tokens)
+        => tokens.Contains(term) || (actionTerm && MatchesIntent(term, value)) || (subjectTerm && MatchesSubject(term, value));
 
     private static bool IsEntityTerm(string term, IReadOnlyList<string> aliases) => aliases
         .SelectMany(ExpandTokens).Any(aliasTerm => aliasTerm.Equals(term, StringComparison.OrdinalIgnoreCase));
