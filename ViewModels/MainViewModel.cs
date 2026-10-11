@@ -104,7 +104,8 @@ public class MainViewModel : ObservableObject
     public MainViewModel(TaskService taskService, WorkDayService workDayService, SettingsService settingsService, NotificationService notifications, OutlookCalendarService outlookCalendar, TicketSystemService ticketSystem, UpdateService updates, HomeOfficeService homeOffice, GermanTimeService germanTime, LoggerService logger, AiService aiService, AiKnowledgeService aiKnowledge, WikiAiKnowledgeService? wikiAiKnowledge = null)
     {
         _logger = logger;
-        TodayViewModel = new TodayViewModel(taskService, workDayService, settingsService, outlookCalendar, ticketSystem, homeOffice);
+        TodayViewModel = new TodayViewModel(taskService, workDayService, settingsService, outlookCalendar, ticketSystem, homeOffice,
+            new AiTextRewriteService(aiService, logger));
         _weekViewModel = new WeekViewModel(taskService, workDayService, settingsService, outlookCalendar, homeOffice);
         ticketSystem.TasksChanged += TodayViewModel.Refresh;
         ticketSystem.TasksChanged += _weekViewModel.Refresh;
