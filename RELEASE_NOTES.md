@@ -2,6 +2,8 @@
 
 ## Lokales KI-Wissen
 
+- Freitextfelder für Aufgaben, Ticketantworten, Buchungs- und Terminnotizen, KI-Chat sowie Antwortvorlagen verwenden die lokale deutsche WPF-Rechtschreibprüfung mit Korrekturvorschlägen, ohne technische URL-, Zugangsdaten-, Such- oder Konfigurationsfelder zu beeinflussen.
+- Ticket-Kundenantworten können vor dem Versand über die vorhandene KI-Konfiguration gezielt sprachlich umformuliert und anschließend auf das Original zurückgesetzt werden; geschützte Vorlagenvariablen, URLs und E-Mail-Adressen bleiben erhalten, Fehler überschreiben den Entwurf nicht und ein Versand erfolgt weiterhin ausschließlich manuell.
 - Plenaro lädt die Standard-Wissensbasis beim Aktivieren des lokalen Wissens automatisch aus dem zur laufenden Version passenden GitHub Release, prüft ihre SHA256-Prüfsumme und indexiert sie.
 - Standard-Wissen und eigene Knowledge-Dateien werden getrennt gespeichert und gemeinsam für lokale KI-Antworten durchsucht.
 - Release-Artefakte enthalten zusätzlich die Plenaro Standard Knowledge Base inklusive SHA256-Prüfsumme.

@@ -1,6 +1,7 @@
 <UserControl x:Class="TaskTool.Views.Settings.WikiSettingsView"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:ui="clr-namespace:TaskTool.Infrastructure"
              Background="Transparent">
     <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Padding="0,0,8,16">
         <StackPanel MaxWidth="1200" HorizontalAlignment="Center" Grid.IsSharedSizeScope="True">
@@ -58,7 +59,7 @@
                             <Button Content="Index komplett neu aufbauen" Style="{StaticResource SecondaryButtonStyle}" Command="{Binding RebuildWikiAiIndexCommand}"/>
                         </WrapPanel>
                         <TextBlock Text="KI-Wiki-Suche testen" FontWeight="SemiBold" Margin="0,14,0,4"/>
-                        <TextBox Text="{Binding WikiAiTestQuestion, UpdateSourceTrigger=PropertyChanged}" ToolTip="Freie Frage; erzeugt keine LLM-Antwort"/>
+                        <TextBox Text="{Binding WikiAiTestQuestion, UpdateSourceTrigger=PropertyChanged}" ui:TextInputAssist.IsFreeText="True" ToolTip="Freie Frage; erzeugt keine LLM-Antwort"/>
                         <Button Content="Lokale KI-Suche testen" HorizontalAlignment="Left" Margin="0,6,0,0" Command="{Binding TestWikiAiRetrievalCommand}"/>
                         <TextBlock Text="{Binding WikiAiTestResults}" TextWrapping="Wrap" FontFamily="Consolas" Foreground="{StaticResource MutedTextBrush}" Margin="0,8,0,0"/>
                     </StackPanel>
