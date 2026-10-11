@@ -57,6 +57,10 @@
                             <Button Content="Jetzt aktualisieren" Command="{Binding RefreshWikiAiIndexCommand}"/>
                             <Button Content="Index komplett neu aufbauen" Style="{StaticResource SecondaryButtonStyle}" Command="{Binding RebuildWikiAiIndexCommand}"/>
                         </WrapPanel>
+                        <TextBlock Text="KI-Wiki-Suche testen" FontWeight="SemiBold" Margin="0,14,0,4"/>
+                        <TextBox Text="{Binding WikiAiTestQuestion, UpdateSourceTrigger=PropertyChanged}" ToolTip="Freie Frage; erzeugt keine LLM-Antwort"/>
+                        <Button Content="Lokale KI-Suche testen" HorizontalAlignment="Left" Margin="0,6,0,0" Command="{Binding TestWikiAiRetrievalCommand}"/>
+                        <TextBlock Text="{Binding WikiAiTestResults}" TextWrapping="Wrap" FontFamily="Consolas" Foreground="{StaticResource MutedTextBrush}" Margin="0,8,0,0"/>
                     </StackPanel>
                 </Border>
 
