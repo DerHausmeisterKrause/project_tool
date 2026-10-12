@@ -915,7 +915,8 @@ public class TicketSystemService : IDisposable
         TicketArticleItem? originalCustomerArticle,
         string recipient,
         string ticketTitle,
-        string replyText)
+        string replyText,
+        TicketReplyMode mode = TicketReplyMode.Normal)
     {
         var ticketId = ExtractZnunyTicketIdFromTask(task);
         if (string.IsNullOrWhiteSpace(ticketId))
@@ -934,9 +935,10 @@ public class TicketSystemService : IDisposable
         if (!await _syncGate.WaitAsync(0))
             return new TicketReplyResult(false, "Es läuft bereits eine Znuny-Aktion. Bitte versuchen Sie es gleich erneut.");
 
+        var closeRequested = mode == TicketReplyMode.CloseTicket;
         try
         {
-            _logger.Info($"[ZnunyReply] ticketId={ticketId} recipientResolved=true recipientFormat=bare-address replyLength={body.Length} mimeType=text/html appendSignature=true action=send");
+            _logger.Info($"[ZnunyReply] ticketId={ticketId} closeRequested={closeRequested.ToString().ToLowerInvariant()} recipientResolved=true recipientFormat=bare-address replyLength={body.Length} mimeType=text/html appendSignature=true action=send");
             var sessionId = await CreateSessionAsync();
             var originalSubject = originalCustomerArticle?.Subject ?? string.Empty;
             var subjectSource = string.IsNullOrWhiteSpace(originalSubject) ? ticketTitle : originalSubject;
@@ -945,25 +947,7 @@ public class TicketSystemService : IDisposable
                 : $"Re: {subjectSource.Trim()}";
             if (string.Equals(subject, "Re: ", StringComparison.Ordinal))
                 subject = "Re: Ticketanfrage";
-            var payload = new Dictionary<string, object?>
-            {
-                ["SessionID"] = sessionId,
-                ["TicketID"] = ticketId,
-                ["Article"] = new Dictionary<string, object?>
-                {
-                    ["CommunicationChannel"] = "Email",
-                    ["SenderType"] = "agent",
-                    ["IsVisibleForCustomer"] = 1,
-                    ["ArticleSend"] = 1,
-                    ["AppendSignatureToBody"] = 1,
-                    ["To"] = safeRecipient,
-                    ["Subject"] = subject,
-                    ["Body"] = htmlBody,
-                    ["ContentType"] = "text/html; charset=utf-8",
-                    ["MimeType"] = "text/html",
-                    ["Charset"] = "utf-8"
-                }
-            };
+            var payload = BuildTicketReplyPayload(sessionId, ticketId, safeRecipient, subject, htmlBody, mode);
             var route = ResolveTicketUpdateRoute(ticketId);
             using var request = new HttpRequestMessage(HttpMethod.Post, Combine(_settings.Current.TicketSystemApiUrl, route))
             {
@@ -985,13 +969,16 @@ public class TicketSystemService : IDisposable
                 refreshWarning = " Die Antwort wurde gesendet, aber die Nachrichtenansicht konnte nicht aktualisiert werden.";
                 _logger.Warning($"[ZnunyReply] ticketId={ticketId} action=detail-refresh-deferred replyConfirmed=true message='{LogValue(ex.Message)}'");
             }
-            _logger.Info($"[ZnunyReply] ticketId={ticketId} articleId='{articleId}' action=completed");
-            return new TicketReplyResult(true, "Antwort wurde gesendet." + refreshWarning, articleId);
+            _logger.Info($"[ZnunyReply] ticketId={ticketId} closeRequested={closeRequested.ToString().ToLowerInvariant()} articleId='{articleId}' action=completed");
+            var successMessage = closeRequested ? "Antwort wurde gesendet und das Ticket geschlossen." : "Antwort wurde gesendet.";
+            return new TicketReplyResult(true, successMessage + refreshWarning, articleId, TicketClosed: closeRequested);
         }
         catch (ZnunyApiException ex) when ((int)ex.StatusCode >= 500)
         {
             LogZnunyError(ex);
-            return new TicketReplyResult(false, "Der Versand konnte nicht eindeutig bestätigt werden. Bitte prüfen Sie den Ticketverlauf, bevor Sie erneut senden.", ConfirmationUncertain: true);
+            return new TicketReplyResult(false, closeRequested
+                ? "Ob Antwort und Ticket-Schließung durchgeführt wurden, konnte nicht eindeutig bestätigt werden. Bitte prüfen Sie das Ticket in Znuny, bevor Sie erneut senden."
+                : "Der Versand konnte nicht eindeutig bestätigt werden. Bitte prüfen Sie den Ticketverlauf, bevor Sie erneut senden.", ConfirmationUncertain: true);
         }
         catch (ZnunyApiException ex)
         {
@@ -1001,7 +988,9 @@ public class TicketSystemService : IDisposable
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException)
         {
             _logger.Warning($"[ZnunyReply] ticketId={ticketId} replyLength={body.Length} action=unconfirmed message='{LogValue(ex.Message)}'");
-            return new TicketReplyResult(false, "Der Versand konnte nicht eindeutig bestätigt werden. Bitte prüfen Sie den Ticketverlauf, bevor Sie erneut senden.", ConfirmationUncertain: true);
+            return new TicketReplyResult(false, closeRequested
+                ? "Ob Antwort und Ticket-Schließung durchgeführt wurden, konnte nicht eindeutig bestätigt werden. Bitte prüfen Sie das Ticket in Znuny, bevor Sie erneut senden."
+                : "Der Versand konnte nicht eindeutig bestätigt werden. Bitte prüfen Sie den Ticketverlauf, bevor Sie erneut senden.", ConfirmationUncertain: true);
         }
         catch (Exception ex)
         {
@@ -1012,6 +1001,38 @@ public class TicketSystemService : IDisposable
         {
             _syncGate.Release();
         }
+    }
+
+    internal static Dictionary<string, object?> BuildTicketReplyPayload(
+        string sessionId,
+        string ticketId,
+        string recipient,
+        string subject,
+        string htmlBody,
+        TicketReplyMode mode)
+    {
+        var payload = new Dictionary<string, object?>
+        {
+            ["SessionID"] = sessionId,
+            ["TicketID"] = ticketId,
+            ["Article"] = new Dictionary<string, object?>
+            {
+                ["CommunicationChannel"] = "Email",
+                ["SenderType"] = "agent",
+                ["IsVisibleForCustomer"] = 1,
+                ["ArticleSend"] = 1,
+                ["AppendSignatureToBody"] = 1,
+                ["To"] = recipient,
+                ["Subject"] = subject,
+                ["Body"] = htmlBody,
+                ["ContentType"] = "text/html; charset=utf-8",
+                ["MimeType"] = "text/html",
+                ["Charset"] = "utf-8"
+            }
+        };
+        if (mode == TicketReplyMode.CloseTicket)
+            payload["Ticket"] = new Dictionary<string, object?> { ["State"] = "closed successful" };
+        return payload;
     }
 
     private static (TicketArticleItem? source, string recipient) ResolveReplyRecipient(
