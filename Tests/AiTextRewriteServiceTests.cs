@@ -109,6 +109,11 @@ public sealed class AiTextRewriteServiceTests
                 TextInputAssist.SetIsFreeText(textBox, false);
                 Assert.False(SpellCheck.GetIsEnabled(textBox));
                 Assert.Same(original, textBox.ContextMenu);
+                Assert.Empty(menu.Items);
+                menu.Items.Add(new MenuItem { Header = "lifetime probe" });
+                menu.RaiseEvent(new RoutedEventArgs(ContextMenu.ClosedEvent));
+                Assert.Single(menu.Items);
+                menu.Items.Clear();
             }
             catch (Exception exception) { error = exception; }
         });
@@ -140,6 +145,63 @@ public sealed class AiTextRewriteServiceTests
         });
         thread.SetApartmentState(ApartmentState.STA); thread.Start(); thread.Join();
         Assert.Null(error);
+    }
+
+    [Fact]
+    public void SpellcheckMenu_LimitsSuggestionsAndReleasesItemsWhenClosed()
+    {
+        Exception? error = null;
+        var thread = new Thread(() =>
+        {
+            try
+            {
+                var textBox = new TextBox();
+                TextInputAssist.SetIsFreeText(textBox, true);
+                var menu = Assert.IsType<ContextMenu>(textBox.ContextMenu);
+                var suggestions = Enumerable.Range(1, 100).Select(index => $"Vorschlag {index}").ToArray();
+
+                TextInputAssist.PopulateContextMenu(textBox, suggestions, hasSpellingError: true);
+                Assert.Equal(TextInputAssist.MaxSpellingSuggestions,
+                    menu.Items.OfType<MenuItem>().Count(item => item.Command == EditingCommands.CorrectSpellingError));
+
+                menu.RaiseEvent(new RoutedEventArgs(ContextMenu.ClosedEvent));
+                Assert.Empty(menu.Items);
+
+                TextInputAssist.PopulateContextMenu(textBox, ["Neu"], hasSpellingError: true);
+                Assert.Contains(menu.Items.OfType<MenuItem>(),
+                    item => item.Command == EditingCommands.CorrectSpellingError && Equals(item.CommandParameter, "Neu"));
+            }
+            catch (Exception exception) { error = exception; }
+        });
+        thread.SetApartmentState(ApartmentState.STA); thread.Start(); thread.Join();
+        Assert.Null(error);
+    }
+
+    [Fact]
+    public void SpellcheckSuggestions_AreEnumeratedOnlyUpToTheLimit()
+    {
+        var source = new CountingSuggestions(1000);
+
+        var result = TextInputAssist.MaterializeSuggestions(source);
+
+        Assert.Equal(TextInputAssist.MaxSpellingSuggestions, result.Count);
+        Assert.Equal(TextInputAssist.MaxSpellingSuggestions, source.YieldCount);
+    }
+
+    private sealed class CountingSuggestions(int count) : IEnumerable<string>
+    {
+        public int YieldCount { get; private set; }
+
+        public IEnumerator<string> GetEnumerator()
+        {
+            for (var index = 0; index < count; index++)
+            {
+                YieldCount++;
+                yield return $"Vorschlag {index}";
+            }
+        }
+
+        System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() => GetEnumerator();
     }
 
     private sealed class FakeAi : IAiChatService
