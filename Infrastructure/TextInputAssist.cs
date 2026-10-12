@@ -87,22 +87,19 @@ public static class TextInputAssist
     internal static void PopulateContextMenu(TextBoxBase input, IReadOnlyList<string> suggestions, bool hasSpellingError)
     {
         if (input.ContextMenu is not ContextMenu menu) return;
-        using (menu.Items.DeferRefresh())
+        menu.Items.Clear();
+        if (hasSpellingError)
         {
-            menu.Items.Clear();
-            if (hasSpellingError)
-            {
-                foreach (var suggestion in suggestions.Take(MaxSpellingSuggestions))
-                    menu.Items.Add(MenuItem(suggestion, EditingCommands.CorrectSpellingError, input, suggestion));
-                if (menu.Items.Count > 0) menu.Items.Add(Separator());
-                menu.Items.Add(MenuItem("Alles ignorieren", EditingCommands.IgnoreSpellingError, input));
-                menu.Items.Add(Separator());
-            }
-
-            menu.Items.Add(MenuItem("Ausschneiden", ApplicationCommands.Cut, input, gesture: "Strg+X"));
-            menu.Items.Add(MenuItem("Kopieren", ApplicationCommands.Copy, input, gesture: "Strg+C"));
-            menu.Items.Add(MenuItem("Einfügen", ApplicationCommands.Paste, input, gesture: "Strg+V"));
+            foreach (var suggestion in suggestions.Take(MaxSpellingSuggestions))
+                menu.Items.Add(MenuItem(suggestion, EditingCommands.CorrectSpellingError, input, suggestion));
+            if (menu.Items.Count > 0) menu.Items.Add(Separator());
+            menu.Items.Add(MenuItem("Alles ignorieren", EditingCommands.IgnoreSpellingError, input));
+            menu.Items.Add(Separator());
         }
+
+        menu.Items.Add(MenuItem("Ausschneiden", ApplicationCommands.Cut, input, gesture: "Strg+X"));
+        menu.Items.Add(MenuItem("Kopieren", ApplicationCommands.Copy, input, gesture: "Strg+C"));
+        menu.Items.Add(MenuItem("Einfügen", ApplicationCommands.Paste, input, gesture: "Strg+V"));
     }
 
     private static void OnSpellcheckContextMenuClosed(object? sender, RoutedEventArgs args)

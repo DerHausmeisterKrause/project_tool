@@ -80,7 +80,7 @@ public sealed class AiTextRewriteServiceTests
         Assert.Null(error);
         Assert.True(enabled);
         Assert.NotNull(language);
-        Assert.True(string.Equals("de-DE", language.IetfLanguageTag, StringComparison.OrdinalIgnoreCase));
+        Assert.Equal("de-DE", language!.IetfLanguageTag, StringComparer.OrdinalIgnoreCase);
     }
 
     [Fact]
