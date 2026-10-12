@@ -132,17 +132,46 @@ public sealed class TicketCloseAndReportTests : IDisposable
     }
 
     [Fact]
-    public void SchemaVersion31ContainsAdjustmentTableAndIndex()
+    public void SchemaVersion32ContainsAdjustmentAndSegmentIndexes()
     {
         using var connection = new SqliteConnection(_database.ConnectionString);
         connection.Open();
         using var command = connection.CreateCommand();
         command.CommandText = "SELECT version FROM schema_version";
-        Assert.Equal(31L, command.ExecuteScalar());
+        Assert.Equal(32L, command.ExecuteScalar());
         command.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='monthly_report_time_adjustments'";
         Assert.Equal(1L, command.ExecuteScalar());
+        command.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name IN ('idx_task_segments_task_id','idx_task_segments_start_local','idx_task_segments_end_local')";
+        Assert.Equal(3L, command.ExecuteScalar());
         command.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name='idx_monthly_report_time_adjustments_month'";
         Assert.Equal(1L, command.ExecuteScalar());
+        command.CommandText = "EXPLAIN QUERY PLAN SELECT id FROM task_segments WHERE start_local >= '2026-01-01T00:00:00' AND start_local < '2026-02-01T00:00:00'";
+        using var plan = command.ExecuteReader();
+        Assert.True(plan.Read());
+        Assert.Contains("idx_task_segments_start_local", plan.GetString(3), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void SegmentRangeAndTaskQueriesBulkLoadAllAttendeesInOrder()
+    {
+        var firstTask = _tasks.CreateTask(new TaskItem { Title = "A" });
+        var secondTask = _tasks.CreateTask(new TaskItem { Title = "B" });
+        var day = DateTime.Today.AddDays(1);
+        var first = new TaskSegment { TaskId = firstTask.Id, StartLocal = day.AddHours(9), EndLocal = day.AddHours(10), Attendees = ["z@example.test", "a@example.test"] };
+        var second = new TaskSegment { TaskId = firstTask.Id, StartLocal = day.AddHours(11), EndLocal = day.AddHours(12) };
+        var third = new TaskSegment { TaskId = secondTask.Id, StartLocal = day.AddHours(13), EndLocal = day.AddHours(14), Attendees = ["b@example.test"] };
+        _tasks.AddSegment(first); _tasks.AddSegment(second); _tasks.AddSegment(third);
+
+        var range = _tasks.GetSegmentsForRange(day, day.AddDays(1));
+        Assert.Equal([first.Id, second.Id, third.Id], range.Select(item => item.Segment.Id));
+        Assert.Equal(["a@example.test", "z@example.test"], range[0].Segment.Attendees);
+        Assert.Empty(range[1].Segment.Attendees);
+        Assert.Equal(["b@example.test"], range[2].Segment.Attendees);
+
+        var taskSegments = _tasks.GetSegments(firstTask.Id);
+        Assert.Equal([first.Id, second.Id], taskSegments.Select(segment => segment.Id));
+        Assert.Equal(["a@example.test", "z@example.test"], taskSegments[0].Attendees);
+        Assert.Empty(taskSegments[1].Attendees);
     }
 
     public void Dispose()

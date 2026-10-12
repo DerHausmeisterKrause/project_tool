@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using System.Net;
 using System.Net.Http;
+using System.Windows;
 using System.Windows.Threading;
 using TaskTool.Infrastructure;
 using TaskTool.Models;
@@ -58,9 +59,15 @@ public sealed class AiChatViewModel : ObservableObject
         _ai.StateChanged += (_, _) => RefreshState();
         if (_wikiKnowledge != null) _wikiKnowledge.StatusChanged += (_, _) =>
         {
-            Raise(nameof(UseWikiAvailable));
-            Raise(nameof(UseWiki));
-            Raise(nameof(UseWikiToolTip));
+            void RefreshWikiState()
+            {
+                Raise(nameof(UseWikiAvailable));
+                Raise(nameof(UseWiki));
+                Raise(nameof(UseWikiToolTip));
+            }
+            var dispatcher = Application.Current?.Dispatcher;
+            if (dispatcher != null && !dispatcher.CheckAccess()) dispatcher.BeginInvoke(new Action(RefreshWikiState));
+            else RefreshWikiState();
         };
     }
     private bool _useWiki;

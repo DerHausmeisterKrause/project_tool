@@ -12,6 +12,7 @@ public class MainViewModel : ObservableObject
     public TodayViewModel TodayViewModel { get; }
     private readonly WeekViewModel _weekViewModel;
     private readonly TicketSystemViewModel _ticketSystemViewModel;
+    private string _navigationSettingsFingerprint = string.Empty;
     public WikiBrowserViewModel WikiBrowserViewModel { get; }
     private readonly ReportsViewModel _reportsViewModel;
     private readonly List<WebShortcutViewModel> _webShortcutViews = new();
@@ -136,6 +137,10 @@ public class MainViewModel : ObservableObject
     }
     private void RefreshDynamicNavigation()
     {
+        var fingerprint = string.Join('|', ServiceLocator.Settings.Current.WikiSources.Select(source => $"W:{source.Id}:{source.Enabled}:{source.Name}:{source.BaseUrl}:{source.BrowserHomeUrl}:{source.ProviderType}"))
+            + "||" + string.Join('|', ServiceLocator.Settings.Current.WebShortcuts.Select(shortcut => $"S:{shortcut.Id}:{shortcut.Enabled}:{shortcut.SortOrder}:{shortcut.Name}:{shortcut.Url}"));
+        if (string.Equals(fingerprint, _navigationSettingsFingerprint, StringComparison.Ordinal)) return;
+        _navigationSettingsFingerprint = fingerprint;
         RefreshWikiNavigation();
         ServiceLocator.WebShortcutBrowsers.Synchronize(ServiceLocator.Settings.Current.WebShortcuts);
         var selectedShortcut = SelectedView as WebShortcutViewModel;

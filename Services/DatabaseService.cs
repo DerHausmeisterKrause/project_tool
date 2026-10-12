@@ -76,10 +76,11 @@ CREATE TABLE IF NOT EXISTS schema_version (
             MigrateToV29(conn);
             MigrateToV30(conn);
             MigrateToV31(conn);
+            MigrateToV32(conn);
 
-            if (currentVersion < 31)
+            if (currentVersion < 32)
             {
-                SetVersion(conn, 31);
+                SetVersion(conn, 32);
             }
         }
         catch (Exception ex)
@@ -446,6 +447,13 @@ CREATE TABLE IF NOT EXISTS plenaro_shared_segment_imports (
 );
 CREATE INDEX IF NOT EXISTS idx_monthly_report_time_adjustments_month
  ON monthly_report_time_adjustments(month);");
+    }
+
+    private static void MigrateToV32(SqliteConnection conn)
+    {
+        Exec(conn, @"CREATE INDEX IF NOT EXISTS idx_task_segments_task_id ON task_segments(task_id);
+CREATE INDEX IF NOT EXISTS idx_task_segments_start_local ON task_segments(start_local);
+CREATE INDEX IF NOT EXISTS idx_task_segments_end_local ON task_segments(end_local);");
     }
 
     private static void EnsureColumn(SqliteConnection conn, string table, string column, string definition)

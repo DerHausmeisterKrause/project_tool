@@ -48,6 +48,8 @@ public class TodayViewModel : ObservableObject
     public ObservableCollection<WikiSearchResult> WikiResults { get; } = new();
     private CancellationTokenSource? _wikiSearchCancellation;
     private IReadOnlyList<string> _wikiKeywords = Array.Empty<string>();
+    private IReadOnlyList<TaskItem> _taskFilterSnapshot = Array.Empty<TaskItem>();
+    private HashSet<Guid> _todayTaskIdsSnapshot = [];
     public string WikiKeywordsText => string.Join(" · ", _wikiKeywords);
     public bool HasWikiResults => WikiResults.Count > 0;
     private string _wikiSearchStatus = string.Empty;
@@ -111,14 +113,14 @@ public class TodayViewModel : ObservableObject
     public string TaskSearchText
     {
         get => _taskSearchText;
-        set { if (Set(ref _taskSearchText, value)) ApplyTaskFilters(); }
+        set { if (Set(ref _taskSearchText, value)) ApplySearchFiltersFromSnapshot(); }
     }
 
     private string _completedTaskSearchText = string.Empty;
     public string CompletedTaskSearchText
     {
         get => _completedTaskSearchText;
-        set { if (Set(ref _completedTaskSearchText, value)) ApplyTaskFilters(); }
+        set { if (Set(ref _completedTaskSearchText, value)) ApplySearchFiltersFromSnapshot(); }
     }
 
     private TodayTaskScope _selectedTaskScope = TodayTaskScope.Today;
@@ -914,19 +916,21 @@ public class TodayViewModel : ObservableObject
     {
         _ = RefreshSegmentAvailabilityAsync();
         var hidePastTodayItems = _settings.Current.HidePastTodayItems;
-        if (hidePastTodayItems != _lastHidePastTodayItems)
+        var requiresDatabaseRefresh = hidePastTodayItems != _lastHidePastTodayItems;
+        if (requiresDatabaseRefresh)
         {
             _lastHidePastTodayItems = hidePastTodayItems;
             _lastTodayVisibilityRefreshMinute = default;
         }
+        void Refresh() { if (requiresDatabaseRefresh) ApplyTaskFilters(); else RefreshDisplayedTasks(); }
         var dispatcher = Application.Current?.Dispatcher;
         if (dispatcher != null && !dispatcher.CheckAccess())
         {
-            dispatcher.BeginInvoke(new Action(ApplyTaskFilters));
+            dispatcher.BeginInvoke(new Action(Refresh));
             return;
         }
 
-        ApplyTaskFilters();
+        Refresh();
     }
 
     private void Load()
@@ -965,6 +969,7 @@ public class TodayViewModel : ObservableObject
 
     private void ApplyTaskFilters()
     {
+        var watch = System.Diagnostics.Stopwatch.StartNew();
         var all = _tasks.GetAllTasks();
         var now = _germanTime.GetLocalNow(_settings.Current.CalendarTimeZoneId).DateTime;
         var taskIdsWithActiveOrFutureSegments = _tasks.GetTaskIdsWithActiveOrFutureSegments(now);
@@ -986,8 +991,7 @@ public class TodayViewModel : ObservableObject
         }
 
         var allActive = all.Where(t => t.Status != TaskStatus.Done && t.IsOperationallyVisible).ToList();
-        var active = allActive.ToList();
-        foreach (var task in active)
+        foreach (var task in allActive)
         {
             _ticketSystem.ApplyArticleReadPresentation(task);
             task.CurrentListBadgeText = task.Status == TaskStatus.Running
@@ -995,6 +999,23 @@ public class TodayViewModel : ObservableObject
                 : taskIdsWithActiveOrFutureSegments.Contains(task.Id) ? "Geplant" : string.Empty;
             PopulateCurrentListDisplayValues(task);
         }
+        _taskFilterSnapshot = all;
+        _todayTaskIdsSnapshot = todayTaskIds;
+
+        CurrentTasks.Clear();
+        foreach (var task in allActive)
+            CurrentTasks.Add(task);
+
+        ApplySearchFiltersFromSnapshot();
+        _lastTodayVisibilityRefreshMinute = TruncateToMinute(now);
+        RefreshTodayAgenda(todaySegments, now);
+        if (watch.ElapsedMilliseconds >= 50)
+            ServiceLocator.Logger?.Info($"[Performance] operation=ApplyTaskFilters durationMs={watch.ElapsedMilliseconds} taskCount={all.Count}");
+    }
+
+    private void ApplySearchFiltersFromSnapshot()
+    {
+        var active = _taskFilterSnapshot.Where(t => t.Status != TaskStatus.Done && t.IsOperationallyVisible).ToList();
         if (!string.IsNullOrWhiteSpace(TaskSearchText))
         {
             var q = TaskSearchText.Trim();
@@ -1003,7 +1024,7 @@ public class TodayViewModel : ObservableObject
                                      || (t.TicketUrl?.Contains(q, StringComparison.OrdinalIgnoreCase) ?? false)).ToList();
         }
 
-        var done = all.Where(t => t.Status == TaskStatus.Done).ToList();
+        var done = _taskFilterSnapshot.Where(t => t.Status == TaskStatus.Done).ToList();
         if (!string.IsNullOrWhiteSpace(CompletedTaskSearchText))
         {
             var q = CompletedTaskSearchText.Trim();
@@ -1013,25 +1034,17 @@ public class TodayViewModel : ObservableObject
         }
 
         TodayTasks.Clear();
-        foreach (var task in active.Where(task => todayTaskIds.Contains(task.Id)))
+        foreach (var task in active.Where(task => _todayTaskIdsSnapshot.Contains(task.Id)))
             TodayTasks.Add(task);
 
-        CurrentTasks.Clear();
-        // Keep the complete active collection for timer/Dynamic-Island consumers;
-        // only the Today/current presentation collections apply the snooze filter.
-        foreach (var task in allActive)
-            CurrentTasks.Add(task);
-
         _currentTasksWithoutToday.Clear();
-        foreach (var task in active.Where(task => !todayTaskIds.Contains(task.Id)))
+        foreach (var task in active.Where(task => !_todayTaskIdsSnapshot.Contains(task.Id)))
             _currentTasksWithoutToday.Add(task);
 
         CompletedTasks.Clear();
         foreach (var t in done) CompletedTasks.Add(t);
 
         RefreshDisplayedTasks();
-        _lastTodayVisibilityRefreshMinute = TruncateToMinute(now);
-        RefreshTodayAgenda(todaySegments, now);
     }
 
     private static void PopulateCurrentListDisplayValues(TaskItem task)

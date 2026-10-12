@@ -1,4 +1,6 @@
 using System.Windows.Controls;
+using System.Windows;
+using System.Windows.Input;
 using System.Windows.Markup;
 using TaskTool.Infrastructure;
 using TaskTool.Models;
@@ -78,6 +80,65 @@ public sealed class AiTextRewriteServiceTests
         Assert.True(enabled);
         Assert.NotNull(language);
         Assert.True(string.Equals("de-DE", language.IetfLanguageTag, StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void FreeTextBehavior_ProvidesStyledNativeCommandMenuAndRestoresOriginalMenu()
+    {
+        Exception? error = null;
+        var thread = new Thread(() =>
+        {
+            try
+            {
+                var original = new ContextMenu();
+                var textBox = new TextBox { ContextMenu = original, Text = "korrekt" };
+                TextInputAssist.SetIsFreeText(textBox, true);
+
+                var menu = Assert.IsType<ContextMenu>(textBox.ContextMenu);
+                Assert.NotSame(original, menu);
+                Assert.NotEqual(DependencyProperty.UnsetValue, menu.ReadLocalValue(FrameworkElement.StyleProperty));
+                TextInputAssist.RefreshContextMenu(textBox);
+                var commandItems = menu.Items.OfType<MenuItem>().ToList();
+                Assert.Contains(commandItems, item => item.Command == ApplicationCommands.Cut);
+                Assert.Contains(commandItems, item => item.Command == ApplicationCommands.Copy);
+                Assert.Contains(commandItems, item => item.Command == ApplicationCommands.Paste);
+                Assert.All(commandItems, item => Assert.NotEqual(DependencyProperty.UnsetValue, item.ReadLocalValue(FrameworkElement.StyleProperty)));
+                Assert.Empty(menu.Items.OfType<Separator>());
+
+                TextInputAssist.SetIsFreeText(textBox, false);
+                Assert.False(SpellCheck.GetIsEnabled(textBox));
+                Assert.Same(original, textBox.ContextMenu);
+            }
+            catch (Exception exception) { error = exception; }
+        });
+        thread.SetApartmentState(ApartmentState.STA); thread.Start(); thread.Join();
+        Assert.Null(error);
+    }
+
+    [Fact]
+    public void SpellcheckMenu_UsesNativeCorrectionAndIgnoreCommandsForSuggestions()
+    {
+        Exception? error = null;
+        var thread = new Thread(() =>
+        {
+            try
+            {
+                var textBox = new TextBox();
+                TextInputAssist.SetIsFreeText(textBox, true);
+                TextInputAssist.PopulateContextMenu(textBox, ["Test", "Tat"], hasSpellingError: true);
+
+                var menu = Assert.IsType<ContextMenu>(textBox.ContextMenu);
+                var items = menu.Items.OfType<MenuItem>().ToList();
+                var suggestions = items.Where(item => item.Command == EditingCommands.CorrectSpellingError).ToList();
+                Assert.Equal(["Test", "Tat"], suggestions.Select(item => item.CommandParameter));
+                Assert.All(suggestions, item => Assert.Same(textBox, item.CommandTarget));
+                Assert.Contains(items, item => item.Command == EditingCommands.IgnoreSpellingError && ReferenceEquals(item.CommandTarget, textBox));
+                Assert.Equal(2, menu.Items.OfType<Separator>().Count());
+            }
+            catch (Exception exception) { error = exception; }
+        });
+        thread.SetApartmentState(ApartmentState.STA); thread.Start(); thread.Join();
+        Assert.Null(error);
     }
 
     private sealed class FakeAi : IAiChatService
