@@ -12,7 +12,7 @@ namespace TaskTool.Tests;
 public sealed class AiTextRewriteServiceTests
 {
     [Fact]
-    public async Task Rewrite_UsesStrictPromptAndLowTemperature()
+    public async Task Rewrite_UsesConciseBusinessPromptAndDeterministicOptions()
     {
         var ai = new FakeAi { Answer = "Hallo Herr Müller, das Problem ist behoben." };
         var service = new AiTextRewriteService(ai, new LoggerService());
@@ -20,10 +20,17 @@ public sealed class AiTextRewriteServiceTests
         var result = await service.RewriteCustomerReplyAsync("hallo herr müller das problem ist behoben");
 
         Assert.Equal(ai.Answer, result);
-        Assert.Equal(0.15, ai.Options!.Temperature);
-        Assert.Contains("keine neuen fachlichen Informationen", ai.Messages![0].Content, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(0, ai.Options!.Temperature);
+        Assert.True(ai.Options.MaxTokens < 3072);
+        Assert.Contains("Business-Deutsch", ai.Messages![0].Content, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("nah am Original", ai.Messages[0].Content, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Ändere niemals Aussage", ai.Messages[0].Content, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("„wird“ darf nicht zu „kann“", ai.Messages[0].Content, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("ausschließlich mit dem überarbeiteten Text", ai.Messages[0].Content, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("PLENARO-WISSEN", ai.Messages[0].Content, StringComparison.OrdinalIgnoreCase);
+        Assert.InRange(ai.Messages[0].Content.Length, 1, 1200);
+        Assert.Equal("hallo herr müller das problem ist behoben", ai.Messages[1].Content);
+        Assert.DoesNotContain("ENTWURF", ai.Messages[1].Content, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -58,6 +65,40 @@ public sealed class AiTextRewriteServiceTests
     {
         var service = new AiTextRewriteService(new FakeAi { Error = new HttpRequestException("offline") }, new LoggerService());
         await Assert.ThrowsAsync<HttpRequestException>(() => service.RewriteCustomerReplyAsync("Originaltext"));
+    }
+
+    [Fact]
+    public async Task Rewrite_RemovesOnlyKnownModelMetaLines()
+    {
+        var ai = new FakeAi { Answer = "Hier ist die überarbeitete Version:\nHallo Marcel,\n\nist erfolgt.\n\nENDE DES ENTWURFS" };
+        var service = new AiTextRewriteService(ai, new LoggerService());
+
+        var result = await service.RewriteCustomerReplyAsync("Hallo Marcel,\nist erfolgt.");
+
+        Assert.Equal("Hallo Marcel,\n\nist erfolgt.", result.ReplaceLineEndings("\n"));
+    }
+
+    [Fact]
+    public async Task Rewrite_ProtectsTicketCloseNoticeExactly()
+    {
+        var ai = new FakeAi { Answer = "Hallo Marcel,\n\n__PLENARO_PROTECTED_0__" };
+        var service = new AiTextRewriteService(ai, new LoggerService());
+        var draft = $"Hallo Marcel,\n\n{TicketCloseReplyComposer.CloseNotice}";
+
+        var result = await service.RewriteCustomerReplyAsync(draft);
+
+        Assert.DoesNotContain(TicketCloseReplyComposer.CloseNotice, ai.Messages![1].Content, StringComparison.Ordinal);
+        Assert.Contains("__PLENARO_PROTECTED_0__", ai.Messages[1].Content, StringComparison.Ordinal);
+        Assert.Contains(TicketCloseReplyComposer.CloseNotice, result, StringComparison.Ordinal);
+        Assert.DoesNotContain("kann geschlossen", result, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void RewriteTokenLimit_ScalesWithDraftLengthAndIsCapped()
+    {
+        Assert.Equal(128, AiTextRewriteService.CalculateMaxOutputTokens("Hallo, bitte testen."));
+        Assert.True(AiTextRewriteService.CalculateMaxOutputTokens(new string('x', 3000)) > 128);
+        Assert.Equal(3072, AiTextRewriteService.CalculateMaxOutputTokens(new string('x', AiTextRewriteService.MaximumTextLength)));
     }
 
     [Fact]
