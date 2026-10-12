@@ -16,8 +16,7 @@ public partial class UpdateAvailableDialog : Window
     private static string TrimReleaseNotes(string value)
     {
         if (string.IsNullOrWhiteSpace(value)) return string.Empty;
-        var trimmed = value.Trim();
-        return trimmed.Length <= 1200 ? trimmed : trimmed[..1200].TrimEnd() + "…";
+        return value.Trim();
     }
 
     private sealed record UpdateAvailableDialogModel(string InstalledVersion, string AvailableVersion, string ReleaseNotes)
