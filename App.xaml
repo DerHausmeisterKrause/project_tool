@@ -33,12 +33,12 @@
             <SolidColorBrush x:Key="{x:Static SystemColors.MenuBrushKey}" Color="#0F172A"/>
             <SolidColorBrush x:Key="{x:Static SystemColors.MenuTextBrushKey}" Color="#E5E7EB"/>
 
-            <Style x:Key="SpellcheckContextMenuStyle" TargetType="ContextMenu">
+            <Style TargetType="{x:Type ContextMenu}">
                 <Setter Property="Background" Value="#0F172A"/>
                 <Setter Property="Foreground" Value="#E5E7EB"/>
                 <Setter Property="BorderBrush" Value="#334155"/>
                 <Setter Property="BorderThickness" Value="1"/>
-                <Setter Property="Padding" Value="4"/>
+                <Setter Property="Padding" Value="3"/>
                 <Setter Property="HasDropShadow" Value="True"/>
                 <Setter Property="Template">
                     <Setter.Value>
@@ -53,7 +53,7 @@
                     </Setter.Value>
                 </Setter>
             </Style>
-            <Style x:Key="SpellcheckMenuItemStyle" TargetType="MenuItem">
+            <Style TargetType="{x:Type MenuItem}">
                 <Setter Property="Background" Value="Transparent"/>
                 <Setter Property="Foreground" Value="#E5E7EB"/>
                 <Setter Property="Padding" Value="10,6"/>
@@ -62,7 +62,7 @@
                     <Trigger Property="IsEnabled" Value="False"><Setter Property="Foreground" Value="#64748B"/></Trigger>
                 </Style.Triggers>
             </Style>
-            <Style x:Key="SpellcheckSeparatorStyle" TargetType="Separator">
+            <Style TargetType="{x:Type Separator}">
                 <Setter Property="Height" Value="1"/><Setter Property="Margin" Value="4,3"/><Setter Property="Background" Value="#334155"/>
                 <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="Separator"><Border Height="1" Background="{TemplateBinding Background}"/></ControlTemplate></Setter.Value></Setter>
             </Style>

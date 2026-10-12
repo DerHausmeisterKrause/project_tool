@@ -1,8 +1,7 @@
 using System.Windows.Controls;
 using System.Windows;
-using System.Windows.Documents;
-using System.Windows.Input;
 using System.Windows.Markup;
+using System.Windows.Media;
 using TaskTool.Infrastructure;
 using TaskTool.Models;
 using TaskTool.Services;
@@ -84,7 +83,7 @@ public sealed class AiTextRewriteServiceTests
     }
 
     [Fact]
-    public void FreeTextBehavior_ProvidesStyledNativeCommandMenuAndRestoresOriginalMenu()
+    public void FreeTextBehavior_PreservesExistingContextMenuAndDisablesSpellcheck()
     {
         Exception? error = null;
         var thread = new Thread(() =>
@@ -92,28 +91,13 @@ public sealed class AiTextRewriteServiceTests
             try
             {
                 var original = new ContextMenu();
-                var textBox = new TextBox { ContextMenu = original, Text = "korrekt" };
+                var textBox = new TextBox { ContextMenu = original };
                 TextInputAssist.SetIsFreeText(textBox, true);
-
-                var menu = Assert.IsType<ContextMenu>(textBox.ContextMenu);
-                Assert.NotSame(original, menu);
-                Assert.NotEqual(DependencyProperty.UnsetValue, menu.ReadLocalValue(FrameworkElement.StyleProperty));
-                TextInputAssist.RefreshContextMenu(textBox);
-                var commandItems = menu.Items.OfType<MenuItem>().ToList();
-                Assert.Contains(commandItems, item => item.Command == ApplicationCommands.Cut);
-                Assert.Contains(commandItems, item => item.Command == ApplicationCommands.Copy);
-                Assert.Contains(commandItems, item => item.Command == ApplicationCommands.Paste);
-                Assert.All(commandItems, item => Assert.NotEqual(DependencyProperty.UnsetValue, item.ReadLocalValue(FrameworkElement.StyleProperty)));
-                Assert.Empty(menu.Items.OfType<Separator>());
+                Assert.Same(original, textBox.ContextMenu);
 
                 TextInputAssist.SetIsFreeText(textBox, false);
                 Assert.False(SpellCheck.GetIsEnabled(textBox));
                 Assert.Same(original, textBox.ContextMenu);
-                Assert.Empty(menu.Items);
-                menu.Items.Add(new MenuItem { Header = "lifetime probe" });
-                menu.RaiseEvent(new RoutedEventArgs(ContextMenu.ClosedEvent));
-                Assert.Single(menu.Items);
-                menu.Items.Clear();
             }
             catch (Exception exception) { error = exception; }
         });
@@ -122,7 +106,7 @@ public sealed class AiTextRewriteServiceTests
     }
 
     [Fact]
-    public void SpellcheckMenu_UsesNativeCorrectionAndIgnoreCommandsForSuggestions()
+    public void FreeTextBehavior_DoesNotInstallAContextMenu()
     {
         Exception? error = null;
         var thread = new Thread(() =>
@@ -131,15 +115,7 @@ public sealed class AiTextRewriteServiceTests
             {
                 var textBox = new TextBox();
                 TextInputAssist.SetIsFreeText(textBox, true);
-                TextInputAssist.PopulateContextMenu(textBox, ["Test", "Tat"], hasSpellingError: true);
-
-                var menu = Assert.IsType<ContextMenu>(textBox.ContextMenu);
-                var items = menu.Items.OfType<MenuItem>().ToList();
-                var suggestions = items.Where(item => item.Command == EditingCommands.CorrectSpellingError).ToList();
-                Assert.Equal(["Test", "Tat"], suggestions.Select(item => item.CommandParameter));
-                Assert.All(suggestions, item => Assert.Same(textBox, item.CommandTarget));
-                Assert.Contains(items, item => item.Command == EditingCommands.IgnoreSpellingError && ReferenceEquals(item.CommandTarget, textBox));
-                Assert.Equal(2, menu.Items.OfType<Separator>().Count());
+                Assert.Null(textBox.ContextMenu);
             }
             catch (Exception exception) { error = exception; }
         });
@@ -148,28 +124,27 @@ public sealed class AiTextRewriteServiceTests
     }
 
     [Fact]
-    public void SpellcheckMenu_LimitsSuggestionsAndReleasesItemsWhenClosed()
+    public void Theme_ProvidesReadableImplicitContextMenuAndMenuItemStyles()
     {
         Exception? error = null;
         var thread = new Thread(() =>
         {
             try
             {
-                var textBox = new TextBox();
-                TextInputAssist.SetIsFreeText(textBox, true);
-                var menu = Assert.IsType<ContextMenu>(textBox.ContextMenu);
-                var suggestions = Enumerable.Range(1, 100).Select(index => $"Vorschlag {index}").ToArray();
+                var resources = new ResourceDictionary
+                {
+                    Source = new Uri("/TaskTool;component/Themes/Theme.xaml", UriKind.Relative)
+                };
+                var contextMenuStyle = Assert.IsType<Style>(resources[typeof(ContextMenu)]);
+                var menuItemStyle = Assert.IsType<Style>(resources[typeof(MenuItem)]);
+                var background = Assert.IsType<SolidColorBrush>(contextMenuStyle.Setters.OfType<Setter>()
+                    .Single(setter => setter.Property == Control.BackgroundProperty).Value);
+                var foreground = Assert.IsType<SolidColorBrush>(contextMenuStyle.Setters.OfType<Setter>()
+                    .Single(setter => setter.Property == Control.ForegroundProperty).Value);
 
-                TextInputAssist.PopulateContextMenu(textBox, suggestions, hasSpellingError: true);
-                Assert.Equal(TextInputAssist.MaxSpellingSuggestions,
-                    menu.Items.OfType<MenuItem>().Count(item => item.Command == EditingCommands.CorrectSpellingError));
-
-                menu.RaiseEvent(new RoutedEventArgs(ContextMenu.ClosedEvent));
-                Assert.Empty(menu.Items);
-
-                TextInputAssist.PopulateContextMenu(textBox, ["Neu"], hasSpellingError: true);
-                Assert.Contains(menu.Items.OfType<MenuItem>(),
-                    item => item.Command == EditingCommands.CorrectSpellingError && Equals(item.CommandParameter, "Neu"));
+                Assert.NotEqual(background.Color, foreground.Color);
+                Assert.True(RelativeLuminance(foreground.Color) - RelativeLuminance(background.Color) > 0.5);
+                Assert.Contains(menuItemStyle.Setters.OfType<Setter>(), setter => setter.Property == Control.ForegroundProperty);
             }
             catch (Exception exception) { error = exception; }
         });
@@ -177,31 +152,14 @@ public sealed class AiTextRewriteServiceTests
         Assert.Null(error);
     }
 
-    [Fact]
-    public void SpellcheckSuggestions_AreEnumeratedOnlyUpToTheLimit()
+    private static double RelativeLuminance(Color color)
     {
-        var source = new CountingSuggestions(1000);
-
-        var result = TextInputAssist.MaterializeSuggestions(source);
-
-        Assert.Equal(TextInputAssist.MaxSpellingSuggestions, result.Count);
-        Assert.Equal(TextInputAssist.MaxSpellingSuggestions, source.YieldCount);
-    }
-
-    private sealed class CountingSuggestions(int count) : IEnumerable<string>
-    {
-        public int YieldCount { get; private set; }
-
-        public IEnumerator<string> GetEnumerator()
+        static double Channel(byte value)
         {
-            for (var index = 0; index < count; index++)
-            {
-                YieldCount++;
-                yield return $"Vorschlag {index}";
-            }
+            var normalized = value / 255d;
+            return normalized <= 0.04045 ? normalized / 12.92 : Math.Pow((normalized + 0.055) / 1.055, 2.4);
         }
-
-        System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() => GetEnumerator();
+        return 0.2126 * Channel(color.R) + 0.7152 * Channel(color.G) + 0.0722 * Channel(color.B);
     }
 
     private sealed class FakeAi : IAiChatService
