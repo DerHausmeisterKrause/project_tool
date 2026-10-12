@@ -113,7 +113,7 @@
                     <WrapPanel Margin="0,8,0,0">
                         <Button Content="Speichern" Width="94" Command="{Binding SaveCommand}"
                                 Visibility="{Binding ShowLocalTaskDescription, Converter={StaticResource BooleanToVisibilityConverter}}"/>
-                        <Button Content="Erledigt" Width="94" Style="{StaticResource SuccessButtonStyle}" Command="{Binding DoneCommand}"/>
+                        <Button Content="{Binding DoneButtonText}" MinWidth="94" Style="{StaticResource SuccessButtonStyle}" Command="{Binding DoneCommand}"/>
                         <Button Content="Zurück zu Aktuell" Width="120" Style="{StaticResource SecondaryButtonStyle}" Command="{Binding ReopenCommand}"/>
                         <Button Content="Als Ticket erstellen" Width="150" Style="{StaticResource SecondaryButtonStyle}"
                                 Command="{Binding CreateTicketFromLocalTaskCommand}"

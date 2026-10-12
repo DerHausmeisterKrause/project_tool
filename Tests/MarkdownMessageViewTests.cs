@@ -33,4 +33,15 @@ public sealed class MarkdownMessageViewTests
         Assert.Contains("Komponente", text); Assert.Contains("Local Knowledge", text);
         Assert.DoesNotContain("Markdig.Extensions.Tables", text);
     }
+
+    [Fact]
+    public void ReleaseHighlight_IsRenderedAsLargeBoldHeading()
+    {
+        var document = MarkdownMessageView.RenderDocument("# **🎫 Tickets jetzt direkt aus Plenaro schließen**");
+
+        var heading = Assert.IsType<Paragraph>(Assert.Single(document.Blocks));
+        Assert.Equal(24, heading.FontSize);
+        Assert.Equal(System.Windows.FontWeights.SemiBold, heading.FontWeight);
+        Assert.Contains(heading.Inlines.OfType<Span>(), span => span.FontWeight == System.Windows.FontWeights.Bold);
+    }
 }

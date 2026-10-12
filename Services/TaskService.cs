@@ -446,6 +446,73 @@ WHERE status = 'Succeeded'";
         return new SuccessfulBookingStatistics(todaySeconds, secondsByMonth);
     }
 
+    public MonthlyReportTimeAdjustment AddMonthlyReportTimeAdjustment(DateTime month, long seconds, string? note = null)
+    {
+        var normalizedMonth = new DateTime(month.Year, month.Month, 1);
+        var currentMonth = new DateTime(DateTime.Today.Year, DateTime.Today.Month, 1);
+        if (normalizedMonth > currentMonth)
+            throw new ArgumentOutOfRangeException(nameof(month), "Zukünftige Monate sind nicht zulässig.");
+        if (seconds <= 0)
+            throw new ArgumentOutOfRangeException(nameof(seconds), "Die Nachbuchung muss größer als null sein.");
+
+        var noteText = (note ?? string.Empty).Trim();
+        if (noteText.Length > 500) noteText = noteText[..500];
+        var adjustment = new MonthlyReportTimeAdjustment
+        {
+            Month = normalizedMonth,
+            Seconds = seconds,
+            Note = noteText,
+            CreatedUtc = DateTime.UtcNow
+        };
+        using var conn = new SqliteConnection(_db.ConnectionString);
+        conn.Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = @"INSERT INTO monthly_report_time_adjustments(id,month,seconds,note,created_utc)
+VALUES($id,$month,$seconds,$note,$created)";
+        cmd.Parameters.AddWithValue("$id", adjustment.Id.ToString());
+        cmd.Parameters.AddWithValue("$month", adjustment.Month.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
+        cmd.Parameters.AddWithValue("$seconds", adjustment.Seconds);
+        cmd.Parameters.AddWithValue("$note", adjustment.Note);
+        cmd.Parameters.AddWithValue("$created", adjustment.CreatedUtc.ToString("O", CultureInfo.InvariantCulture));
+        cmd.ExecuteNonQuery();
+        return adjustment;
+    }
+
+    public IReadOnlyList<MonthlyReportTimeAdjustment> GetMonthlyReportTimeAdjustments(DateTime? month = null)
+    {
+        var result = new List<MonthlyReportTimeAdjustment>();
+        using var conn = new SqliteConnection(_db.ConnectionString);
+        conn.Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = @"SELECT id,month,seconds,note,created_utc
+FROM monthly_report_time_adjustments" + (month.HasValue ? " WHERE month=$month" : string.Empty) + " ORDER BY created_utc DESC";
+        if (month.HasValue)
+            cmd.Parameters.AddWithValue("$month", new DateTime(month.Value.Year, month.Value.Month, 1).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
+        using var reader = cmd.ExecuteReader();
+        while (reader.Read())
+        {
+            result.Add(new MonthlyReportTimeAdjustment
+            {
+                Id = Guid.Parse(reader.GetString(0)),
+                Month = DateTime.ParseExact(reader.GetString(1), "yyyy-MM-dd", CultureInfo.InvariantCulture),
+                Seconds = reader.GetInt64(2),
+                Note = reader.GetString(3),
+                CreatedUtc = DateTime.Parse(reader.GetString(4), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind)
+            });
+        }
+        return result;
+    }
+
+    public void DeleteMonthlyReportTimeAdjustment(Guid id)
+    {
+        using var conn = new SqliteConnection(_db.ConnectionString);
+        conn.Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "DELETE FROM monthly_report_time_adjustments WHERE id=$id";
+        cmd.Parameters.AddWithValue("$id", id.ToString());
+        cmd.ExecuteNonQuery();
+    }
+
     // These task-based counters remain for the existing Today view. Reports use
     // GetSuccessfulBookingStatistics and never infer booking dates from tasks.
     public int GetTicketMinutesForDay(DateTime day)

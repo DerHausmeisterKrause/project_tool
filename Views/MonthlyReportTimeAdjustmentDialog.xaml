@@ -1,0 +1,33 @@
+<Window x:Class="TaskTool.Views.MonthlyReportTimeAdjustmentDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:ui="clr-namespace:TaskTool.Infrastructure"
+        Title="Zeit nachbuchen" Width="430" SizeToContent="Height"
+        WindowStartupLocation="CenterOwner" ResizeMode="NoResize" ShowInTaskbar="False"
+        Background="{StaticResource BgBrush}">
+    <Border Style="{StaticResource CardStyle}" Margin="18" Padding="20">
+        <StackPanel>
+            <TextBlock Text="Zeit nachbuchen" FontSize="22" FontWeight="SemiBold" Margin="0,0,0,14"/>
+            <TextBlock Text="Monat" Foreground="{StaticResource MutedTextBrush}"/>
+            <DatePicker x:Name="MonthPicker" SelectedDate="{Binding Month}" DisplayDateEnd="{Binding Today}" Margin="0,4,0,12"/>
+            <Grid>
+                <Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition/></Grid.ColumnDefinitions>
+                <StackPanel Grid.Column="0" Margin="0,0,6,0">
+                    <TextBlock Text="Stunden" Foreground="{StaticResource MutedTextBrush}"/>
+                    <TextBox Text="{Binding Hours, UpdateSourceTrigger=PropertyChanged}" Margin="0,4,0,0"/>
+                </StackPanel>
+                <StackPanel Grid.Column="1" Margin="6,0,0,0">
+                    <TextBlock Text="Minuten" Foreground="{StaticResource MutedTextBrush}"/>
+                    <TextBox Text="{Binding Minutes, UpdateSourceTrigger=PropertyChanged}" Margin="0,4,0,0"/>
+                </StackPanel>
+            </Grid>
+            <TextBlock Text="Notiz (optional)" Foreground="{StaticResource MutedTextBrush}" Margin="0,12,0,0"/>
+            <TextBox Text="{Binding Note, UpdateSourceTrigger=PropertyChanged}" ui:TextInputAssist.IsFreeText="True" MaxLength="500" Margin="0,4,0,0"/>
+            <TextBlock Text="{Binding Error}" Foreground="#FCA5A5" TextWrapping="Wrap" Margin="0,8,0,0"/>
+            <WrapPanel HorizontalAlignment="Right" Margin="0,16,0,0">
+                <Button Content="Abbrechen" Style="{StaticResource SecondaryButtonStyle}" IsCancel="True"/>
+                <Button Content="Nachbuchen" Click="Add_Click" IsDefault="True"/>
+            </WrapPanel>
+        </StackPanel>
+    </Border>
+</Window>
