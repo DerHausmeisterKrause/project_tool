@@ -1,5 +1,6 @@
 using System.Linq;
 using System.Collections.ObjectModel;
+using System.IO;
 using System.Text.RegularExpressions;
 using System.Windows;
 using System.Windows.Threading;
@@ -21,6 +22,8 @@ public class TodayViewModel : ObservableObject
     private readonly OutlookCalendarService _outlookCalendar;
     private readonly TicketSystemService _ticketSystem;
     private readonly HomeOfficeService _homeOffice;
+    private readonly AiTextRewriteService? _textRewrite;
+    private readonly Func<bool> _confirmTicketClose;
     private DateTime _agendaDate;
     private DateTime _lastTodayVisibilityRefreshMinute;
     private bool _lastHidePastTodayItems;
@@ -79,6 +82,7 @@ public class TodayViewModel : ObservableObject
                 LoadSegments();
                 Raise(nameof(IsTaskSelected));
                 Raise(nameof(HasZnunyTicket));
+                Raise(nameof(DoneButtonText));
                 Raise(nameof(ShowLocalTaskDescription));
                 Raise(nameof(HasPlenaroLocalOrigin));
                 Raise(nameof(ShowCreateTicketFromSelectedTask));
@@ -307,12 +311,20 @@ public class TodayViewModel : ObservableObject
             if (Set(ref _isTicketReplyMode, value))
             {
                 Raise(nameof(ShowTicketArticleView));
+                Raise(nameof(CanRewriteTicketReply));
                 BeginTicketReplyCommand.RaiseCanExecuteChanged();
                 SendTicketReplyCommand.RaiseCanExecuteChanged();
+                RewriteTicketReplyCommand.RaiseCanExecuteChanged();
             }
         }
     }
     public bool ShowTicketArticleView => !IsTicketReplyMode;
+    private bool _isTicketCloseReplyMode;
+    public bool IsTicketCloseReplyMode
+    {
+        get => _isTicketCloseReplyMode;
+        private set => Set(ref _isTicketCloseReplyMode, value);
+    }
     private string _ticketReplyText = string.Empty;
     public string TicketReplyText
     {
@@ -320,7 +332,11 @@ public class TodayViewModel : ObservableObject
         set
         {
             if (Set(ref _ticketReplyText, value))
+            {
                 SendTicketReplyCommand.RaiseCanExecuteChanged();
+                RewriteTicketReplyCommand.RaiseCanExecuteChanged();
+                Raise(nameof(CanRewriteTicketReply));
+            }
         }
     }
     private bool _isSendingTicketReply;
@@ -333,9 +349,29 @@ public class TodayViewModel : ObservableObject
             {
                 SendTicketReplyCommand.RaiseCanExecuteChanged();
                 CancelTicketReplyCommand.RaiseCanExecuteChanged();
+                RewriteTicketReplyCommand.RaiseCanExecuteChanged();
+                Raise(nameof(CanRewriteTicketReply));
             }
         }
     }
+    private bool _isRewritingTicketReply;
+    public bool IsRewritingTicketReply
+    {
+        get => _isRewritingTicketReply;
+        private set
+        {
+            if (!Set(ref _isRewritingTicketReply, value)) return;
+            Raise(nameof(CanRewriteTicketReply));
+            RewriteTicketReplyCommand.RaiseCanExecuteChanged(); RestoreOriginalTicketReplyCommand.RaiseCanExecuteChanged();
+            SendTicketReplyCommand.RaiseCanExecuteChanged(); CancelTicketReplyCommand.RaiseCanExecuteChanged();
+        }
+    }
+    private string _ticketReplyRewriteStatus = string.Empty;
+    public string TicketReplyRewriteStatus { get => _ticketReplyRewriteStatus; private set => Set(ref _ticketReplyRewriteStatus, value); }
+    private string? _originalTicketReplyText;
+    public bool HasOriginalTicketReply => _originalTicketReplyText is not null;
+    public bool CanRewriteTicketReply => _textRewrite?.CanRewrite == true && IsTicketReplyMode && !IsSendingTicketReply && !IsRewritingTicketReply && !string.IsNullOrWhiteSpace(TicketReplyText);
+    public string RewriteTicketReplyToolTip => _textRewrite?.CanRewrite == true ? "Aktuellen Antwortentwurf sprachlich überarbeiten." : "KI ist nicht verfügbar. Aktiviere die KI in den Einstellungen.";
 
     private bool _isTicketBooking;
     public bool IsTicketBooking
@@ -366,6 +402,7 @@ public class TodayViewModel : ObservableObject
     public string UnbookedTicketTimeText => $"Noch nicht gebucht: {UnbookedTicketSeconds / 60m:0.##} Min.";
     public string TransferredTicketTimeText => $"Insgesamt über TaskTool in OTRS gebucht: {_successfullyBookedMinutes:0.##} Min.";
     public bool HasZnunyTicket => SelectedTask?.Tags.Contains("ZnunyTicketID:", StringComparison.OrdinalIgnoreCase) == true;
+    public string DoneButtonText => HasZnunyTicket ? "Ticket schließen" : "Erledigt";
     private ZnunyAgent? _selectedOwner;
     public ZnunyAgent? SelectedOwner { get => _selectedOwner; set { if (Set(ref _selectedOwner, value)) RaiseTicketAssignmentState(); } }
     private ZnunyAgent? _selectedResponsible;
@@ -531,6 +568,8 @@ public class TodayViewModel : ObservableObject
     public RelayCommand BeginTicketReplyCommand { get; }
     public RelayCommand CancelTicketReplyCommand { get; }
     public RelayCommand SendTicketReplyCommand { get; }
+    public RelayCommand RewriteTicketReplyCommand { get; }
+    public RelayCommand RestoreOriginalTicketReplyCommand { get; }
 
     public RelayCommand<TaskItem> SelectTaskCommand { get; }
     public RelayCommand<TaskItem> StartTaskCommand { get; }
@@ -556,7 +595,7 @@ public class TodayViewModel : ObservableObject
     public bool IsHo { get => _isHo; set => Set(ref _isHo, value); }
     private bool _isHomeOfficeOperationRunning;
 
-    public TodayViewModel(TaskService tasks, WorkDayService workDays, SettingsService settings, OutlookCalendarService outlookCalendar, TicketSystemService ticketSystem, HomeOfficeService homeOffice)
+    public TodayViewModel(TaskService tasks, WorkDayService workDays, SettingsService settings, OutlookCalendarService outlookCalendar, TicketSystemService ticketSystem, HomeOfficeService homeOffice, AiTextRewriteService? textRewrite = null, Func<bool>? confirmTicketClose = null)
     {
         _tasks = tasks;
         _workDays = workDays;
@@ -565,6 +604,12 @@ public class TodayViewModel : ObservableObject
         _germanTime = ServiceLocator.GermanTime;
         _outlookCalendar = outlookCalendar;
         _ticketSystem = ticketSystem;
+        _textRewrite = textRewrite;
+        _confirmTicketClose = confirmTicketClose ?? (() => MessageBox.Show(
+            "Willst du das Ticket wirklich schließen?",
+            "Ticket schließen",
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Question) == MessageBoxResult.Yes);
         _ticketSystem.CandidateTicketsChanged += OnCandidateTicketsChanged;
         _homeOffice = homeOffice;
         _homeOffice.Changed += Refresh;
@@ -618,8 +663,12 @@ public class TodayViewModel : ObservableObject
         RefreshTicketArticlesCommand = new RelayCommand(async () => await RefreshTicketArticlesAsync(), () => HasZnunyTicket && !IsTicketConversationLoading);
         RefreshWikiCommand = new RelayCommand(async () => await SearchWikiAsync(force: true), () => SelectedTask?.IsZnunyTask == true);
         BeginTicketReplyCommand = new RelayCommand(BeginTicketReply, () => HasZnunyTicket && HasSelectedTicketArticle && !IsTicketReplyMode && !string.IsNullOrWhiteSpace(TicketReplyRecipient) && !IsTicketConversationLoading);
-        CancelTicketReplyCommand = new RelayCommand(CancelTicketReply, () => !IsSendingTicketReply);
-        SendTicketReplyCommand = new RelayCommand(async () => await SendTicketReplyAsync(), () => IsTicketReplyMode && !IsSendingTicketReply && !string.IsNullOrWhiteSpace(TicketReplyText) && !string.IsNullOrWhiteSpace(TicketReplyRecipient));
+        CancelTicketReplyCommand = new RelayCommand(CancelTicketReply, () => !IsSendingTicketReply && !IsRewritingTicketReply);
+        SendTicketReplyCommand = new RelayCommand(async () => await SendTicketReplyAsync(), () => IsTicketReplyMode && !IsSendingTicketReply && !IsRewritingTicketReply && !string.IsNullOrWhiteSpace(TicketReplyText) && !string.IsNullOrWhiteSpace(TicketReplyRecipient));
+        RewriteTicketReplyCommand = new RelayCommand(async () => await RewriteTicketReplyAsync(), () => CanRewriteTicketReply);
+        RestoreOriginalTicketReplyCommand = new RelayCommand(RestoreOriginalTicketReply, () => HasOriginalTicketReply && !IsRewritingTicketReply && IsTicketReplyMode);
+        if (_textRewrite != null)
+            _textRewrite.AvailabilityChanged += OnTextRewriteAvailabilityChanged;
 
         SelectTaskCommand = new RelayCommand<TaskItem>(task => SelectedTask = task, task => task != null);
         StartTaskCommand = new RelayCommand<TaskItem>(StartTaskFromCard);
@@ -1806,6 +1855,8 @@ public class TodayViewModel : ObservableObject
         TicketReplyTemplateWarning = string.Empty;
         TicketConversationMessage = string.Empty;
         TicketReplyText = string.Empty;
+        ClearTicketReplyRewriteState();
+        IsTicketCloseReplyMode = false;
         IsTicketReplyMode = false;
     }
 
@@ -1815,7 +1866,9 @@ public class TodayViewModel : ObservableObject
         await LoadTicketBookingContextAsync(SelectedTask, preserveArticleSelection: true, forceRemote: true);
     }
 
-    private void BeginTicketReply()
+    private void BeginTicketReply() => BeginTicketReply(TicketReplyMode.Normal);
+
+    private void BeginTicketReply(TicketReplyMode mode)
     {
         if (IsTicketReplyMode) return;
         if (string.IsNullOrWhiteSpace(TicketReplyRecipient))
@@ -1829,7 +1882,11 @@ public class TodayViewModel : ObservableObject
             _ticketTitle,
             _germanTime.GetLocalNow(_settings.Current.CalendarTimeZoneId).Date);
         var result = TicketReplyTemplateRenderer.Render(_settings.Current.TicketSystemReplyTemplate, templateContext);
-        TicketReplyText = result.Text;
+        ClearTicketReplyRewriteState();
+        IsTicketCloseReplyMode = mode == TicketReplyMode.CloseTicket;
+        TicketReplyText = IsTicketCloseReplyMode
+            ? TicketCloseReplyComposer.EnsureCloseNotice(result.Text)
+            : result.Text;
         TicketReplyTemplateWarning = result.HasUnresolvedVariables
             ? "Einige Vorlagenvariablen konnten nicht automatisch aufgelöst werden. Bitte prüfen Sie die Antwort vor dem Senden."
             : string.Empty;
@@ -1839,11 +1896,74 @@ public class TodayViewModel : ObservableObject
 
     private void CancelTicketReply()
     {
-        if (IsSendingTicketReply) return;
+        if (IsSendingTicketReply || IsRewritingTicketReply) return;
         TicketReplyText = string.Empty;
+        ClearTicketReplyRewriteState();
         TicketReplyTemplateWarning = string.Empty;
+        IsTicketCloseReplyMode = false;
         IsTicketReplyMode = false;
         TicketConversationMessage = string.Empty;
+    }
+
+    private async Task RewriteTicketReplyAsync()
+    {
+        if (!CanRewriteTicketReply || _textRewrite == null) return;
+        var original = TicketReplyText;
+        IsRewritingTicketReply = true;
+        TicketReplyRewriteStatus = "KI überarbeitet die Antwort …";
+        try
+        {
+            var rewritten = await _textRewrite.RewriteCustomerReplyAsync(original);
+            if (string.IsNullOrWhiteSpace(rewritten)) throw new InvalidDataException("Die KI hat keinen Text zurückgegeben.");
+            if (IsTicketCloseReplyMode)
+                rewritten = TicketCloseReplyComposer.EnsureCloseNotice(rewritten);
+            _originalTicketReplyText = original;
+            TicketReplyText = rewritten;
+            Raise(nameof(HasOriginalTicketReply)); RestoreOriginalTicketReplyCommand.RaiseCanExecuteChanged();
+            TicketReplyRewriteStatus = "Antwort wurde umformuliert. Bitte vor dem Senden prüfen.";
+        }
+        catch (OperationCanceledException) { TicketReplyRewriteStatus = "Umformulierung wurde abgebrochen. Der ursprüngliche Text wurde nicht verändert."; }
+        catch
+        {
+            TicketReplyText = original;
+            TicketReplyRewriteStatus = "Die Antwort konnte nicht umformuliert werden. Dein ursprünglicher Text wurde nicht verändert.";
+        }
+        finally { IsRewritingTicketReply = false; }
+    }
+
+    private void OnTextRewriteAvailabilityChanged(object? sender, EventArgs args)
+    {
+        void Refresh()
+        {
+            Raise(nameof(CanRewriteTicketReply));
+            Raise(nameof(RewriteTicketReplyToolTip));
+            RewriteTicketReplyCommand.RaiseCanExecuteChanged();
+        }
+
+        var dispatcher = Application.Current?.Dispatcher;
+        if (dispatcher != null && !dispatcher.CheckAccess())
+        {
+            dispatcher.BeginInvoke(new Action(Refresh));
+            return;
+        }
+
+        Refresh();
+    }
+
+    private void RestoreOriginalTicketReply()
+    {
+        if (_originalTicketReplyText == null || IsRewritingTicketReply) return;
+        TicketReplyText = _originalTicketReplyText;
+        ClearTicketReplyRewriteState();
+        TicketReplyRewriteStatus = "Original wurde wiederhergestellt.";
+    }
+
+    private void ClearTicketReplyRewriteState()
+    {
+        _originalTicketReplyText = null;
+        TicketReplyRewriteStatus = string.Empty;
+        Raise(nameof(HasOriginalTicketReply));
+        RestoreOriginalTicketReplyCommand?.RaiseCanExecuteChanged();
     }
 
     private async Task SendTicketReplyAsync()
@@ -1851,8 +1971,13 @@ public class TodayViewModel : ObservableObject
         if (SelectedTask == null || IsSendingTicketReply
             || string.IsNullOrWhiteSpace(TicketReplyText) || string.IsNullOrWhiteSpace(TicketReplyRecipient)) return;
         var task = SelectedTask;
+        var replyMode = IsTicketCloseReplyMode ? TicketReplyMode.CloseTicket : TicketReplyMode.Normal;
+        if (replyMode == TicketReplyMode.CloseTicket && !_confirmTicketClose())
+            return;
         IsSendingTicketReply = true;
-        TicketConversationMessage = "Antwort wird gesendet …";
+        TicketConversationMessage = replyMode == TicketReplyMode.CloseTicket
+            ? "Antwort wird gesendet und Ticket geschlossen …"
+            : "Antwort wird gesendet …";
         try
         {
             var result = await _ticketSystem.SendTicketReplyAsync(
@@ -1860,16 +1985,28 @@ public class TodayViewModel : ObservableObject
                 _ticketReplySourceArticle,
                 TicketReplyRecipient,
                 _ticketTitle,
-                TicketReplyText);
+                TicketReplyText,
+                replyMode);
             if (SelectedTask?.Id != task.Id) return;
             TicketConversationMessage = result.Message;
             StatusMessage = result.Message;
             if (!result.Success) return;
 
-            ApplyTaskFilters();
             TicketReplyText = string.Empty;
+            ClearTicketReplyRewriteState();
             TicketReplyTemplateWarning = string.Empty;
+            IsTicketCloseReplyMode = false;
             IsTicketReplyMode = false;
+            if (result.TicketClosed)
+            {
+                task.TicketState = "closed successful";
+                task.TicketStateType = "closed";
+                _tasks.MarkDone(task);
+                Load();
+                return;
+            }
+
+            ApplyTaskFilters();
             await LoadTicketBookingContextAsync(
                 task,
                 preserveArticleSelection: false,
@@ -2006,7 +2143,17 @@ public class TodayViewModel : ObservableObject
     }
 
     private void ReopenSelectedTask() { if (SelectedTask == null) return; _tasks.MarkPlanned(SelectedTask); Load(); }
-    private void MarkSelectedTaskDone() { if (SelectedTask == null) return; _tasks.MarkDone(SelectedTask); Load(); }
+    private void MarkSelectedTaskDone()
+    {
+        if (SelectedTask == null) return;
+        if (SelectedTask.IsZnunyTask)
+        {
+            BeginTicketReply(TicketReplyMode.CloseTicket);
+            return;
+        }
+        _tasks.MarkDone(SelectedTask);
+        Load();
+    }
 
     private void OpenTicketUrl(string? url)
     {

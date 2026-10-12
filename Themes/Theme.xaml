@@ -35,6 +35,8 @@
     <SolidColorBrush x:Key="{x:Static SystemColors.ControlBrushKey}" Color="#0F172A"/>
     <SolidColorBrush x:Key="{x:Static SystemColors.ControlLightBrushKey}" Color="#1F2937"/>
     <SolidColorBrush x:Key="{x:Static SystemColors.ControlDarkBrushKey}" Color="#334155"/>
+    <SolidColorBrush x:Key="{x:Static SystemColors.MenuBrushKey}" Color="#0F172A"/>
+    <SolidColorBrush x:Key="{x:Static SystemColors.MenuTextBrushKey}" Color="#E5E7EB"/>
 
     <Style TargetType="Window">
         <Setter Property="Background" Value="{StaticResource BgBrush}"/>
