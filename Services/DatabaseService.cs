@@ -75,10 +75,11 @@ CREATE TABLE IF NOT EXISTS schema_version (
             MigrateToV28(conn);
             MigrateToV29(conn);
             MigrateToV30(conn);
+            MigrateToV31(conn);
 
-            if (currentVersion < 30)
+            if (currentVersion < 31)
             {
-                SetVersion(conn, 30);
+                SetVersion(conn, 31);
             }
         }
         catch (Exception ex)
@@ -432,6 +433,19 @@ CREATE TABLE IF NOT EXISTS plenaro_shared_segment_imports (
     private static void MigrateToV30(SqliteConnection conn)
     {
         EnsureColumn(conn, "plenaro_shared_task_imports", "last_generated_utc", "TEXT NULL");
+    }
+
+    private static void MigrateToV31(SqliteConnection conn)
+    {
+        Exec(conn, @"CREATE TABLE IF NOT EXISTS monthly_report_time_adjustments (
+ id TEXT PRIMARY KEY,
+ month TEXT NOT NULL,
+ seconds INTEGER NOT NULL CHECK(seconds > 0),
+ note TEXT NOT NULL DEFAULT '',
+ created_utc TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_monthly_report_time_adjustments_month
+ ON monthly_report_time_adjustments(month);");
     }
 
     private static void EnsureColumn(SqliteConnection conn, string table, string column, string definition)

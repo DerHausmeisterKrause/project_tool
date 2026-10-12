@@ -1,6 +1,7 @@
 <UserControl x:Class="TaskTool.Views.Settings.TicketSystemSettingsView"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:ui="clr-namespace:TaskTool.Infrastructure"
              Background="Transparent">
     <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Padding="0,0,8,16">
         <StackPanel MaxWidth="1200" HorizontalAlignment="Center" Grid.IsSharedSizeScope="True">
@@ -174,7 +175,7 @@
                     <StackPanel>
                         <TextBlock Text="Znuny / OTRS – Antworten" Style="{StaticResource SettingsCardTitleStyle}"/>
                         <TextBlock Text="Antwortvorlage" Style="{StaticResource SettingsLabelStyle}"/>
-                        <TextBox Text="{Binding TicketSystemReplyTemplate, Mode=TwoWay, UpdateSourceTrigger=LostFocus}"
+                        <TextBox Text="{Binding TicketSystemReplyTemplate, Mode=TwoWay, UpdateSourceTrigger=LostFocus}" ui:TextInputAssist.IsFreeText="True"
                                  AcceptsReturn="True"
                                  TextWrapping="Wrap"
                                  VerticalScrollBarVisibility="Auto"
