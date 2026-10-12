@@ -124,7 +124,7 @@ public sealed class AiTextRewriteServiceTests
     }
 
     [Fact]
-    public void Theme_ProvidesReadableImplicitContextMenuAndMenuItemStyles()
+    public void Theme_LetsSuggestionTextBlocksInheritNativeMenuColors()
     {
         Exception? error = null;
         var thread = new Thread(() =>
@@ -135,31 +135,19 @@ public sealed class AiTextRewriteServiceTests
                 {
                     Source = new Uri("/TaskTool;component/Themes/Theme.xaml", UriKind.Relative)
                 };
-                var contextMenuStyle = Assert.IsType<Style>(resources[typeof(ContextMenu)]);
-                var menuItemStyle = Assert.IsType<Style>(resources[typeof(MenuItem)]);
-                var background = Assert.IsType<SolidColorBrush>(contextMenuStyle.Setters.OfType<Setter>()
-                    .Single(setter => setter.Property == Control.BackgroundProperty).Value);
-                var foreground = Assert.IsType<SolidColorBrush>(contextMenuStyle.Setters.OfType<Setter>()
-                    .Single(setter => setter.Property == Control.ForegroundProperty).Value);
-
-                Assert.NotEqual(background.Color, foreground.Color);
-                Assert.True(RelativeLuminance(foreground.Color) - RelativeLuminance(background.Color) > 0.5);
-                Assert.Contains(menuItemStyle.Setters.OfType<Setter>(), setter => setter.Property == Control.ForegroundProperty);
+                Assert.False(resources.Contains(typeof(TextBlock)));
+                var userControlStyle = Assert.IsType<Style>(resources[typeof(UserControl)]);
+                Assert.Contains(userControlStyle.Setters.OfType<Setter>(),
+                    setter => setter.Property == Control.ForegroundProperty);
+                Assert.Equal(Color.FromRgb(0x37, 0x41, 0x51),
+                    Assert.IsType<SolidColorBrush>(resources[SystemColors.MenuTextBrushKey]).Color);
+                Assert.Equal(Color.FromRgb(0x6B, 0x72, 0x80),
+                    Assert.IsType<SolidColorBrush>(resources[SystemColors.GrayTextBrushKey]).Color);
             }
             catch (Exception exception) { error = exception; }
         });
         thread.SetApartmentState(ApartmentState.STA); thread.Start(); thread.Join();
         Assert.Null(error);
-    }
-
-    private static double RelativeLuminance(Color color)
-    {
-        static double Channel(byte value)
-        {
-            var normalized = value / 255d;
-            return normalized <= 0.04045 ? normalized / 12.92 : Math.Pow((normalized + 0.055) / 1.055, 2.4);
-        }
-        return 0.2126 * Channel(color.R) + 0.7152 * Channel(color.G) + 0.0722 * Channel(color.B);
     }
 
     private sealed class FakeAi : IAiChatService
