@@ -446,6 +446,73 @@ WHERE status = 'Succeeded'";
         return new SuccessfulBookingStatistics(todaySeconds, secondsByMonth);
     }
 
+    public MonthlyReportTimeAdjustment AddMonthlyReportTimeAdjustment(DateTime month, long seconds, string? note = null)
+    {
+        var normalizedMonth = new DateTime(month.Year, month.Month, 1);
+        var currentMonth = new DateTime(DateTime.Today.Year, DateTime.Today.Month, 1);
+        if (normalizedMonth > currentMonth)
+            throw new ArgumentOutOfRangeException(nameof(month), "Zukünftige Monate sind nicht zulässig.");
+        if (seconds <= 0)
+            throw new ArgumentOutOfRangeException(nameof(seconds), "Die Nachbuchung muss größer als null sein.");
+
+        var noteText = (note ?? string.Empty).Trim();
+        if (noteText.Length > 500) noteText = noteText[..500];
+        var adjustment = new MonthlyReportTimeAdjustment
+        {
+            Month = normalizedMonth,
+            Seconds = seconds,
+            Note = noteText,
+            CreatedUtc = DateTime.UtcNow
+        };
+        using var conn = new SqliteConnection(_db.ConnectionString);
+        conn.Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = @"INSERT INTO monthly_report_time_adjustments(id,month,seconds,note,created_utc)
+VALUES($id,$month,$seconds,$note,$created)";
+        cmd.Parameters.AddWithValue("$id", adjustment.Id.ToString());
+        cmd.Parameters.AddWithValue("$month", adjustment.Month.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
+        cmd.Parameters.AddWithValue("$seconds", adjustment.Seconds);
+        cmd.Parameters.AddWithValue("$note", adjustment.Note);
+        cmd.Parameters.AddWithValue("$created", adjustment.CreatedUtc.ToString("O", CultureInfo.InvariantCulture));
+        cmd.ExecuteNonQuery();
+        return adjustment;
+    }
+
+    public IReadOnlyList<MonthlyReportTimeAdjustment> GetMonthlyReportTimeAdjustments(DateTime? month = null)
+    {
+        var result = new List<MonthlyReportTimeAdjustment>();
+        using var conn = new SqliteConnection(_db.ConnectionString);
+        conn.Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = @"SELECT id,month,seconds,note,created_utc
+FROM monthly_report_time_adjustments" + (month.HasValue ? " WHERE month=$month" : string.Empty) + " ORDER BY created_utc DESC";
+        if (month.HasValue)
+            cmd.Parameters.AddWithValue("$month", new DateTime(month.Value.Year, month.Value.Month, 1).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
+        using var reader = cmd.ExecuteReader();
+        while (reader.Read())
+        {
+            result.Add(new MonthlyReportTimeAdjustment
+            {
+                Id = Guid.Parse(reader.GetString(0)),
+                Month = DateTime.ParseExact(reader.GetString(1), "yyyy-MM-dd", CultureInfo.InvariantCulture),
+                Seconds = reader.GetInt64(2),
+                Note = reader.GetString(3),
+                CreatedUtc = DateTime.Parse(reader.GetString(4), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind)
+            });
+        }
+        return result;
+    }
+
+    public void DeleteMonthlyReportTimeAdjustment(Guid id)
+    {
+        using var conn = new SqliteConnection(_db.ConnectionString);
+        conn.Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "DELETE FROM monthly_report_time_adjustments WHERE id=$id";
+        cmd.Parameters.AddWithValue("$id", id.ToString());
+        cmd.ExecuteNonQuery();
+    }
+
     // These task-based counters remain for the existing Today view. Reports use
     // GetSuccessfulBookingStatistics and never infer booking dates from tasks.
     public int GetTicketMinutesForDay(DateTime day)
@@ -492,13 +559,14 @@ WHERE datetime(COALESCE(start_local, created_utc)) >= datetime($from)
 
     public List<(TaskItem Task, TaskSegment Segment)> GetSegmentsForRange(DateTime fromInclusive, DateTime toExclusive)
     {
+        var watch = System.Diagnostics.Stopwatch.StartNew();
         var result = new List<(TaskItem Task, TaskSegment Segment)>();
         var tasks = GetAllTasks().ToDictionary(t => t.Id, t => t);
 
         using var conn = new SqliteConnection(_db.ConnectionString);
         conn.Open();
         using var cmd = conn.CreateCommand();
-        cmd.CommandText = "SELECT id,task_id,start_local,end_local,planned_minutes,note,outlook_entry_id,segment_share_id,is_shared_import FROM task_segments WHERE datetime(start_local)>=datetime($from) AND datetime(start_local)<datetime($to) ORDER BY start_local";
+        cmd.CommandText = "SELECT id,task_id,start_local,end_local,planned_minutes,note,outlook_entry_id,segment_share_id,is_shared_import FROM task_segments WHERE start_local >= $from AND start_local < $to ORDER BY start_local";
         cmd.Parameters.AddWithValue("$from", fromInclusive.ToString("s"));
         cmd.Parameters.AddWithValue("$to", toExclusive.ToString("s"));
         using var r = cmd.ExecuteReader();
@@ -508,23 +576,12 @@ WHERE datetime(COALESCE(start_local, created_utc)) >= datetime($from)
             if (!tasks.TryGetValue(taskId, out var task))
                 continue;
 
-            var segment = new TaskSegment
-            {
-                Id = Convert.ToInt64(r["id"]),
-                TaskId = taskId,
-                StartLocal = ParseRequiredDateTime(r["start_local"].ToString()),
-                EndLocal = ParseRequiredDateTime(r["end_local"].ToString()),
-                PlannedMinutes = Convert.ToInt32(r["planned_minutes"]),
-                Note = r["note"]?.ToString() ?? string.Empty,
-                OutlookEntryId = r["outlook_entry_id"]?.ToString() ?? string.Empty,
-                SegmentShareId = r["segment_share_id"]?.ToString() ?? string.Empty,
-                IsSharedImport = Convert.ToInt32(r["is_shared_import"]) != 0
-            };
-
-            result.Add((task, segment));
+            result.Add((task, MapSegment(r)));
         }
-
-        foreach (var item in result) LoadAttendees(item.Segment);
+        r.Close();
+        LoadAttendeesForRange(conn, result.Select(item => item.Segment), fromInclusive, toExclusive);
+        if (watch.ElapsedMilliseconds >= 50)
+            _logger.Info($"[Performance] operation=GetSegmentsForRange durationMs={watch.ElapsedMilliseconds} segmentCount={result.Count}");
         return result;
     }
 
@@ -536,8 +593,8 @@ WHERE datetime(COALESCE(start_local, created_utc)) >= datetime($from)
         using var cmd = conn.CreateCommand();
         cmd.CommandText = @"SELECT DISTINCT task_id
 FROM task_segments
-WHERE datetime(start_local) >= datetime($from)
-  AND datetime(start_local) < datetime($to)";
+WHERE start_local >= $from
+  AND start_local < $to";
         cmd.Parameters.AddWithValue("$from", fromInclusive.ToString("s"));
         cmd.Parameters.AddWithValue("$to", toExclusive.ToString("s"));
 
@@ -559,7 +616,7 @@ WHERE datetime(start_local) >= datetime($from)
         using var cmd = conn.CreateCommand();
         cmd.CommandText = @"SELECT DISTINCT task_id
 FROM task_segments
-WHERE datetime(end_local) > datetime($now)";
+WHERE end_local > $now";
         cmd.Parameters.AddWithValue("$now", now.ToString("s"));
         using var reader = cmd.ExecuteReader();
         while (reader.Read())
@@ -585,6 +642,7 @@ WHERE datetime(end_local) > datetime($now)";
 
     public List<TaskSegment> GetSegments(Guid taskId)
     {
+        var watch = System.Diagnostics.Stopwatch.StartNew();
         var list = new List<TaskSegment>();
         using var conn = new SqliteConnection(_db.ConnectionString);
         conn.Open();
@@ -594,20 +652,12 @@ WHERE datetime(end_local) > datetime($now)";
         using var r = cmd.ExecuteReader();
         while (r.Read())
         {
-            list.Add(new TaskSegment
-            {
-                Id = Convert.ToInt64(r["id"]),
-                TaskId = Guid.Parse(r["task_id"].ToString()!),
-                StartLocal = ParseRequiredDateTime(r["start_local"].ToString()),
-                EndLocal = ParseRequiredDateTime(r["end_local"].ToString()),
-                PlannedMinutes = Convert.ToInt32(r["planned_minutes"]),
-                Note = r["note"]?.ToString() ?? string.Empty,
-                OutlookEntryId = r["outlook_entry_id"]?.ToString() ?? string.Empty,
-                SegmentShareId = r["segment_share_id"]?.ToString() ?? string.Empty,
-                IsSharedImport = Convert.ToInt32(r["is_shared_import"]) != 0
-            });
+            list.Add(MapSegment(r));
         }
-        foreach (var segment in list) LoadAttendees(segment);
+        r.Close();
+        LoadAttendeesForTask(conn, list, taskId);
+        if (watch.ElapsedMilliseconds >= 50)
+            _logger.Info($"[Performance] operation=GetSegments durationMs={watch.ElapsedMilliseconds} segmentCount={list.Count}");
         return list;
     }
 
@@ -817,12 +867,56 @@ WHERE datetime(end_local) > datetime($now)";
         };
     }
 
-    private void LoadAttendees(TaskSegment segment)
+    private static TaskSegment MapSegment(SqliteDataReader reader)
     {
-        using var conn = new SqliteConnection(_db.ConnectionString); conn.Open();
-        using var cmd = conn.CreateCommand(); cmd.CommandText = "SELECT email FROM task_segment_attendees WHERE segment_id=$id ORDER BY email COLLATE NOCASE"; cmd.Parameters.AddWithValue("$id", segment.Id);
-        using var reader = cmd.ExecuteReader(); var values = new List<string>(); while (reader.Read()) values.Add(reader.GetString(0));
-        segment.Attendees = values; segment.AttendeesText = string.Join("; ", values);
+        return new TaskSegment
+        {
+            Id = Convert.ToInt64(reader["id"]),
+            TaskId = Guid.Parse(reader["task_id"].ToString()!),
+            StartLocal = ParseRequiredDateTime(reader["start_local"].ToString()),
+            EndLocal = ParseRequiredDateTime(reader["end_local"].ToString()),
+            PlannedMinutes = Convert.ToInt32(reader["planned_minutes"]),
+            Note = reader["note"]?.ToString() ?? string.Empty,
+            OutlookEntryId = reader["outlook_entry_id"]?.ToString() ?? string.Empty,
+            SegmentShareId = reader["segment_share_id"]?.ToString() ?? string.Empty,
+            IsSharedImport = Convert.ToInt32(reader["is_shared_import"]) != 0
+        };
+    }
+
+    private static void LoadAttendeesForRange(SqliteConnection connection, IEnumerable<TaskSegment> segments, DateTime fromInclusive, DateTime toExclusive)
+    {
+        using var command = connection.CreateCommand();
+        command.CommandText = @"SELECT a.segment_id,a.email FROM task_segment_attendees a
+JOIN task_segments s ON s.id=a.segment_id
+WHERE s.start_local >= $from AND s.start_local < $to
+ORDER BY a.segment_id,a.email COLLATE NOCASE";
+        command.Parameters.AddWithValue("$from", fromInclusive.ToString("s"));
+        command.Parameters.AddWithValue("$to", toExclusive.ToString("s"));
+        PopulateAttendees(segments, command);
+    }
+
+    private static void LoadAttendeesForTask(SqliteConnection connection, IEnumerable<TaskSegment> segments, Guid taskId)
+    {
+        using var command = connection.CreateCommand();
+        command.CommandText = @"SELECT a.segment_id,a.email FROM task_segment_attendees a
+JOIN task_segments s ON s.id=a.segment_id WHERE s.task_id=$task
+ORDER BY a.segment_id,a.email COLLATE NOCASE";
+        command.Parameters.AddWithValue("$task", taskId.ToString());
+        PopulateAttendees(segments, command);
+    }
+
+    private static void PopulateAttendees(IEnumerable<TaskSegment> segments, SqliteCommand command)
+    {
+        var byId = segments.ToDictionary(segment => segment.Id);
+        var attendees = byId.Keys.ToDictionary(id => id, _ => new List<string>());
+        using var reader = command.ExecuteReader();
+        while (reader.Read())
+            if (attendees.TryGetValue(reader.GetInt64(0), out var values)) values.Add(reader.GetString(1));
+        foreach (var (id, segment) in byId)
+        {
+            segment.Attendees = attendees[id];
+            segment.AttendeesText = string.Join("; ", attendees[id]);
+        }
     }
 
     private static void SaveAttendees(SqliteConnection conn, TaskSegment segment)
