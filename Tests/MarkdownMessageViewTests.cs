@@ -19,4 +19,29 @@ public sealed class MarkdownMessageViewTests
         Assert.DoesNotContain("Markdig.Syntax", text);
         Assert.Contains("Autostart prüfen", text); Assert.Contains("Datenträger", text);
     }
+
+    [Fact]
+    public void MarkdownTable_IsRenderedAsSelectableWpfTable()
+    {
+        const string markdown = "| Komponente | Status |\n| --- | --- |\n| Wiki | OK |\n| Local Knowledge | OK |";
+
+        var document = MarkdownMessageView.RenderDocument(markdown);
+
+        var table = Assert.IsType<Table>(Assert.Single(document.Blocks));
+        Assert.Equal(3, Assert.Single(table.RowGroups).Rows.Count);
+        var text = new TextRange(document.ContentStart, document.ContentEnd).Text;
+        Assert.Contains("Komponente", text); Assert.Contains("Local Knowledge", text);
+        Assert.DoesNotContain("Markdig.Extensions.Tables", text);
+    }
+
+    [Fact]
+    public void ReleaseHighlight_IsRenderedAsLargeBoldHeading()
+    {
+        var document = MarkdownMessageView.RenderDocument("# **🎫 Tickets jetzt direkt aus Plenaro schließen**");
+
+        var heading = Assert.IsType<Paragraph>(Assert.Single(document.Blocks));
+        Assert.Equal(24, heading.FontSize);
+        Assert.Equal(System.Windows.FontWeights.SemiBold, heading.FontWeight);
+        Assert.Contains(heading.Inlines.OfType<Span>(), span => span.FontWeight == System.Windows.FontWeights.Bold);
+    }
 }

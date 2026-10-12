@@ -35,6 +35,8 @@
     <SolidColorBrush x:Key="{x:Static SystemColors.ControlBrushKey}" Color="#0F172A"/>
     <SolidColorBrush x:Key="{x:Static SystemColors.ControlLightBrushKey}" Color="#1F2937"/>
     <SolidColorBrush x:Key="{x:Static SystemColors.ControlDarkBrushKey}" Color="#334155"/>
+    <SolidColorBrush x:Key="{x:Static SystemColors.MenuBrushKey}" Color="#0F172A"/>
+    <SolidColorBrush x:Key="{x:Static SystemColors.MenuTextBrushKey}" Color="#E5E7EB"/>
 
     <Style TargetType="Window">
         <Setter Property="Background" Value="{StaticResource BgBrush}"/>
@@ -51,6 +53,46 @@
         <Setter Property="BorderThickness" Value="1"/>
         <Setter Property="Padding" Value="10,8"/>
         <Setter Property="FontSize" Value="12"/>
+    </Style>
+    <Style TargetType="{x:Type ContextMenu}">
+        <Setter Property="Background" Value="{StaticResource SurfaceAltBrush}"/>
+        <Setter Property="Foreground" Value="{StaticResource TextBrush}"/>
+        <Setter Property="BorderBrush" Value="{StaticResource BorderBrushColor}"/>
+        <Setter Property="BorderThickness" Value="1"/>
+        <Setter Property="Padding" Value="3"/>
+        <Setter Property="HasDropShadow" Value="True"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ContextMenu">
+                    <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
+                            BorderThickness="{TemplateBinding BorderThickness}" Padding="{TemplateBinding Padding}" CornerRadius="6">
+                        <ScrollViewer CanContentScroll="True" VerticalScrollBarVisibility="Auto">
+                            <ItemsPresenter KeyboardNavigation.DirectionalNavigation="Cycle"/>
+                        </ScrollViewer>
+                    </Border>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+    <Style TargetType="{x:Type MenuItem}">
+        <Setter Property="Background" Value="Transparent"/>
+        <Setter Property="Foreground" Value="{StaticResource TextBrush}"/>
+        <Setter Property="Padding" Value="10,6"/>
+        <Style.Triggers>
+            <Trigger Property="IsHighlighted" Value="True">
+                <Setter Property="Background" Value="#1E293B"/>
+                <Setter Property="Foreground" Value="#F8FAFC"/>
+            </Trigger>
+            <Trigger Property="IsEnabled" Value="False">
+                <Setter Property="Foreground" Value="#64748B"/>
+            </Trigger>
+        </Style.Triggers>
+    </Style>
+    <Style TargetType="{x:Type Separator}">
+        <Setter Property="Height" Value="1"/>
+        <Setter Property="Margin" Value="4,3"/>
+        <Setter Property="Background" Value="{StaticResource BorderBrushColor}"/>
+        <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="Separator"><Border Height="1" Background="{TemplateBinding Background}"/></ControlTemplate></Setter.Value></Setter>
     </Style>
     <Style TargetType="ListBox"><Setter Property="Background" Value="Transparent"/><Setter Property="BorderBrush" Value="Transparent"/></Style>
     <Style TargetType="ListBoxItem"><Setter Property="Background" Value="Transparent"/><Setter Property="Foreground" Value="{StaticResource TextBrush}"/></Style>

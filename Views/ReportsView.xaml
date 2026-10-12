@@ -26,8 +26,11 @@
                     <StackPanel>
                         <DockPanel Margin="0,0,0,12">
                             <TextBlock Text="Monatsübersicht" FontSize="18" FontWeight="SemiBold" VerticalAlignment="Center"/>
-                            <Button Content="Aktualisieren" Width="120" HorizontalAlignment="Right"
-                                    Style="{StaticResource SecondaryButtonStyle}" Command="{Binding RefreshCommand}"/>
+                            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+                                <Button Content="+ Zeit nachbuchen" Style="{StaticResource SecondaryButtonStyle}" Command="{Binding AddTimeAdjustmentCommand}"/>
+                                <Button Content="Aktualisieren" Width="120" HorizontalAlignment="Right"
+                                        Style="{StaticResource SecondaryButtonStyle}" Command="{Binding RefreshCommand}"/>
+                            </StackPanel>
                         </DockPanel>
                         <Grid Margin="10,0,10,7">
                             <Grid.ColumnDefinitions>
@@ -72,10 +75,17 @@
                                                 </Border>
                                             </StackPanel>
                                             <TextBlock Grid.Column="1" Text="{Binding MinutesText}" VerticalAlignment="Center"/>
-                                            <TextBlock Grid.Column="2" Text="{Binding HoursText}" VerticalAlignment="Center"/>
+                                            <StackPanel Grid.Column="2" VerticalAlignment="Center">
+                                                <TextBlock Text="{Binding HoursText}"/>
+                                                <TextBlock Text="{Binding ManualAdjustmentText}" FontSize="11" Foreground="{StaticResource MutedTextBrush}"
+                                                           Visibility="{Binding HasManualAdjustments, Converter={StaticResource BooleanToVisibilityConverter}}"/>
+                                            </StackPanel>
                                             <TextBlock Grid.Column="3" Text="{Binding HomeOfficeText}" VerticalAlignment="Center"/>
                                             <TextBlock Grid.Column="4" Text="{Binding VacationText}" VerticalAlignment="Center"/>
                                             <TextBlock Grid.Column="5" Text="{Binding AmText}" VerticalAlignment="Center"/>
+                                            <Button Grid.Column="6" Content="Nachbuchungen" HorizontalAlignment="Right" Style="{StaticResource SecondaryButtonStyle}"
+                                                    Command="{Binding DataContext.ShowTimeAdjustmentsCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
+                                                    CommandParameter="{Binding}" Visibility="{Binding HasManualAdjustments, Converter={StaticResource BooleanToVisibilityConverter}}"/>
                                         </Grid>
                                     </Border>
                                 </DataTemplate>
