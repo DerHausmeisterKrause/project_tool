@@ -19,6 +19,7 @@ public class OutlookCalendarService : IDisposable
     private readonly object _syncLock = new();
 
     private List<OutlookCalendarEvent> _cache = new();
+    private Dictionary<DateTime, List<OutlookCalendarEvent>> _cacheByDay = new();
     private DateTime? _cacheFromInclusiveLocal;
     private DateTime? _cacheToExclusiveLocal;
     private readonly List<(DateTime From, DateTime To)> _availableRanges = new();
@@ -47,24 +48,26 @@ public class OutlookCalendarService : IDisposable
 
     public IReadOnlyList<OutlookCalendarEvent> GetEvents(DateTime fromLocal, DateTime toLocal)
     {
+        if (toLocal <= fromLocal) return Array.Empty<OutlookCalendarEvent>();
+        var watch = Stopwatch.StartNew();
         lock (_syncLock)
         {
-            var visible = new List<OutlookCalendarEvent>();
-            foreach (var e in _cache)
+            var candidates = GetIndexedCandidates(_cacheByDay, fromLocal, toLocal);
+            var infoEnabled = _logger.IsEnabled(AppLogLevel.Info);
+            var visible = new List<OutlookCalendarEvent>(candidates.Count);
+            foreach (var e in candidates)
             {
                 var overlap = e.StartLocal < toLocal && e.EndLocal > fromLocal;
-                _logger.Info($"[OutlookRangeCheck] subject='{e.Subject}' start={e.StartLocal:O} end={e.EndLocal:O} isAllDay={e.IsAllDay} fromInclusive={fromLocal:O} toExclusive={toLocal:O} overlap={overlap}");
+                if (infoEnabled) _logger.Info($"[OutlookRangeCheck] subject='{e.Subject}' start={e.StartLocal:O} end={e.EndLocal:O} isAllDay={e.IsAllDay} fromInclusive={fromLocal:O} toExclusive={toLocal:O} overlap={overlap}");
                 if (overlap)
-                {
                     visible.Add(e);
-                }
-                else
-                {
-                    _logger.Info($"[OutlookEventFiltered] subject='{e.Subject}' reason=FilteredByTimeRange start={e.StartLocal:O} end={e.EndLocal:O} fromInclusive={fromLocal:O} toExclusive={toLocal:O} overlap={overlap}");
-                }
+                else if (infoEnabled) _logger.Info($"[OutlookEventFiltered] subject='{e.Subject}' reason=FilteredByTimeRange start={e.StartLocal:O} end={e.EndLocal:O} fromInclusive={fromLocal:O} toExclusive={toLocal:O} overlap={overlap}");
             }
 
-            return visible.OrderBy(e => e.StartLocal).ToList();
+            var result = visible.OrderBy(e => e.StartLocal).ToList();
+            if (watch.ElapsedMilliseconds >= 50)
+                _logger.Info($"[Performance] operation=OutlookGetEvents durationMs={watch.ElapsedMilliseconds} cacheCount={_cache.Count} candidateCount={candidates.Count} resultCount={result.Count}");
+            return result;
         }
     }
 
@@ -134,7 +137,7 @@ public class OutlookCalendarService : IDisposable
                     return;
                 }
 
-                foreach (var e in result.events)
+                if (_logger.IsEnabled(AppLogLevel.Info)) foreach (var e in result.events)
                 {
                     _logger.Info($"[OutlookFetchedEvent] subject='{e.Subject}' start={e.StartLocal:O} end={e.EndLocal:O} isAllDay={e.IsAllDay} entryId='{e.EntryId}'");
                     _logger.Info($"[OutlookRawEvent] subject='{e.Subject}' start={e.StartLocal:O} end={e.EndLocal:O} isAllDay={e.IsAllDay} busyStatus='{e.BusyStatus}' sensitivity='{e.Sensitivity}' isPrivate={e.IsPrivate} isRecurring={e.IsRecurring} isInstance={e.IsInstance} meetingStatus='{e.MeetingStatus}' messageClass='{e.MessageClass}' isCancelled={e.IsCancelled} categories='{e.Categories}' location='{e.Location}' calendar='{e.CalendarName}' entryId='{e.EntryId}' iCalUId='{e.ICalUId}'");
@@ -157,6 +160,7 @@ public class OutlookCalendarService : IDisposable
                         .Select(group => group.First())
                         .OrderBy(e => e.StartLocal)
                         .ToList();
+                    RebuildDayIndex();
                     AddAvailableRange(from, to);
                     _cacheFromInclusiveLocal = _availableRanges.Min(range => range.From);
                     _cacheToExclusiveLocal = _availableRanges.Max(range => range.To);
@@ -216,6 +220,7 @@ public class OutlookCalendarService : IDisposable
             lock (_syncLock)
             {
                 _cache.Clear();
+                _cacheByDay.Clear();
                 _cacheFromInclusiveLocal = null;
                 _cacheToExclusiveLocal = null;
                 _availableRanges.Clear();
@@ -225,6 +230,46 @@ public class OutlookCalendarService : IDisposable
             }
             EventsUpdated?.Invoke();
         }
+    }
+
+    private void RebuildDayIndex()
+    {
+        _cacheByDay = BuildDayIndex(_cache);
+    }
+
+    internal static Dictionary<DateTime, List<OutlookCalendarEvent>> BuildDayIndex(IEnumerable<OutlookCalendarEvent> source)
+    {
+        var index = new Dictionary<DateTime, List<OutlookCalendarEvent>>();
+        foreach (var calendarEvent in source)
+        {
+            var finalDay = calendarEvent.EndLocal > calendarEvent.StartLocal
+                ? calendarEvent.EndLocal.AddTicks(-1).Date
+                : calendarEvent.StartLocal.Date;
+            for (var day = calendarEvent.StartLocal.Date; day <= finalDay; day = day.AddDays(1))
+            {
+                if (!index.TryGetValue(day, out var events)) index[day] = events = [];
+                events.Add(calendarEvent);
+            }
+        }
+        return index;
+    }
+
+    internal static IReadOnlyList<OutlookCalendarEvent> FilterIndexedEvents(
+        IReadOnlyDictionary<DateTime, List<OutlookCalendarEvent>> index, DateTime fromLocal, DateTime toLocal)
+        => toLocal <= fromLocal
+            ? Array.Empty<OutlookCalendarEvent>()
+            : GetIndexedCandidates(index, fromLocal, toLocal)
+                .Where(calendarEvent => calendarEvent.StartLocal < toLocal && calendarEvent.EndLocal > fromLocal)
+                .OrderBy(calendarEvent => calendarEvent.StartLocal)
+                .ToList();
+
+    private static HashSet<OutlookCalendarEvent> GetIndexedCandidates(
+        IReadOnlyDictionary<DateTime, List<OutlookCalendarEvent>> index, DateTime fromLocal, DateTime toLocal)
+    {
+        var candidates = new HashSet<OutlookCalendarEvent>();
+        for (var day = fromLocal.Date; day <= toLocal.AddTicks(-1).Date; day = day.AddDays(1))
+            if (index.TryGetValue(day, out var events)) candidates.UnionWith(events);
+        return candidates;
     }
 
     private bool IsCacheCoveringRange(DateTime fromInclusiveLocal, DateTime toExclusiveLocal)

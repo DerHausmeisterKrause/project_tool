@@ -15,6 +15,7 @@ public static class ServiceLocator
     public static TaskService Tasks { get; private set; } = null!;
     public static WorkDayService WorkDays { get; private set; } = null!;
     public static TicketSystemService TicketSystem { get; private set; } = null!;
+    public static AgentAvailabilityService AgentAvailability { get; private set; } = null!;
     public static GermanTimeService GermanTime { get; private set; } = null!;
     public static AppVersionService AppVersion { get; private set; } = null!;
     public static UpdateService Updates { get; private set; } = null!;
@@ -35,6 +36,7 @@ public static class ServiceLocator
 
     public static void Initialize()
     {
+        var startupWatch = System.Diagnostics.Stopwatch.StartNew();
         Logger = new LoggerService(AppLogLevel.Warning);
         Settings = new SettingsService(Logger);
         Logger.SetMinimumLevel(ParseLogLevel(Settings.Current.LogLevel));
@@ -42,7 +44,9 @@ public static class ServiceLocator
         Updates = new UpdateService(Logger, Settings, AppVersion);
         GermanTime = new GermanTimeService();
         Database = new DatabaseService(Logger);
+        var operationWatch = System.Diagnostics.Stopwatch.StartNew();
         Database.Initialize();
+        LogSlowStartup("Database.Initialize", operationWatch);
         WikiVocabulary = new WikiVocabularyIndexService(Database, Settings, Logger);
         WikiSearch = new WikiSearchService(Database, Settings, Logger, vocabulary: WikiVocabulary);
         WebShortcutBrowsers = new WebShortcutBrowserSessionManager(Settings, Logger);
@@ -50,9 +54,11 @@ public static class ServiceLocator
         AiKnowledge = new AiKnowledgeService(Settings, Logger);
         StandardKnowledge = new StandardKnowledgeService(AppVersion, AiKnowledge.Index, Logger);
         AiKnowledge.AttachStandardKnowledge(StandardKnowledge);
+        operationWatch.Restart();
         WikiAiKnowledge = new WikiAiKnowledgeService(Settings, Logger);
-        _ = WikiAiKnowledge.SyncStaleAsync();
-        _ = WikiVocabulary.RefreshStaleAsync();
+        LogSlowStartup("WikiAi.Initialize", operationWatch);
+        _ = Task.Run(() => WikiAiKnowledge.SyncStaleAsync());
+        _ = Task.Run(() => WikiVocabulary.RefreshStaleAsync());
         Outlook = new OutlookInteropService(Logger, Settings);
         Tasks = new TaskService(Database, Logger, Outlook, Settings);
         TicketAssignmentSnapshots = new TicketAssignmentSnapshotService(Database);
@@ -63,12 +69,23 @@ public static class ServiceLocator
         WorkDays = new WorkDayService(Database, Logger);
         Notifications = new NotificationService(Logger, Settings, Tasks);
         TicketSystem = new TicketSystemService(Settings, Tasks, TicketAssignmentSnapshots, TicketCandidateSnapshots, TicketCandidateScanStates, TicketDetails, TicketArticleReadStates, Notifications, Logger);
+        AgentAvailability = new AgentAvailabilityService(Outlook, TicketSystem);
         OutlookCalendar = new OutlookCalendarService(Logger, Settings, Outlook, WorkDays);
         PlenaroShareImporter = new PlenaroShareImportService(Database, Tasks, Settings, Logger);
         PlenaroShareCoordinator = new PlenaroShareImportCoordinator(OutlookCalendar, PlenaroShareImporter, Settings, Logger);
-        _ = PlenaroShareCoordinator.StartAsync();
+        _ = Task.Run(() => PlenaroShareCoordinator.StartAsync());
         HomeOffice = new HomeOfficeService(WorkDays, Settings, Outlook, OutlookCalendar, Logger);
-        MainViewModel = new MainViewModel(Tasks, WorkDays, Settings, Notifications, OutlookCalendar, TicketSystem, Updates, HomeOffice, GermanTime, Logger, Ai, AiKnowledge, WikiAiKnowledge);
+        operationWatch.Restart();
+        MainViewModel = new MainViewModel(Tasks, WorkDays, Settings, Notifications, OutlookCalendar, TicketSystem, Updates, HomeOffice, GermanTime, Logger, Ai, AiKnowledge, WikiAiKnowledge, AgentAvailability);
+        LogSlowStartup("MainViewModel.Construction", operationWatch);
+        if (startupWatch.ElapsedMilliseconds >= 100)
+            Logger.Info($"[Performance] operation=AppStartupServices durationMs={startupWatch.ElapsedMilliseconds}");
+    }
+
+    private static void LogSlowStartup(string operation, System.Diagnostics.Stopwatch watch)
+    {
+        if (watch.ElapsedMilliseconds >= 50)
+            Logger.Info($"[Performance] operation={operation} durationMs={watch.ElapsedMilliseconds}");
     }
 
     private static AppLogLevel ParseLogLevel(string? value)
