@@ -22,6 +22,7 @@ public class LoggerService
     }
 
     public AppLogLevel MinimumLevel => (AppLogLevel)Volatile.Read(ref _minimumLevel);
+    public bool IsEnabled(AppLogLevel level) => level >= MinimumLevel;
 
     public void SetMinimumLevel(AppLogLevel minimumLevel)
         => Interlocked.Exchange(ref _minimumLevel, (int)minimumLevel);
