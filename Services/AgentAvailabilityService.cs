@@ -81,10 +81,11 @@ public sealed class AgentAvailabilityService : IAgentAvailabilityService
     internal static AgentAvailabilityLevel Classify(double? calendarLoad, int? openTicketCount)
     {
         if (calendarLoad == null) return AgentAvailabilityLevel.Unknown;
-        var score = openTicketCount.HasValue
-            ? calendarLoad.Value * .8 + Math.Clamp(openTicketCount.Value / 20d, 0, 1) * .2
-            : calendarLoad.Value;
-        return score < .55 ? AgentAvailabilityLevel.Green : score < .8 ? AgentAvailabilityLevel.Orange : AgentAvailabilityLevel.Red;
+        var ticketBoost = openTicketCount.HasValue
+            ? Math.Clamp(openTicketCount.Value / 20d, 0d, 1d) * .15d
+            : 0d;
+        var score = Math.Clamp(calendarLoad.Value + ticketBoost, 0d, 1d);
+        return score < .35 ? AgentAvailabilityLevel.Green : score < .65 ? AgentAvailabilityLevel.Orange : AgentAvailabilityLevel.Red;
     }
 
     internal static bool TryCalculateCalendarLoad(OutlookFreeBusySnapshot snapshot, DateTime nowLocal, out double load)

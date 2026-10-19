@@ -11,12 +11,31 @@ public sealed class AgentAvailabilityTests
 {
     [Theory]
     [InlineData(.20, null, AgentAvailabilityLevel.Green)]
-    [InlineData(.65, null, AgentAvailabilityLevel.Orange)]
-    [InlineData(.90, null, AgentAvailabilityLevel.Red)]
-    [InlineData(.50, 20, AgentAvailabilityLevel.Orange)]
-    [InlineData(null, 0, AgentAvailabilityLevel.Unknown)]
+    [InlineData(.34, null, AgentAvailabilityLevel.Green)]
+    [InlineData(.35, null, AgentAvailabilityLevel.Orange)]
+    [InlineData(.64, null, AgentAvailabilityLevel.Orange)]
+    [InlineData(.65, null, AgentAvailabilityLevel.Red)]
+    [InlineData(.90, 0, AgentAvailabilityLevel.Red)]
+    [InlineData(.30, 10, AgentAvailabilityLevel.Orange)]
+    [InlineData(.55, 10, AgentAvailabilityLevel.Orange)]
+    [InlineData(.55, 15, AgentAvailabilityLevel.Red)]
+    [InlineData(.10, 20, AgentAvailabilityLevel.Green)]
+    [InlineData(null, 20, AgentAvailabilityLevel.Unknown)]
     public void Classify_RequiresOutlookAndReturnsOnlyCoarseLevel(double? calendarLoad, int? tickets, AgentAvailabilityLevel expected)
         => Assert.Equal(expected, AgentAvailabilityService.Classify(calendarLoad, tickets));
+
+    [Theory]
+    [InlineData(.30)]
+    [InlineData(.55)]
+    public void Classify_IncreasingTicketCountNeverImprovesAvailability(double calendarLoad)
+    {
+        var levels = new[] { 0, 10, 20 }
+            .Select(tickets => AgentAvailabilityService.Classify(calendarLoad, tickets))
+            .ToArray();
+
+        Assert.True(levels[0] <= levels[1]);
+        Assert.True(levels[1] <= levels[2]);
+    }
 
     [Fact]
     public void FreeBusyParser_UsesOnlyFutureWeekdayPlanningSlots()
