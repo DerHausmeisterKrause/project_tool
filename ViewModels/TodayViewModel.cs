@@ -5,6 +5,7 @@ using System.Text.RegularExpressions;
 using System.Windows;
 using System.Windows.Threading;
 using System.Globalization;
+using System.Windows.Media;
 using TaskTool.Infrastructure;
 using TaskTool.Models;
 using TaskStatus = TaskTool.Models.TaskStatus;
@@ -24,6 +25,9 @@ public class TodayViewModel : ObservableObject
     private readonly HomeOfficeService _homeOffice;
     private readonly AiTextRewriteService? _textRewrite;
     private readonly Func<bool> _confirmTicketClose;
+    private readonly IAgentAvailabilityService? _agentAvailability;
+    private CancellationTokenSource? _ownerAvailabilityCancellation;
+    private CancellationTokenSource? _responsibleAvailabilityCancellation;
     private DateTime _agendaDate;
     private DateTime _lastTodayVisibilityRefreshMinute;
     private bool _lastHidePastTodayItems;
@@ -406,9 +410,17 @@ public class TodayViewModel : ObservableObject
     public bool HasZnunyTicket => SelectedTask?.Tags.Contains("ZnunyTicketID:", StringComparison.OrdinalIgnoreCase) == true;
     public string DoneButtonText => HasZnunyTicket ? "Ticket schließen" : "Erledigt";
     private ZnunyAgent? _selectedOwner;
-    public ZnunyAgent? SelectedOwner { get => _selectedOwner; set { if (Set(ref _selectedOwner, value)) RaiseTicketAssignmentState(); } }
+    public ZnunyAgent? SelectedOwner { get => _selectedOwner; set { if (Set(ref _selectedOwner, value)) { RaiseTicketAssignmentState(); BeginAvailabilityLoad(value, true); } } }
     private ZnunyAgent? _selectedResponsible;
-    public ZnunyAgent? SelectedResponsible { get => _selectedResponsible; set { if (Set(ref _selectedResponsible, value)) RaiseTicketAssignmentState(); } }
+    public ZnunyAgent? SelectedResponsible { get => _selectedResponsible; set { if (Set(ref _selectedResponsible, value)) { RaiseTicketAssignmentState(); BeginAvailabilityLoad(value, false); } } }
+    private AgentAvailabilityLevel _ownerAvailabilityLevel;
+    public AgentAvailabilityLevel OwnerAvailabilityLevel { get => _ownerAvailabilityLevel; private set { if (Set(ref _ownerAvailabilityLevel, value)) { Raise(nameof(OwnerAvailabilityBrush)); Raise(nameof(OwnerAvailabilityToolTip)); } } }
+    private AgentAvailabilityLevel _responsibleAvailabilityLevel;
+    public AgentAvailabilityLevel ResponsibleAvailabilityLevel { get => _responsibleAvailabilityLevel; private set { if (Set(ref _responsibleAvailabilityLevel, value)) { Raise(nameof(ResponsibleAvailabilityBrush)); Raise(nameof(ResponsibleAvailabilityToolTip)); } } }
+    public Brush OwnerAvailabilityBrush => AvailabilityBrush(OwnerAvailabilityLevel);
+    public Brush ResponsibleAvailabilityBrush => AvailabilityBrush(ResponsibleAvailabilityLevel);
+    public string OwnerAvailabilityToolTip => AvailabilityToolTip(OwnerAvailabilityLevel);
+    public string ResponsibleAvailabilityToolTip => AvailabilityToolTip(ResponsibleAvailabilityLevel);
     private int? _originalOwnerId;
     private int? _originalResponsibleId;
     private bool _isAgentListLoading;
@@ -597,7 +609,7 @@ public class TodayViewModel : ObservableObject
     public bool IsHo { get => _isHo; set => Set(ref _isHo, value); }
     private bool _isHomeOfficeOperationRunning;
 
-    public TodayViewModel(TaskService tasks, WorkDayService workDays, SettingsService settings, OutlookCalendarService outlookCalendar, TicketSystemService ticketSystem, HomeOfficeService homeOffice, AiTextRewriteService? textRewrite = null, Func<bool>? confirmTicketClose = null)
+    public TodayViewModel(TaskService tasks, WorkDayService workDays, SettingsService settings, OutlookCalendarService outlookCalendar, TicketSystemService ticketSystem, HomeOfficeService homeOffice, AiTextRewriteService? textRewrite = null, Func<bool>? confirmTicketClose = null, IAgentAvailabilityService? agentAvailability = null)
     {
         _tasks = tasks;
         _workDays = workDays;
@@ -607,6 +619,7 @@ public class TodayViewModel : ObservableObject
         _outlookCalendar = outlookCalendar;
         _ticketSystem = ticketSystem;
         _textRewrite = textRewrite;
+        _agentAvailability = agentAvailability;
         _confirmTicketClose = confirmTicketClose ?? (() => MessageBox.Show(
             "Willst du das Ticket wirklich schließen?",
             "Ticket schließen",
@@ -1795,6 +1808,8 @@ public class TodayViewModel : ObservableObject
 
     private void ResetTicketAssignment()
     {
+        _ownerAvailabilityCancellation?.Cancel();
+        _responsibleAvailabilityCancellation?.Cancel();
         TicketAgents.Clear();
         _isAgentListAvailable = false;
         _originalOwnerId = null;
@@ -1802,8 +1817,59 @@ public class TodayViewModel : ObservableObject
         SelectedOwner = null;
         SelectedResponsible = null;
         TicketAssignmentStatus = string.Empty;
+        OwnerAvailabilityLevel = AgentAvailabilityLevel.Unknown;
+        ResponsibleAvailabilityLevel = AgentAvailabilityLevel.Unknown;
         RaiseTicketAssignmentState();
     }
+
+    private void BeginAvailabilityLoad(ZnunyAgent? agent, bool owner)
+    {
+        ref var cancellation = ref (owner ? ref _ownerAvailabilityCancellation : ref _responsibleAvailabilityCancellation);
+        cancellation?.Cancel();
+        cancellation?.Dispose();
+        cancellation = new CancellationTokenSource();
+        if (owner) OwnerAvailabilityLevel = AgentAvailabilityLevel.Unknown;
+        else ResponsibleAvailabilityLevel = AgentAvailabilityLevel.Unknown;
+        if (agent == null || _agentAvailability == null) return;
+        _ = LoadAvailabilityAsync(agent, owner, cancellation.Token);
+    }
+
+    private async Task LoadAvailabilityAsync(ZnunyAgent agent, bool owner, CancellationToken token)
+    {
+        try
+        {
+            await Task.Delay(300, token);
+            var snapshot = await _agentAvailability!.GetAvailabilityAsync(agent, token);
+            if (token.IsCancellationRequested) return;
+            var selected = owner ? SelectedOwner : SelectedResponsible;
+            if (!IsCurrentAvailabilitySelection(selected, agent)) return;
+            if (owner) OwnerAvailabilityLevel = snapshot.Level;
+            else ResponsibleAvailabilityLevel = snapshot.Level;
+        }
+        catch (OperationCanceledException) { }
+        catch
+        {
+            if (owner) OwnerAvailabilityLevel = AgentAvailabilityLevel.Unknown;
+            else ResponsibleAvailabilityLevel = AgentAvailabilityLevel.Unknown;
+        }
+    }
+
+    internal static bool IsCurrentAvailabilitySelection(ZnunyAgent? selected, ZnunyAgent requested)
+        => selected?.UserId == requested.UserId;
+
+    private static Brush AvailabilityBrush(AgentAvailabilityLevel level)
+        => new SolidColorBrush((Color)ColorConverter.ConvertFromString(level switch
+        {
+            AgentAvailabilityLevel.Green => "#22C55E",
+            AgentAvailabilityLevel.Orange => "#F59E0B",
+            AgentAvailabilityLevel.Red => "#EF4444",
+            _ => "#64748B"
+        }));
+
+    private static string AvailabilityToolTip(AgentAvailabilityLevel level)
+        => level == AgentAvailabilityLevel.Unknown
+            ? "Planungshinweis derzeit nicht verfügbar."
+            : "Unverbindlicher Planungshinweis für die nächsten 14 Tage.\nKeine Leistungsbewertung.";
 
     private void RaiseTicketAssignmentState()
     {

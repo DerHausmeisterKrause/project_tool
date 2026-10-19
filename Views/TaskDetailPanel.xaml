@@ -88,12 +88,22 @@
                         <WrapPanel>
                             <StackPanel Width="260" Margin="0,0,12,6">
                                 <TextBlock Text="Besitzer" FontSize="13" Foreground="{StaticResource MutedTextBrush}" Margin="0,0,0,2"/>
+                                <StackPanel Orientation="Horizontal" Margin="0,0,0,4" ToolTip="{Binding OwnerAvailabilityToolTip}"
+                                            Visibility="{Binding SelectedOwner, Converter={StaticResource NullToVisibilityConverter}}">
+                                    <Ellipse Width="9" Height="9" Fill="{Binding OwnerAvailabilityBrush}" Margin="0,0,6,0"/>
+                                    <TextBlock Text="Verfügbarkeit nächste 14 Tage" FontSize="11" Foreground="{StaticResource MutedTextBrush}"/>
+                                </StackPanel>
                                 <ComboBox Style="{StaticResource DarkComboBoxStyle}" Height="30"
                                           ItemsSource="{Binding TicketAgents}" SelectedItem="{Binding SelectedOwner, Mode=TwoWay}"
                                           DisplayMemberPath="DisplayName" IsEnabled="{Binding CanEditTicketAssignment}"/>
                             </StackPanel>
                             <StackPanel Width="260" Margin="0,0,0,6">
                                 <TextBlock Text="Verantwortlicher" FontSize="13" Foreground="{StaticResource MutedTextBrush}" Margin="0,0,0,2"/>
+                                <StackPanel Orientation="Horizontal" Margin="0,0,0,4" ToolTip="{Binding ResponsibleAvailabilityToolTip}"
+                                            Visibility="{Binding SelectedResponsible, Converter={StaticResource NullToVisibilityConverter}}">
+                                    <Ellipse Width="9" Height="9" Fill="{Binding ResponsibleAvailabilityBrush}" Margin="0,0,6,0"/>
+                                    <TextBlock Text="Verfügbarkeit nächste 14 Tage" FontSize="11" Foreground="{StaticResource MutedTextBrush}"/>
+                                </StackPanel>
                                 <ComboBox Style="{StaticResource DarkComboBoxStyle}" Height="30"
                                           ItemsSource="{Binding TicketAgents}" SelectedItem="{Binding SelectedResponsible, Mode=TwoWay}"
                                           DisplayMemberPath="DisplayName" IsEnabled="{Binding CanEditTicketAssignment}"/>

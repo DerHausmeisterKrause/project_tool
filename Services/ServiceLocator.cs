@@ -15,6 +15,7 @@ public static class ServiceLocator
     public static TaskService Tasks { get; private set; } = null!;
     public static WorkDayService WorkDays { get; private set; } = null!;
     public static TicketSystemService TicketSystem { get; private set; } = null!;
+    public static AgentAvailabilityService AgentAvailability { get; private set; } = null!;
     public static GermanTimeService GermanTime { get; private set; } = null!;
     public static AppVersionService AppVersion { get; private set; } = null!;
     public static UpdateService Updates { get; private set; } = null!;
@@ -68,13 +69,14 @@ public static class ServiceLocator
         WorkDays = new WorkDayService(Database, Logger);
         Notifications = new NotificationService(Logger, Settings, Tasks);
         TicketSystem = new TicketSystemService(Settings, Tasks, TicketAssignmentSnapshots, TicketCandidateSnapshots, TicketCandidateScanStates, TicketDetails, TicketArticleReadStates, Notifications, Logger);
+        AgentAvailability = new AgentAvailabilityService(Outlook, TicketSystem);
         OutlookCalendar = new OutlookCalendarService(Logger, Settings, Outlook, WorkDays);
         PlenaroShareImporter = new PlenaroShareImportService(Database, Tasks, Settings, Logger);
         PlenaroShareCoordinator = new PlenaroShareImportCoordinator(OutlookCalendar, PlenaroShareImporter, Settings, Logger);
         _ = Task.Run(() => PlenaroShareCoordinator.StartAsync());
         HomeOffice = new HomeOfficeService(WorkDays, Settings, Outlook, OutlookCalendar, Logger);
         operationWatch.Restart();
-        MainViewModel = new MainViewModel(Tasks, WorkDays, Settings, Notifications, OutlookCalendar, TicketSystem, Updates, HomeOffice, GermanTime, Logger, Ai, AiKnowledge, WikiAiKnowledge);
+        MainViewModel = new MainViewModel(Tasks, WorkDays, Settings, Notifications, OutlookCalendar, TicketSystem, Updates, HomeOffice, GermanTime, Logger, Ai, AiKnowledge, WikiAiKnowledge, AgentAvailability);
         LogSlowStartup("MainViewModel.Construction", operationWatch);
         if (startupWatch.ElapsedMilliseconds >= 100)
             Logger.Info($"[Performance] operation=AppStartupServices durationMs={startupWatch.ElapsedMilliseconds}");
