@@ -10,6 +10,10 @@ namespace TaskTool.Services;
 
 public class SettingsService
 {
+    private const int DemoUnlockIterations = 240_000;
+    private const string DemoUnlockSaltBase64 = "wOgIaWByRuEmpKKEkuKpd7tX88A=";
+    private const string DemoUnlockHashBase64 = "7wsw3CpKIGl8/4HYbxpxGnSm5dGzE5CaxVk2Fb8XBuk=";
+    private const string DemoUnlockGrantMarker = "PLENARO_DEMO_FEATURES_UNLOCK_V1::7D2F0E91-2C9A-4B27-ACD4-E209CF197831";
     [Flags]
     private enum NormalizationChanges
     {
@@ -29,6 +33,15 @@ public class SettingsService
     private readonly LoggerService _logger;
     private readonly string _path;
     public AppSettings Current { get; private set; } = new();
+
+    public bool IsDemoFeaturesUnlocked
+    {
+        get
+        {
+            if (string.IsNullOrWhiteSpace(Current.DemoFeaturesUnlockGrantEncrypted)) return false;
+            return string.Equals(Unprotect(Current.DemoFeaturesUnlockGrantEncrypted), DemoUnlockGrantMarker, StringComparison.Ordinal);
+        }
+    }
 
     public SettingsService(LoggerService logger, string? settingsPath = null)
     {
@@ -336,6 +349,24 @@ public class SettingsService
     public string GetWebShortcutPassword(WebShortcutSettings shortcut) => string.IsNullOrWhiteSpace(shortcut.PasswordEncrypted) ? string.Empty : Unprotect(shortcut.PasswordEncrypted);
     public void SetWebShortcutPassword(WebShortcutSettings shortcut, string password) => shortcut.PasswordEncrypted = string.IsNullOrEmpty(password) ? string.Empty : Protect(password);
 
+    public bool TryUnlockDemoFeatures(string candidate)
+    {
+        if (!DemoFeatureUnlockVerifier.Verify(candidate, DemoUnlockSaltBase64, DemoUnlockHashBase64, DemoUnlockIterations))
+            return false;
+        var grant = Protect(DemoUnlockGrantMarker);
+        if (string.IsNullOrWhiteSpace(grant)) return false;
+        Current.DemoFeaturesUnlockGrantEncrypted = grant;
+        if (TrySave()) return true;
+        Current.DemoFeaturesUnlockGrantEncrypted = string.Empty;
+        return false;
+    }
+
+    public void LockDemoFeatures()
+    {
+        Current.DemoFeaturesUnlockGrantEncrypted = string.Empty;
+        Save();
+    }
+
     public void Save()
     {
         TrySave();
@@ -402,6 +433,26 @@ public class SettingsService
         {
             _logger.Error($"Settings password decryption failed: {ex.Message}");
             return string.Empty;
+        }
+    }
+}
+
+internal static class DemoFeatureUnlockVerifier
+{
+    internal static bool Verify(string? candidate, string saltBase64, string hashBase64, int iterations)
+    {
+        if (string.IsNullOrEmpty(candidate) || iterations < 200_000) return false;
+        try
+        {
+            var salt = Convert.FromBase64String(saltBase64);
+            var expected = Convert.FromBase64String(hashBase64);
+            if (salt.Length < 16 || expected.Length != 32) return false;
+            var actual = Rfc2898DeriveBytes.Pbkdf2(candidate, salt, iterations, HashAlgorithmName.SHA256, expected.Length);
+            return CryptographicOperations.FixedTimeEquals(actual, expected);
+        }
+        catch (FormatException)
+        {
+            return false;
         }
     }
 }

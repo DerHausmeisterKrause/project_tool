@@ -27,14 +27,37 @@ public class SettingsViewModel : ObservableObject
             ["Wiki"] = 5,
             ["Favorites"] = 6, ["Favoriten"] = 6,
             ["AI"] = 7, ["KI"] = 7,
-            ["Updates"] = 8
+            ["Updates"] = 8,
+            ["Demo"] = 9, ["Demofunktionen"] = 9
         };
 
     private int _selectedSettingsSectionIndex;
     public int SelectedSettingsSectionIndex
     {
         get => _selectedSettingsSectionIndex;
-        set => Set(ref _selectedSettingsSectionIndex, Math.Clamp(value, 0, 8));
+        set => Set(ref _selectedSettingsSectionIndex, Math.Clamp(value, 0, 9));
+    }
+
+    public bool IsDemoFeaturesUnlocked => _settings.IsDemoFeaturesUnlocked;
+    public string DemoFeaturesStatus => IsDemoFeaturesUnlocked ? "🔓 Demofunktionen freigeschaltet" : "🔒 Demofunktionen gesperrt";
+    private string _demoFeaturesMessage = string.Empty;
+    public string DemoFeaturesMessage { get => _demoFeaturesMessage; private set => Set(ref _demoFeaturesMessage, value); }
+
+    public bool TryUnlockDemoFeatures(string candidate)
+    {
+        var unlocked = _settings.TryUnlockDemoFeatures(candidate);
+        DemoFeaturesMessage = unlocked ? string.Empty : "Masterpasswort ungültig.";
+        Raise(nameof(IsDemoFeaturesUnlocked));
+        Raise(nameof(DemoFeaturesStatus));
+        return unlocked;
+    }
+
+    public void LockDemoFeatures()
+    {
+        _settings.LockDemoFeatures();
+        DemoFeaturesMessage = string.Empty;
+        Raise(nameof(IsDemoFeaturesUnlocked));
+        Raise(nameof(DemoFeaturesStatus));
     }
 
     public void SelectSection(string? section)
@@ -104,6 +127,10 @@ public class SettingsViewModel : ObservableObject
     public string WikiSettingsStatus { get => _wikiSettingsStatus; set => Set(ref _wikiSettingsStatus, value); }
     private string _wikiTestSearchTerm = "Linux";
     public string WikiTestSearchTerm { get => _wikiTestSearchTerm; set => Set(ref _wikiTestSearchTerm, value); }
+    private string _wikiAiTestQuestion = string.Empty;
+    public string WikiAiTestQuestion { get => _wikiAiTestQuestion; set => Set(ref _wikiAiTestQuestion, value); }
+    private string _wikiAiTestResults = string.Empty;
+    public string WikiAiTestResults { get => _wikiAiTestResults; set => Set(ref _wikiAiTestResults, value); }
     private bool _isWikiTestRunning;
     public RelayCommand AddWikiSourceCommand { get; }
     public RelayCommand RemoveWikiSourceCommand { get; }
@@ -114,6 +141,7 @@ public class SettingsViewModel : ObservableObject
     public RelayCommand RefreshWikiIndexCommand { get; }
     public RelayCommand RefreshWikiAiIndexCommand { get; private set; } = null!;
     public RelayCommand RebuildWikiAiIndexCommand { get; private set; } = null!;
+    public RelayCommand TestWikiAiRetrievalCommand { get; private set; } = null!;
     public string WikiIndexStatus => SelectedWikiSource == null ? "Kein Wiki ausgewählt." : FormatWikiIndexStatus(SelectedWikiSource.ToModel());
     public string WikiAiIndexStatus
     {
@@ -123,8 +151,11 @@ public class SettingsViewModel : ObservableObject
             var source = SelectedWikiSource.ToModel();
             if (!WikiScopePolicy.SupportsAiKnowledge(source)) return "Dieser Provider unterstützt den lokalen KI-Wiki-Index noch nicht.";
             var s = ServiceLocator.WikiAiKnowledge.GetStatus(source.Id);
-            var status = s.Status == "failed" ? "Synchronisierung fehlgeschlagen – letzter erfolgreicher Stand bleibt verfügbar" : s.Status == "current" ? "Aktuell" : "Noch nicht indexiert";
-            return $"Seiten: {s.PageCount:N0} · Textabschnitte: {s.ChunkCount:N0}\nLetzter erfolgreicher Abgleich: {(s.LastSuccessUtc?.ToLocalTime().ToString("dd.MM.yyyy HH:mm") ?? "noch nie")}\nStatus: {status}";
+            var status = s.Status == "failed" ? "Synchronisierung fehlgeschlagen – letzter erfolgreicher Stand bleibt verfügbar"
+                : s.Status == "indexing" ? $"Index wird aufgebaut – {s.Stage ?? "Verarbeitung"} ({s.ProcessedPages:N0}/{(s.TotalPages ?? 0):N0} Seiten, {s.ProcessedAttachments:N0} Anhänge)"
+                : s.Status == "current" ? "Aktuell" : "Noch nicht indexiert";
+            var spaces = source.SearchAllSpaces ? "Alle" : string.Join(", ", WikiScopePolicy.GetSpaceKeys(source));
+            return $"Bereiche: {spaces}\nSeiten: {s.PageCount:N0} · Textabschnitte: {s.ChunkCount:N0}\nAnhänge: {s.AttachmentCount:N0} · PDFs: {s.PdfCount:N0} ({s.PdfPageCount:N0} Seiten) · Bilder: {s.ImageCount:N0} · OCR erfolgreich: {s.OcrSuccessCount:N0} · OCR ohne Text/fehlgeschlagen: {s.OcrFailureCount:N0} · Draw.io: {s.DrawIoCount:N0}\nLetzter erfolgreicher Abgleich: {(s.LastSuccessUtc?.ToLocalTime().ToString("dd.MM.yyyy HH:mm") ?? "noch nie")}\nStatus: {status}";
         }
     }
     private readonly SemaphoreSlim _updateCheckGate = new(1, 1);
@@ -300,6 +331,7 @@ public class SettingsViewModel : ObservableObject
         _ai = ai;
         _aiKnowledge = aiKnowledge;
         _aiKnowledge.StatusChanged += (_, _) => Application.Current?.Dispatcher.BeginInvoke(new Action(() => Raise(nameof(AiKnowledgeStatus))));
+        ServiceLocator.WikiAiKnowledge.StatusChanged += (_, _) => Application.Current?.Dispatcher.BeginInvoke(new Action(() => Raise(nameof(WikiAiIndexStatus))));
         if (_aiKnowledge.StandardKnowledge != null) _aiKnowledge.StandardKnowledge.StatusChanged += (_, _) => Application.Current?.Dispatcher.BeginInvoke(new Action(() => Raise(nameof(StandardKnowledgeStatus))));
         _ai.LocalServer.StateChanged += (_, _) => Application.Current?.Dispatcher.BeginInvoke(new Action(RaiseAiState));
         _tasksChanged = tasksChanged;
@@ -333,6 +365,7 @@ public class SettingsViewModel : ObservableObject
         RefreshWikiIndexCommand = new RelayCommand(async () => await RefreshWikiIndexAsync());
         RefreshWikiAiIndexCommand = new RelayCommand(async () => await SyncWikiAiAsync(false));
         RebuildWikiAiIndexCommand = new RelayCommand(async () => await SyncWikiAiAsync(true));
+        TestWikiAiRetrievalCommand = new RelayCommand(async () => await TestWikiAiRetrievalAsync());
         AddWebShortcutCommand=new RelayCommand(()=>{var x=new WebShortcutEditorViewModel{SortOrder=WebShortcuts.Count};WebShortcuts.Add(x);SelectedWebShortcut=x;WebShortcutStatus="Webseite angelegt. Bitte speichern.";}); SaveWebShortcutCommand=new RelayCommand(SaveWebShortcut); RemoveWebShortcutCommand=new RelayCommand(RemoveWebShortcut);
         MoveWebShortcutUpCommand = new RelayCommand(() => MoveWebShortcut(-1), () => CanMoveWebShortcut(-1));
         MoveWebShortcutDownCommand = new RelayCommand(() => MoveWebShortcut(1), () => CanMoveWebShortcut(1));
@@ -705,6 +738,18 @@ public class SettingsViewModel : ObservableObject
         await ServiceLocator.WikiAiKnowledge.SyncAsync(source, rebuild);
         Raise(nameof(WikiAiIndexStatus));
         WikiSettingsStatus = ServiceLocator.WikiAiKnowledge.GetStatus(source.Id).Status == "current" ? "KI-Wiki-Index ist aktuell." : "Wiki-Synchronisierung fehlgeschlagen; der bisherige Index bleibt verfügbar.";
+    }
+
+    private async Task TestWikiAiRetrievalAsync()
+    {
+        if (SelectedWikiSource == null) { WikiAiTestResults = "Bitte zuerst eine Wiki-Quelle auswählen."; return; }
+        if (string.IsNullOrWhiteSpace(WikiAiTestQuestion)) { WikiAiTestResults = "Bitte eine Frage eingeben."; return; }
+        WikiAiTestResults = "Lokale Retrieval-Diagnose läuft …";
+        var results = await ServiceLocator.WikiAiKnowledge.DiagnoseAsync(WikiAiTestQuestion, SelectedWikiSource.Id);
+        WikiAiTestResults = results.Count == 0 ? "Keine lokalen Kandidaten gefunden." : string.Join(Environment.NewLine + Environment.NewLine, results.Select(item =>
+            $"{item.Rank}. {item.Title}\n{item.HierarchyPath}{(string.IsNullOrWhiteSpace(item.SectionPath) ? "" : $" · {item.SectionPath}")}\n" +
+            $"{item.ContentKind} · Score {item.Score:F1} · Entity {(item.EntityMatch ? "✓" : "✗")} · Aktion {(item.ActionMatch ? "✓" : "✗")} · Objekt {(item.SubjectMatch ? "✓" : "✗")}\n" +
+            (item.Accepted ? "ACCEPTED" : $"REJECTED: {item.RejectionReason}")));
     }
 
     private void SaveWebShortcut()

@@ -6,9 +6,21 @@ namespace TaskTool.Services;
 
 public static class WikiScopePolicy
 {
-    public static IReadOnlyList<string> GetSpaceKeys(WikiSourceSettings source) => source.SearchAllSpaces
-        ? Array.Empty<string>()
-        : source.SpaceKeys.Where(x => !string.IsNullOrWhiteSpace(x)).Select(x => x.Trim()).Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(x => x, StringComparer.OrdinalIgnoreCase).ToArray();
+    public static IReadOnlyList<string> GetSpaceKeys(WikiSourceSettings source)
+    {
+        if (source.SearchAllSpaces) return Array.Empty<string>();
+        var configured = source.SpaceKeys.Where(x => !string.IsNullOrWhiteSpace(x));
+        if (!configured.Any() && !string.IsNullOrWhiteSpace(source.SpaceKey)) configured = [source.SpaceKey];
+        return configured.Select(x => x.Trim()).Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(x => x, StringComparer.OrdinalIgnoreCase).ToArray();
+    }
+
+    public static bool AllowsSpace(WikiSourceSettings source, string? spaceKey) => source.SearchAllSpaces
+        || GetSpaceKeys(source).Contains(spaceKey?.Trim() ?? string.Empty, StringComparer.OrdinalIgnoreCase);
+
+    public static void MigrateLegacySpaceKey(WikiSourceSettings source)
+    {
+        if (source.SpaceKeys.Count == 0 && !string.IsNullOrWhiteSpace(source.SpaceKey)) source.SpaceKeys.Add(source.SpaceKey.Trim());
+    }
 
     public static string BuildConfluenceClause(WikiSourceSettings source)
     {
