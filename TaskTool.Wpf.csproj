@@ -5,7 +5,8 @@
     <AssemblyVersion>2.2.1.0</AssemblyVersion>
     <FileVersion>2.2.1.0</FileVersion>
     <InformationalVersion>2.2.1</InformationalVersion>
-    <TargetFramework>net8.0-windows</TargetFramework>
+    <TargetFramework>net8.0-windows10.0.17763.0</TargetFramework>
+    <SupportedOSPlatformVersion>10.0.17763.0</SupportedOSPlatformVersion>
     <UseWPF>true</UseWPF>
     <EnableDefaultCompileItems>true</EnableDefaultCompileItems>
     <Nullable>enable</Nullable>
@@ -26,6 +27,7 @@
     <Compile Remove="ViewModels\WeekViewModel.cs" />
     <Compile Remove="Tests\**\*.cs" />
     <PackageReference Include="Microsoft.Data.Sqlite" Version="8.0.8" />
+    <PackageReference Include="AngleSharp" Version="1.8.2" />
     <PackageReference Include="Markdig" Version="0.40.0" />
     <PackageReference Include="PdfPig" Version="0.1.13" />
     <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.4129.50" />

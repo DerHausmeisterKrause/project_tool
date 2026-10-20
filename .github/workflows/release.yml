@@ -103,13 +103,22 @@ jobs:
         with:
           dotnet-version: 8.0.x
 
-      - name: Restore
+      - name: Produktionsabhängigkeiten wiederherstellen
         shell: pwsh
         run: |
           dotnet restore TaskTool.Wpf.csproj
 
           if ($LASTEXITCODE -ne 0) {
-              throw "dotnet restore fehlgeschlagen."
+              throw "Produktions-Restore fehlgeschlagen."
+          }
+
+      - name: Testabhängigkeiten wiederherstellen
+        shell: pwsh
+        run: |
+          dotnet restore Tests/TaskTool.Tests.csproj
+
+          if ($LASTEXITCODE -ne 0) {
+              throw "Test-Restore fehlgeschlagen."
           }
 
       - name: Produktionscode bauen
@@ -121,6 +130,17 @@ jobs:
 
           if ($LASTEXITCODE -ne 0) {
               throw "Produktions-Build fehlgeschlagen."
+          }
+
+      - name: Vollständige Testsuite ausführen
+        shell: pwsh
+        run: |
+          dotnet test Tests/TaskTool.Tests.csproj `
+            -c Release `
+            --no-restore
+
+          if ($LASTEXITCODE -ne 0) {
+              throw "Tests fehlgeschlagen. Release wird abgebrochen."
           }
 
       - name: Portable Windows EXE erstellen
