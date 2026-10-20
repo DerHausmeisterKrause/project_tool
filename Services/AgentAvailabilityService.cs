@@ -109,7 +109,11 @@ public sealed class AgentAvailabilityService : IAgentAvailabilityService
             var slotEnd = start.AddMinutes(snapshot.IntervalMinutes);
             if (start >= end) break;
             if (slotEnd <= nowLocal || start.DayOfWeek is DayOfWeek.Saturday or DayOfWeek.Sunday) continue;
-            if (start.TimeOfDay < TimeSpan.FromHours(8) || slotEnd.TimeOfDay > TimeSpan.FromHours(17)) continue;
+
+            var planningStart = start.Date.AddHours(8);
+            var planningEnd = start.Date.AddHours(17);
+            if (start < planningStart || slotEnd > planningEnd) continue;
+
             var weight = snapshot.Slots[i] switch
             {
                 '0' or '4' => 0d,
