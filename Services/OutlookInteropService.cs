@@ -31,6 +31,66 @@ public class OutlookInteropService
         _settings = settings;
     }
 
+    internal OutlookFreeBusySnapshot? TryGetRecipientFreeBusy(ZnunyAgent agent, DateTime startLocal, DateTime endLocal)
+    {
+        if (endLocal <= startLocal) return null;
+        try
+        {
+            return ExecuteOnSta(() =>
+            {
+                var outlookType = Type.GetTypeFromProgID("Outlook.Application");
+                if (outlookType == null) return null;
+                object? app = null;
+                object? ns = null;
+                try
+                {
+                    app = CreateOrAttachOutlook(outlookType);
+                    if (app == null) return null;
+                    dynamic appDyn = app;
+                    ns = appDyn.GetNamespace("MAPI");
+                    TryLogon(ns);
+                    dynamic nsDyn = ns!;
+                    foreach (var identity in RecipientIdentities(agent))
+                    {
+                        object? recipient = null;
+                        try
+                        {
+                            recipient = nsDyn.CreateRecipient(identity);
+                            dynamic recipientDyn = recipient;
+                            if (!Convert.ToBoolean(recipientDyn.Resolve())) continue;
+                            const int intervalMinutes = 30;
+                            var slots = Convert.ToString(recipientDyn.FreeBusy(startLocal, intervalMinutes, true), CultureInfo.InvariantCulture);
+                            if (!string.IsNullOrWhiteSpace(slots))
+                                return new OutlookFreeBusySnapshot(startLocal, intervalMinutes, slots);
+                        }
+                        finally { SafeReleaseComObject(recipient); }
+                    }
+                    return null;
+                }
+                finally
+                {
+                    SafeReleaseComObject(ns);
+                    SafeReleaseComObject(app);
+                }
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.Warning($"[AgentAvailability] source=outlook result=unavailable errorType={ex.GetType().Name}");
+            return null;
+        }
+    }
+
+    private static IEnumerable<string> RecipientIdentities(ZnunyAgent agent)
+        => new[]
+        {
+            agent.Email,
+            agent.Login.Contains('@') ? agent.Login : string.Empty,
+            $"{agent.FirstName} {agent.LastName}".Trim(),
+            agent.Name,
+            agent.Login
+        }.Where(value => !string.IsNullOrWhiteSpace(value)).Distinct(StringComparer.OrdinalIgnoreCase);
+
     public (bool ok, string entryId, string error) UpsertBlock(string? existingEntryId, string title, string body, DateTime start, DateTime end, IReadOnlyList<string>? attendees = null)
     {
         if (!_settings.Current.OutlookSyncEnabled)

@@ -26,7 +26,7 @@ public sealed class AiTextRewriteServiceTests
         Assert.Contains("nah am Original", ai.Messages[0].Content, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("Ändere niemals Aussage", ai.Messages[0].Content, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("„wird“ darf nicht zu „kann“", ai.Messages[0].Content, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("ausschließlich mit dem überarbeiteten Text", ai.Messages[0].Content, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Gib ausschließlich den überarbeiteten Antworttext zurück", ai.Messages[0].Content, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("PLENARO-WISSEN", ai.Messages[0].Content, StringComparison.OrdinalIgnoreCase);
         Assert.InRange(ai.Messages[0].Content.Length, 1, 1200);
         Assert.Equal("hallo herr müller das problem ist behoben", ai.Messages[1].Content);

@@ -102,11 +102,11 @@ public class MainViewModel : ObservableObject
         SelectedView = SettingsViewModel;
     }
 
-    public MainViewModel(TaskService taskService, WorkDayService workDayService, SettingsService settingsService, NotificationService notifications, OutlookCalendarService outlookCalendar, TicketSystemService ticketSystem, UpdateService updates, HomeOfficeService homeOffice, GermanTimeService germanTime, LoggerService logger, AiService aiService, AiKnowledgeService aiKnowledge, WikiAiKnowledgeService? wikiAiKnowledge = null)
+    public MainViewModel(TaskService taskService, WorkDayService workDayService, SettingsService settingsService, NotificationService notifications, OutlookCalendarService outlookCalendar, TicketSystemService ticketSystem, UpdateService updates, HomeOfficeService homeOffice, GermanTimeService germanTime, LoggerService logger, AiService aiService, AiKnowledgeService aiKnowledge, WikiAiKnowledgeService? wikiAiKnowledge = null, IAgentAvailabilityService? agentAvailability = null)
     {
         _logger = logger;
         TodayViewModel = new TodayViewModel(taskService, workDayService, settingsService, outlookCalendar, ticketSystem, homeOffice,
-            new AiTextRewriteService(aiService, logger));
+            new AiTextRewriteService(aiService, logger), agentAvailability: agentAvailability);
         _weekViewModel = new WeekViewModel(taskService, workDayService, settingsService, outlookCalendar, homeOffice);
         ticketSystem.TasksChanged += TodayViewModel.Refresh;
         ticketSystem.TasksChanged += _weekViewModel.Refresh;
