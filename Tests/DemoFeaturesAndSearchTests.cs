@@ -1,8 +1,11 @@
 using System.Security.Cryptography;
+using System.Collections.ObjectModel;
 using TaskTool.Infrastructure;
 using TaskTool.Models;
 using TaskTool.Services;
 using TaskTool.ViewModels;
+using TaskTool.Views.Controls;
+using Xunit;
 
 namespace TaskTool.Tests;
 
@@ -87,18 +90,61 @@ public sealed class DemoFeaturesAndSearchTests
         var option = new TicketFieldOption("4711", "IT Infrastruktur Rosenheim");
         var original = option;
 
-        Assert.Equal(expected, SearchableComboBoxAssist.Matches(option, query));
+        Assert.Equal(expected, SearchableTicketFieldPicker.Matches(option, query));
         Assert.Same(original, option);
         Assert.Equal("4711", option.Key);
+    }
+
+    [Fact]
+    public void Search_ReturnsAllMatchesWithoutSelectingTheFirstResult()
+    {
+        var selected = new TicketFieldOption("old", "Bisherige Auswahl");
+        var options = new[]
+        {
+            new TicketFieldOption("4711-A", "Erster Treffer"),
+            new TicketFieldOption("4711-B", "IT Infrastruktur Rosenheim"),
+            new TicketFieldOption("4711-C", "Dritter Treffer")
+        };
+
+        var matches = SearchableTicketFieldPicker.Filter(options, "4711");
+
+        Assert.Equal(3, matches.Count);
+        Assert.Equal("old", selected.Key);
+        Assert.Equal("4711-B", matches[1].Key);
+    }
+
+    [Fact]
+    public void IdenticalLargeOptionListsDoNotRaiseCollectionChangedEvents()
+    {
+        var options = new ObservableCollection<TicketFieldOption>(
+            Enumerable.Range(0, 2000).Select(index => new TicketFieldOption(index.ToString(), $"Option {index}")));
+        var events = 0;
+        options.CollectionChanged += (_, _) => events++;
+        var replacement = options.Select(option => new TicketFieldOption(option.Key, option.DisplayText)).ToArray();
+
+        var changed = TodayViewModel.ReplaceOptionsIfChanged(options, replacement);
+
+        Assert.False(changed);
+        Assert.Equal(0, events);
+        Assert.Equal(2000, options.Count);
+    }
+
+    [Fact]
+    public void SearchPickerDoesNotFilterTheSharedDefaultCollectionView()
+    {
+        var source = File.ReadAllText(Path.Combine(RepoRoot(), "Views", "Controls", "SearchableTicketFieldPicker.xaml.cs"));
+
+        Assert.DoesNotContain("CollectionViewSource.GetDefaultView", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("ICollectionView", source, StringComparison.Ordinal);
     }
 
     [Fact]
     public void TaskDetail_UsesSearchAssistWithoutFreeValueBindings()
     {
         var xaml = File.ReadAllText(Path.Combine(RepoRoot(), "Views", "TaskDetailPanel.xaml"));
-        Assert.Equal(2, Count(xaml, "SearchableComboBoxAssist.IsEnabled=\"True\""));
-        Assert.Contains("SelectedItem=\"{Binding SelectedCostCenter}\"", xaml, StringComparison.Ordinal);
-        Assert.Contains("SelectedItem=\"{Binding SelectedOrder}\"", xaml, StringComparison.Ordinal);
+        Assert.Equal(2, Count(xaml, "controls:SearchableTicketFieldPicker"));
+        Assert.Contains("SelectedItem=\"{Binding SelectedCostCenter, Mode=TwoWay}\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("SelectedItem=\"{Binding SelectedOrder, Mode=TwoWay}\"", xaml, StringComparison.Ordinal);
         Assert.DoesNotContain("Text=\"{Binding SelectedCostCenter", xaml, StringComparison.Ordinal);
         Assert.DoesNotContain("Text=\"{Binding SelectedOrder", xaml, StringComparison.Ordinal);
     }

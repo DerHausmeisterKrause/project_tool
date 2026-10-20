@@ -32,16 +32,10 @@ public class SettingsService
 
     private readonly LoggerService _logger;
     private readonly string _path;
+    private bool _isDemoFeaturesUnlocked;
     public AppSettings Current { get; private set; } = new();
 
-    public bool IsDemoFeaturesUnlocked
-    {
-        get
-        {
-            if (string.IsNullOrWhiteSpace(Current.DemoFeaturesUnlockGrantEncrypted)) return false;
-            return string.Equals(Unprotect(Current.DemoFeaturesUnlockGrantEncrypted), DemoUnlockGrantMarker, StringComparison.Ordinal);
-        }
-    }
+    public bool IsDemoFeaturesUnlocked => _isDemoFeaturesUnlocked;
 
     public SettingsService(LoggerService logger, string? settingsPath = null)
     {
@@ -60,6 +54,7 @@ public class SettingsService
                 var initialChanges = Normalize(Current);
                 LogMigrations(initialChanges);
                 Save();
+                RefreshDemoFeaturesUnlockState();
                 return;
             }
             var json = File.ReadAllText(_path);
@@ -77,12 +72,14 @@ public class SettingsService
                 LogMigrations(changes);
                 Save();
             }
+            RefreshDemoFeaturesUnlockState();
         }
         catch (Exception ex)
         {
             _logger.Error($"Settings load failed: {ex.Message}");
             Current = new AppSettings();
             Normalize(Current);
+            _isDemoFeaturesUnlocked = false;
         }
     }
 
@@ -356,15 +353,25 @@ public class SettingsService
         var grant = Protect(DemoUnlockGrantMarker);
         if (string.IsNullOrWhiteSpace(grant)) return false;
         Current.DemoFeaturesUnlockGrantEncrypted = grant;
-        if (TrySave()) return true;
+        _isDemoFeaturesUnlocked = true;
+        if (TrySave())
+            return true;
         Current.DemoFeaturesUnlockGrantEncrypted = string.Empty;
+        _isDemoFeaturesUnlocked = false;
         return false;
     }
 
     public void LockDemoFeatures()
     {
         Current.DemoFeaturesUnlockGrantEncrypted = string.Empty;
+        _isDemoFeaturesUnlocked = false;
         Save();
+    }
+
+    private void RefreshDemoFeaturesUnlockState()
+    {
+        _isDemoFeaturesUnlocked = !string.IsNullOrWhiteSpace(Current.DemoFeaturesUnlockGrantEncrypted)
+            && string.Equals(Unprotect(Current.DemoFeaturesUnlockGrantEncrypted), DemoUnlockGrantMarker, StringComparison.Ordinal);
     }
 
     public void Save()
