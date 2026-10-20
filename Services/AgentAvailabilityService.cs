@@ -15,10 +15,11 @@ public sealed class AgentAvailabilityService : IAgentAvailabilityService
     private readonly Func<int, Task<int?>> _loadOpenTickets;
     private readonly Func<DateTime> _utcNow;
     private readonly Func<DateTime> _localNow;
+    private readonly Func<bool> _featureEnabled;
     private readonly ConcurrentDictionary<int, CacheEntry> _cache = new();
     private readonly ConcurrentDictionary<int, Task<AgentAvailabilitySnapshot>> _inflight = new();
 
-    public AgentAvailabilityService(OutlookInteropService outlook, TicketSystemService tickets)
+    public AgentAvailabilityService(OutlookInteropService outlook, TicketSystemService tickets, SettingsService settings)
         : this(
             agent => Task.Run(() =>
             {
@@ -27,7 +28,8 @@ public sealed class AgentAvailabilityService : IAgentAvailabilityService
             }),
             userId => tickets.TryGetAgentOpenTicketCountAsync(userId),
             () => DateTime.UtcNow,
-            () => DateTime.Now)
+            () => DateTime.Now,
+            () => settings.IsDemoFeaturesUnlocked)
     {
     }
 
@@ -35,16 +37,19 @@ public sealed class AgentAvailabilityService : IAgentAvailabilityService
         Func<ZnunyAgent, Task<OutlookFreeBusySnapshot?>> loadFreeBusy,
         Func<int, Task<int?>> loadOpenTickets,
         Func<DateTime>? utcNow = null,
-        Func<DateTime>? localNow = null)
+        Func<DateTime>? localNow = null,
+        Func<bool>? featureEnabled = null)
     {
         _loadFreeBusy = loadFreeBusy;
         _loadOpenTickets = loadOpenTickets;
         _utcNow = utcNow ?? (() => DateTime.UtcNow);
         _localNow = localNow ?? (() => DateTime.Now);
+        _featureEnabled = featureEnabled ?? (() => true);
     }
 
     public async Task<AgentAvailabilitySnapshot> GetAvailabilityAsync(ZnunyAgent agent, CancellationToken token = default)
     {
+        if (!_featureEnabled()) return new(AgentAvailabilityLevel.Unknown, _utcNow());
         var now = _utcNow();
         if (_cache.TryGetValue(agent.UserId, out var cached) && cached.ExpiresUtc > now)
             return cached.Snapshot;
@@ -60,15 +65,18 @@ public sealed class AgentAvailabilityService : IAgentAvailabilityService
 
     private async Task<AgentAvailabilitySnapshot> CalculateAsync(ZnunyAgent agent)
     {
+        if (!_featureEnabled()) return new(AgentAvailabilityLevel.Unknown, _utcNow());
         var freeBusy = await _loadFreeBusy(agent).ConfigureAwait(false);
         var calculated = _utcNow();
+        if (!_featureEnabled()) return new(AgentAvailabilityLevel.Unknown, calculated);
         if (freeBusy == null || !TryCalculateCalendarLoad(freeBusy, _localNow(), out var calendarLoad))
             return Cache(agent.UserId, new(AgentAvailabilityLevel.Unknown, calculated));
 
         int? ticketCount = null;
-        try { ticketCount = await _loadOpenTickets(agent.UserId).ConfigureAwait(false); }
+        try { if (_featureEnabled()) ticketCount = await _loadOpenTickets(agent.UserId).ConfigureAwait(false); }
         catch { /* Optional source: Outlook remains authoritative. */ }
 
+        if (!_featureEnabled()) return new(AgentAvailabilityLevel.Unknown, calculated);
         return Cache(agent.UserId, new(Classify(calendarLoad, ticketCount), calculated));
     }
 

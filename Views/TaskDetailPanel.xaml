@@ -88,10 +88,12 @@
                         <WrapPanel>
                             <StackPanel Width="260" Margin="0,0,12,6">
                                 <TextBlock Text="Besitzer" FontSize="13" Foreground="{StaticResource MutedTextBrush}" Margin="0,0,0,2"/>
-                                <StackPanel Orientation="Horizontal" Margin="0,0,0,4" ToolTip="{Binding OwnerAvailabilityToolTip}"
-                                            Visibility="{Binding SelectedOwner, Converter={StaticResource NullToVisibilityConverter}}">
-                                    <Ellipse Width="9" Height="9" Fill="{Binding OwnerAvailabilityBrush}" Margin="0,0,6,0"/>
-                                    <TextBlock Text="Verfügbarkeit nächste 14 Tage" FontSize="11" Foreground="{StaticResource MutedTextBrush}"/>
+                                <StackPanel Visibility="{Binding IsAgentAvailabilityDemoEnabled, Converter={StaticResource BooleanToVisibilityConverter}}">
+                                    <StackPanel Orientation="Horizontal" Margin="0,0,0,4" ToolTip="{Binding OwnerAvailabilityToolTip}"
+                                                Visibility="{Binding SelectedOwner, Converter={StaticResource NullToVisibilityConverter}}">
+                                        <Ellipse Width="9" Height="9" Fill="{Binding OwnerAvailabilityBrush}" Margin="0,0,6,0"/>
+                                        <TextBlock Text="Verfügbarkeit nächste 14 Tage" FontSize="11" Foreground="{StaticResource MutedTextBrush}"/>
+                                    </StackPanel>
                                 </StackPanel>
                                 <ComboBox Style="{StaticResource DarkComboBoxStyle}" Height="30"
                                           ItemsSource="{Binding TicketAgents}" SelectedItem="{Binding SelectedOwner, Mode=TwoWay}"
@@ -99,10 +101,12 @@
                             </StackPanel>
                             <StackPanel Width="260" Margin="0,0,0,6">
                                 <TextBlock Text="Verantwortlicher" FontSize="13" Foreground="{StaticResource MutedTextBrush}" Margin="0,0,0,2"/>
-                                <StackPanel Orientation="Horizontal" Margin="0,0,0,4" ToolTip="{Binding ResponsibleAvailabilityToolTip}"
-                                            Visibility="{Binding SelectedResponsible, Converter={StaticResource NullToVisibilityConverter}}">
-                                    <Ellipse Width="9" Height="9" Fill="{Binding ResponsibleAvailabilityBrush}" Margin="0,0,6,0"/>
-                                    <TextBlock Text="Verfügbarkeit nächste 14 Tage" FontSize="11" Foreground="{StaticResource MutedTextBrush}"/>
+                                <StackPanel Visibility="{Binding IsAgentAvailabilityDemoEnabled, Converter={StaticResource BooleanToVisibilityConverter}}">
+                                    <StackPanel Orientation="Horizontal" Margin="0,0,0,4" ToolTip="{Binding ResponsibleAvailabilityToolTip}"
+                                                Visibility="{Binding SelectedResponsible, Converter={StaticResource NullToVisibilityConverter}}">
+                                        <Ellipse Width="9" Height="9" Fill="{Binding ResponsibleAvailabilityBrush}" Margin="0,0,6,0"/>
+                                        <TextBlock Text="Verfügbarkeit nächste 14 Tage" FontSize="11" Foreground="{StaticResource MutedTextBrush}"/>
+                                    </StackPanel>
                                 </StackPanel>
                                 <ComboBox Style="{StaticResource DarkComboBoxStyle}" Height="30"
                                           ItemsSource="{Binding TicketAgents}" SelectedItem="{Binding SelectedResponsible, Mode=TwoWay}"
@@ -203,9 +207,9 @@
                         </WrapPanel>
                         <StackPanel Visibility="{Binding HasZnunyTicket, Converter={StaticResource BooleanToVisibilityConverter}}">
                             <TextBlock Text="Kostenstelle" Foreground="{StaticResource MutedTextBrush}" Margin="0,8,0,2"/>
-                            <ComboBox Style="{StaticResource DarkComboBoxStyle}" ItemsSource="{Binding CostCenterOptions}" SelectedItem="{Binding SelectedCostCenter}" DisplayMemberPath="DisplayText"/>
+                            <ComboBox Style="{StaticResource DarkComboBoxStyle}" ItemsSource="{Binding CostCenterOptions}" SelectedItem="{Binding SelectedCostCenter}" DisplayMemberPath="DisplayText" ui:SearchableComboBoxAssist.IsEnabled="True"/>
                             <TextBlock Text="Auftrag" Foreground="{StaticResource MutedTextBrush}" Margin="0,8,0,2"/>
-                            <ComboBox Style="{StaticResource DarkComboBoxStyle}" ItemsSource="{Binding OrderOptions}" SelectedItem="{Binding SelectedOrder}" DisplayMemberPath="DisplayText"/>
+                            <ComboBox Style="{StaticResource DarkComboBoxStyle}" ItemsSource="{Binding OrderOptions}" SelectedItem="{Binding SelectedOrder}" DisplayMemberPath="DisplayText" ui:SearchableComboBoxAssist.IsEnabled="True"/>
                             <TextBlock Text="Notiz zur Buchung (optional)" Foreground="{StaticResource MutedTextBrush}" Margin="0,8,0,2"/>
                             <TextBox Text="{Binding TicketBookingNote, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" ui:TextInputAssist.IsFreeText="True"
                                      AcceptsReturn="True" TextWrapping="Wrap" MinHeight="60" MaxHeight="100" MaxLength="2000"

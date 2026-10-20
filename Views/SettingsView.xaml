@@ -26,6 +26,7 @@
             <TabItem Header="Favoriten" Content="{Binding}"><TabItem.ContentTemplate><DataTemplate><settings:FavoritesSettingsView/></DataTemplate></TabItem.ContentTemplate></TabItem>
             <TabItem Header="KI" Content="{Binding}"><TabItem.ContentTemplate><DataTemplate><settings:AiSettingsView/></DataTemplate></TabItem.ContentTemplate></TabItem>
             <TabItem Header="Updates" Content="{Binding}"><TabItem.ContentTemplate><DataTemplate><settings:UpdateSettingsView/></DataTemplate></TabItem.ContentTemplate></TabItem>
+            <TabItem Header="Demofunktionen" Content="{Binding}"><TabItem.ContentTemplate><DataTemplate><settings:DemoFeaturesSettingsView/></DataTemplate></TabItem.ContentTemplate></TabItem>
         </TabControl>
     </Grid>
 </UserControl>

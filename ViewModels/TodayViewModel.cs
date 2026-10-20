@@ -33,6 +33,7 @@ public class TodayViewModel : ObservableObject
     private bool _lastHidePastTodayItems;
 
     public string Title => "Heute";
+    public bool IsAgentAvailabilityDemoEnabled => _settings.IsDemoFeaturesUnlocked;
     // Existing timer and Dynamic Island consumers use this as the complete active-task collection.
     public ObservableCollection<TaskItem> CurrentTasks { get; } = new();
     public ObservableCollection<TaskItem> TodayTasks { get; } = new();
@@ -935,7 +936,12 @@ public class TodayViewModel : ObservableObject
             _lastHidePastTodayItems = hidePastTodayItems;
             _lastTodayVisibilityRefreshMinute = default;
         }
-        void Refresh() { if (requiresDatabaseRefresh) ApplyTaskFilters(); else RefreshDisplayedTasks(); }
+        void Refresh()
+        {
+            if (requiresDatabaseRefresh) ApplyTaskFilters(); else RefreshDisplayedTasks();
+            Raise(nameof(IsAgentAvailabilityDemoEnabled));
+            RefreshAvailabilityDemoState();
+        }
         var dispatcher = Application.Current?.Dispatcher;
         if (dispatcher != null && !dispatcher.CheckAccess())
         {
@@ -1830,7 +1836,7 @@ public class TodayViewModel : ObservableObject
         cancellation = new CancellationTokenSource();
         if (owner) OwnerAvailabilityLevel = AgentAvailabilityLevel.Unknown;
         else ResponsibleAvailabilityLevel = AgentAvailabilityLevel.Unknown;
-        if (agent == null || _agentAvailability == null) return;
+        if (agent == null || _agentAvailability == null || !IsAgentAvailabilityDemoEnabled) return;
         _ = LoadAvailabilityAsync(agent, owner, cancellation.Token);
     }
 
@@ -1842,7 +1848,7 @@ public class TodayViewModel : ObservableObject
             var snapshot = await _agentAvailability!.GetAvailabilityAsync(agent, token);
             if (token.IsCancellationRequested) return;
             var selected = owner ? SelectedOwner : SelectedResponsible;
-            if (!IsCurrentAvailabilitySelection(selected, agent)) return;
+            if (!CanApplyAvailabilityResult(selected, agent, IsAgentAvailabilityDemoEnabled)) return;
             if (owner) OwnerAvailabilityLevel = snapshot.Level;
             else ResponsibleAvailabilityLevel = snapshot.Level;
         }
@@ -1856,6 +1862,20 @@ public class TodayViewModel : ObservableObject
 
     internal static bool IsCurrentAvailabilitySelection(ZnunyAgent? selected, ZnunyAgent requested)
         => selected?.UserId == requested.UserId;
+
+    internal static bool CanApplyAvailabilityResult(ZnunyAgent? selected, ZnunyAgent requested, bool featureEnabled)
+        => featureEnabled && IsCurrentAvailabilitySelection(selected, requested);
+
+    private void RefreshAvailabilityDemoState()
+    {
+        _ownerAvailabilityCancellation?.Cancel();
+        _responsibleAvailabilityCancellation?.Cancel();
+        OwnerAvailabilityLevel = AgentAvailabilityLevel.Unknown;
+        ResponsibleAvailabilityLevel = AgentAvailabilityLevel.Unknown;
+        if (!IsAgentAvailabilityDemoEnabled) return;
+        BeginAvailabilityLoad(SelectedOwner, true);
+        BeginAvailabilityLoad(SelectedResponsible, false);
+    }
 
     private static Brush AvailabilityBrush(AgentAvailabilityLevel level)
         => new SolidColorBrush((Color)ColorConverter.ConvertFromString(level switch

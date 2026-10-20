@@ -27,14 +27,37 @@ public class SettingsViewModel : ObservableObject
             ["Wiki"] = 5,
             ["Favorites"] = 6, ["Favoriten"] = 6,
             ["AI"] = 7, ["KI"] = 7,
-            ["Updates"] = 8
+            ["Updates"] = 8,
+            ["Demo"] = 9, ["Demofunktionen"] = 9
         };
 
     private int _selectedSettingsSectionIndex;
     public int SelectedSettingsSectionIndex
     {
         get => _selectedSettingsSectionIndex;
-        set => Set(ref _selectedSettingsSectionIndex, Math.Clamp(value, 0, 8));
+        set => Set(ref _selectedSettingsSectionIndex, Math.Clamp(value, 0, 9));
+    }
+
+    public bool IsDemoFeaturesUnlocked => _settings.IsDemoFeaturesUnlocked;
+    public string DemoFeaturesStatus => IsDemoFeaturesUnlocked ? "🔓 Demofunktionen freigeschaltet" : "🔒 Demofunktionen gesperrt";
+    private string _demoFeaturesMessage = string.Empty;
+    public string DemoFeaturesMessage { get => _demoFeaturesMessage; private set => Set(ref _demoFeaturesMessage, value); }
+
+    public bool TryUnlockDemoFeatures(string candidate)
+    {
+        var unlocked = _settings.TryUnlockDemoFeatures(candidate);
+        DemoFeaturesMessage = unlocked ? string.Empty : "Masterpasswort ungültig.";
+        Raise(nameof(IsDemoFeaturesUnlocked));
+        Raise(nameof(DemoFeaturesStatus));
+        return unlocked;
+    }
+
+    public void LockDemoFeatures()
+    {
+        _settings.LockDemoFeatures();
+        DemoFeaturesMessage = string.Empty;
+        Raise(nameof(IsDemoFeaturesUnlocked));
+        Raise(nameof(DemoFeaturesStatus));
     }
 
     public void SelectSection(string? section)

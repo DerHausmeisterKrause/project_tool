@@ -69,7 +69,7 @@ public static class ServiceLocator
         WorkDays = new WorkDayService(Database, Logger);
         Notifications = new NotificationService(Logger, Settings, Tasks);
         TicketSystem = new TicketSystemService(Settings, Tasks, TicketAssignmentSnapshots, TicketCandidateSnapshots, TicketCandidateScanStates, TicketDetails, TicketArticleReadStates, Notifications, Logger);
-        AgentAvailability = new AgentAvailabilityService(Outlook, TicketSystem);
+        AgentAvailability = new AgentAvailabilityService(Outlook, TicketSystem, Settings);
         OutlookCalendar = new OutlookCalendarService(Logger, Settings, Outlook, WorkDays);
         PlenaroShareImporter = new PlenaroShareImportService(Database, Tasks, Settings, Logger);
         PlenaroShareCoordinator = new PlenaroShareImportCoordinator(OutlookCalendar, PlenaroShareImporter, Settings, Logger);
