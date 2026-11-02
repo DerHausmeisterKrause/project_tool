@@ -130,6 +130,25 @@ public sealed class DemoFeaturesAndSearchTests
     }
 
     [Fact]
+    public void IdenticalAgentListDoesNotRaiseCollectionChangedEvents()
+    {
+        var agents = new BulkObservableCollection<ZnunyAgent>();
+        agents.ReplaceAll(Enumerable.Range(1, 500).Select(index => new ZnunyAgent
+        {
+            UserId = index, Name = $"Agent {index}", Email = $"agent{index}@example.invalid"
+        }));
+        var events = 0;
+        agents.CollectionChanged += (_, _) => events++;
+        var replacement = agents.Select(agent => new ZnunyAgent
+        {
+            UserId = agent.UserId, Name = agent.Name, Email = agent.Email
+        }).ToArray();
+
+        Assert.False(TodayViewModel.ReplaceAgentsIfChanged(agents, replacement));
+        Assert.Equal(0, events);
+    }
+
+    [Fact]
     public void SearchPickerDoesNotFilterTheSharedDefaultCollectionView()
     {
         var source = File.ReadAllText(Path.Combine(RepoRoot(), "Views", "Controls", "SearchableTicketFieldPicker.xaml.cs"));

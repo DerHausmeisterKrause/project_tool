@@ -36,6 +36,14 @@ public class TicketSystemService : IDisposable
     private readonly ConcurrentDictionary<string, byte> _manualSelfAssignmentNotificationSuppressions = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, (int? OwnerId, string Owner, int? ResponsibleId, string Responsible)> _assignmentOverrides = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentQueue<ZnunyRequestEvent> _trafficEvents = new();
+    private readonly object _trafficEventsSync = new();
+    private DateTime _nextTrafficSummaryUtc;
+    private int _trafficSummaryCount;
+    internal const int MaximumTrafficEvents = 10_000;
+    internal static readonly TimeSpan TrafficHistoryWindow = TimeSpan.FromMinutes(15);
+    internal static readonly TimeSpan TrafficSummaryInterval = TimeSpan.FromMinutes(1);
+    internal int TrafficEventCount => _trafficEvents.Count;
+    internal int TrafficSummaryCount => Volatile.Read(ref _trafficSummaryCount);
     private readonly System.Threading.Timer _initialSyncTimer;
     private readonly System.Threading.Timer _fullSyncTimer;
     private readonly System.Threading.Timer _candidateSyncTimer;
@@ -107,14 +115,14 @@ public class TicketSystemService : IDisposable
         HandleSettingsChanged();
     }
 
-    internal TicketSystemService(HttpMessageHandler httpMessageHandler, string sessionEndpoint)
+    internal TicketSystemService(HttpMessageHandler httpMessageHandler, string sessionEndpoint, TicketDetailCacheService? detailCache = null)
     {
         _logger = new LoggerService();
         _settings = new SettingsService(_logger, Path.Combine(Path.GetTempPath(), $"tasktool-agent-test-{Guid.NewGuid():N}.json"));
         _settings.Current.TicketSystemApiUrl = new Uri(sessionEndpoint).GetLeftPart(UriPartial.Authority);
         _settings.Current.TicketSystemAgentListRoute = AppSettings.DefaultTicketSystemAgentListRoute;
         _tasks = null!; _assignmentSnapshots = null!; _candidateSnapshots = null!;
-        _candidateScanStates = null!; _detailCache = null!; _articleReadState = null!; _notifications = null!;
+        _candidateScanStates = null!; _detailCache = detailCache!; _articleReadState = null!; _notifications = null!;
         _client = new HttpClient(httpMessageHandler, disposeHandler: true);
         _rateLimiter = new ZnunyClientRateLimiter();
         _initialSyncTimer = new System.Threading.Timer(_ => { }, null, Timeout.Infinite, Timeout.Infinite);
@@ -143,6 +151,9 @@ public class TicketSystemService : IDisposable
         _agentListFingerprint = AgentListConfigurationFingerprint();
     }
 
+    public IReadOnlyList<ZnunyAgent> GetCachedAgents()
+        => _agentListCacheValid ? _agentListCache : Array.Empty<ZnunyAgent>();
+
     internal async Task SendForHttpRegressionTestAsync(HttpMethod method, string url, string stage, string? json = null)
     {
         using var request = new HttpRequestMessage(method, url);
@@ -156,6 +167,9 @@ public class TicketSystemService : IDisposable
         for (var index = 0; index < alreadyUsed; index++) traffic.TryRecord("TestSetup");
         _syncTraffic.Value = traffic;
     }
+
+    internal void EnableInfoLoggingForRegressionTest()
+        => _logger.SetMinimumLevel(AppLogLevel.Info);
 
     public void HandleSettingsChanged()
     {
@@ -583,9 +597,7 @@ public class TicketSystemService : IDisposable
 
     private bool UpsertAssignedTicketLocally(ZnunyTicket ticket)
     {
-        var matchingTasks = _tasks.GetAllTasks()
-            .Where(task => string.Equals(ExtractZnunyTicketIdFromTask(task), ticket.TicketID, StringComparison.OrdinalIgnoreCase))
-            .ToList();
+        var matchingTasks = _tasks.FindByZnunyTicketId(ticket.TicketID);
         if (matchingTasks.Count > 1)
         {
             _logger.Error($"[ZnunySelfAssign] ticketId={ticket.TicketID} action=targeted-upsert-skipped reason=ambiguous-task-mapping count={matchingTasks.Count}");
@@ -617,8 +629,7 @@ public class TicketSystemService : IDisposable
 
     private bool UpsertAssignedCandidateLocally(ZnunyCandidateTicket candidate)
     {
-        var matchingTasks = _tasks.GetAllTasks()
-            .Where(task => string.Equals(ExtractZnunyTicketIdFromTask(task), candidate.TicketId, StringComparison.OrdinalIgnoreCase)).ToList();
+        var matchingTasks = _tasks.FindByZnunyTicketId(candidate.TicketId);
         if (matchingTasks.Count > 1)
         {
             _logger.Error($"[ZnunySelfAssign] ticketId={candidate.TicketId} action=targeted-upsert-skipped reason=ambiguous-task-mapping count={matchingTasks.Count}");
@@ -805,74 +816,39 @@ public class TicketSystemService : IDisposable
         }
     }
 
-    public async Task<TicketBookingContext> GetTicketBookingContextAsync(TaskItem task)
-        => await GetTicketBookingContextCoreAsync(task, gateAlreadyHeld: false);
+    public Task<TicketBookingContext> GetTicketBookingContextAsync(TaskItem task)
+        => Task.FromResult(GetTicketBookingContextFromCache(task));
 
-    private async Task<TicketBookingContext> GetTicketBookingContextCoreAsync(TaskItem task, bool gateAlreadyHeld)
+    private TicketBookingContext GetTicketBookingContextFromCache(TaskItem task)
     {
         var ticketId = ExtractZnunyTicketIdFromTask(task);
         if (string.IsNullOrWhiteSpace(ticketId))
             throw new InvalidOperationException("Der ausgewählte Task besitzt keine eindeutige Znuny-TicketID.");
 
-        var entry = _detailCache.LoadEntry(ticketId);
-        var cached = entry?.Context;
-        var ownsGate = false;
-        if (ZnunySyncPolicy.RequiresFullTicketGet(entry, EffectiveArticleLimit)
-            && (gateAlreadyHeld || (ownsGate = await _syncGate.WaitAsync(0))))
+        var cached = _detailCache.LoadEntry(ticketId)?.Context;
+        var fields = _dynamicFieldOptionsCache;
+        var result = cached ?? new TicketBookingContext(
+            ticketId, string.Empty, string.Empty, string.Empty,
+            Array.Empty<TicketFieldOption>(), Array.Empty<TicketFieldOption>(),
+            "Ticketdetails werden beim nächsten Ticket-Sync geladen.",
+            Array.Empty<TicketArticleItem>(), null, string.Empty, task.Title,
+            null, string.Empty, null, string.Empty);
+        result = result with
         {
-            try
+            CostCenterOptions = GetFieldOptions(fields,
+                _settings.Current.TicketSystemCostCenterFieldName,
+                _settings.Current.TicketSystemCostCenterOptions),
+            OrderOptions = GetFieldOptions(fields,
+                _settings.Current.TicketSystemOrderFieldName,
+                _settings.Current.TicketSystemOrderOptions)
+        };
+        if (_assignmentOverrides.TryGetValue(ticketId, out var assignment))
+            result = result with
             {
-                var sessionId = await CreateSessionAsync();
-                var details = await GetTicketDetailsAsync(ticketId, sessionId, HashSessionId(sessionId));
-                if (details != null)
-                {
-                    StoreTicketDetails(details, TicketDetailFetchProfile.Full(EffectiveArticleLimit), trackUnread: true);
-                    cached = _detailCache.Load(ticketId);
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.Warning($"[ZnunyTicketCache] ticketId={ticketId} action=detail-refresh-deferred message='{LogValue(ex.Message)}'");
-            }
-            finally { if (ownsGate) _syncGate.Release(); }
-        }
-        if (cached != null)
-        {
-            if (!_dynamicFieldOptionsCacheValid)
-            {
-                try
-                {
-                    var ownsOptionsGate = !gateAlreadyHeld && await _syncGate.WaitAsync(0);
-                    if (gateAlreadyHeld || ownsOptionsGate)
-                    {
-                        try { await GetDynamicFieldOptionsAsync(await CreateSessionAsync(), forceRefresh: false); }
-                        finally { if (ownsOptionsGate) _syncGate.Release(); }
-                    }
-                }
-                catch (Exception ex) { _logger.Warning($"[ZnunyDynamicFieldOptions] action=automatic-load-deferred message='{LogValue(ex.Message)}'"); }
-            }
-            var fields = _dynamicFieldOptionsCache;
-            var result = cached with
-            {
-                CostCenterOptions = GetFieldOptions(fields,
-                    _settings.Current.TicketSystemCostCenterFieldName,
-                    _settings.Current.TicketSystemCostCenterOptions),
-                OrderOptions = GetFieldOptions(fields,
-                    _settings.Current.TicketSystemOrderFieldName,
-                    _settings.Current.TicketSystemOrderOptions)
+                OwnerId = assignment.OwnerId, Owner = assignment.Owner,
+                ResponsibleId = assignment.ResponsibleId, Responsible = assignment.Responsible
             };
-            if (_assignmentOverrides.TryGetValue(ticketId, out var assignment))
-                result = result with
-                {
-                    OwnerId = assignment.OwnerId,
-                    Owner = assignment.Owner,
-                    ResponsibleId = assignment.ResponsibleId,
-                    Responsible = assignment.Responsible
-                };
-            return result;
-        }
-        await Task.CompletedTask;
-        throw new InvalidOperationException("Ticketdetails werden beim nächsten Ticket-Sync geladen.");
+        return result;
     }
 
     public async Task<TicketBookingContext> RefreshTicketBookingContextAsync(TaskItem task)
@@ -945,7 +921,7 @@ public class TicketSystemService : IDisposable
         {
             var sessionId = await CreateSessionAsync();
             var fields = await GetDynamicFieldOptionsAsync(sessionId, forceRefresh: true);
-            var cached = await GetTicketBookingContextCoreAsync(task, gateAlreadyHeld: true);
+            var cached = GetTicketBookingContextFromCache(task);
             return cached with
             {
                 CostCenterOptions = GetFieldOptions(fields, _settings.Current.TicketSystemCostCenterFieldName, _settings.Current.TicketSystemCostCenterOptions),
@@ -1700,8 +1676,7 @@ public class TicketSystemService : IDisposable
                 {
                     if (notificationCandidates.ContainsKey(ticketId)
                         || _manualSelfAssignmentNotificationSuppressions.ContainsKey(ticketId)) continue;
-                    var localTask = _tasks.GetAllTasks().SingleOrDefault(item => string.Equals(
-                        ExtractZnunyTicketIdFromTask(item), ticketId, StringComparison.OrdinalIgnoreCase));
+                    existing.TryGetValue(ticketId, out var localTask);
                     if (localTask == null || localTask.Status == TaskStatus.Done) continue;
                     notificationCandidates[ticketId] = (localTask.Id,
                         ExtractZnunyTicketNumberFromTask(localTask), localTask.Title);
@@ -2504,14 +2479,44 @@ public class TicketSystemService : IDisposable
         _logger.Info($"[ZnunyActionTraffic] reason={traffic.Reason} requests={traffic.TotalRequests} sessions={traffic.SessionRequests} searches={traffic.SearchRequests} metadataGets={traffic.MetadataRequests} detailGets={traffic.DetailRequests} candidateDetailGets={traffic.CandidateDetailGets} dynamicFieldGets={traffic.DynamicFieldRequests}");
     }
 
-    private void RecordGlobalTraffic(ZnunyRequestReason reason, string operation)
+    internal void RecordGlobalTraffic(ZnunyRequestReason reason, string operation)
     {
-        var now = DateTime.UtcNow;
-        _trafficEvents.Enqueue(new ZnunyRequestEvent(now, reason, operation));
-        foreach (var minutes in new[] { 1, 5, 15, 0 })
+        if (!_logger.IsEnabled(AppLogLevel.Info))
+            return;
+
+        var now = UtcNow();
+        lock (_trafficEventsSync)
         {
-            var events = _trafficEvents.Where(item => minutes == 0 || item.TimestampUtc >= now.AddMinutes(-minutes)).ToList();
-            _logger.Info($"[ZnunyTrafficSummary] windowMinutes={(minutes == 0 ? "startup" : minutes.ToString(CultureInfo.InvariantCulture))} total={events.Count} automatic={events.Count(item => item.Reason.IsAutomatic())} manual={events.Count(item => !item.Reason.IsAutomatic())} sessions={events.Count(item => item.Operation == "SessionCreate")} searches={events.Count(item => item.Operation.Contains("Search", StringComparison.OrdinalIgnoreCase))} metadata={events.Count(item => item.Operation == "TicketGetMetadata")} details={events.Count(item => item.Operation.Contains("TicketGetDetails", StringComparison.OrdinalIgnoreCase))} candidates={events.Count(item => item.Operation.Contains("Candidate", StringComparison.OrdinalIgnoreCase))} dynamicFields={events.Count(item => item.Operation == "DynamicFieldOptions")} writes={events.Count(item => item.Operation.Contains("Update", StringComparison.OrdinalIgnoreCase) || item.Operation == "TicketCreate")}");
+            _trafficEvents.Enqueue(new ZnunyRequestEvent(now, reason, operation));
+            var cutoff = now - TrafficHistoryWindow;
+            while (_trafficEvents.TryPeek(out var oldest)
+                   && (oldest.TimestampUtc < cutoff || _trafficEvents.Count > MaximumTrafficEvents))
+                _trafficEvents.TryDequeue(out _);
+
+            if (now < _nextTrafficSummaryUtc)
+                return;
+            _nextTrafficSummaryUtc = now + TrafficSummaryInterval;
+            Interlocked.Increment(ref _trafficSummaryCount);
+            var totals = new TrafficTotals();
+            foreach (var item in _trafficEvents) totals.Add(item);
+            _logger.Info($"[ZnunyTrafficSummary] windowMinutes=15 total={totals.Total} automatic={totals.Automatic} manual={totals.Manual} sessions={totals.Sessions} searches={totals.Searches} metadata={totals.Metadata} details={totals.Details} candidates={totals.Candidates} dynamicFields={totals.DynamicFields} writes={totals.Writes}");
+        }
+    }
+
+    private sealed class TrafficTotals
+    {
+        public int Total, Automatic, Manual, Sessions, Searches, Metadata, Details, Candidates, DynamicFields, Writes;
+        public void Add(ZnunyRequestEvent item)
+        {
+            Total++;
+            if (item.Reason.IsAutomatic()) Automatic++; else Manual++;
+            if (item.Operation == "SessionCreate") Sessions++;
+            if (item.Operation.Contains("Search", StringComparison.OrdinalIgnoreCase)) Searches++;
+            if (item.Operation == "TicketGetMetadata") Metadata++;
+            if (item.Operation.Contains("TicketGetDetails", StringComparison.OrdinalIgnoreCase)) Details++;
+            if (item.Operation.Contains("Candidate", StringComparison.OrdinalIgnoreCase)) Candidates++;
+            if (item.Operation == "DynamicFieldOptions") DynamicFields++;
+            if (item.Operation.Contains("Update", StringComparison.OrdinalIgnoreCase) || item.Operation == "TicketCreate") Writes++;
         }
     }
 
