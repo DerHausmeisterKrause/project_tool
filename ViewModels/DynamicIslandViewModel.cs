@@ -34,6 +34,7 @@ public class DynamicIslandViewModel : ObservableObject
     private readonly DispatcherTimer _notificationDismissTimer;
     private DateTime _nextFocusRefreshAt = DateTime.MinValue;
     private Guid _nextFocusTaskId;
+    private int _nextFocusRefreshRunning;
 
     private bool _isExpanded;
     public bool IsExpanded { get => _isExpanded; set => Set(ref _isExpanded, value); }
@@ -113,6 +114,7 @@ public class DynamicIslandViewModel : ObservableObject
 
         _notificationDismissTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(8) };
         _notificationDismissTimer.Tick += (_, _) => ShiftNotifications();
+        ServiceLocator.Tasks.SegmentsChanged += OnSegmentsChanged;
 
         Refresh();
     }
@@ -121,6 +123,7 @@ public class DynamicIslandViewModel : ObservableObject
     {
         _tick.Stop();
         _notificationDismissTimer.Stop();
+        ServiceLocator.Tasks.SegmentsChanged -= OnSegmentsChanged;
     }
 
     public void EnqueueNotification(Guid taskId, string text, ReminderKind kind)
@@ -206,24 +209,39 @@ public class DynamicIslandViewModel : ObservableObject
     private void RefreshNextFocusIfNeeded()
     {
         if (DateTime.Now < _nextFocusRefreshAt) return;
+        if (Interlocked.Exchange(ref _nextFocusRefreshRunning, 1) != 0) return;
         _nextFocusRefreshAt = DateTime.Now.AddSeconds(20);
-
-        var now = DateTime.Now;
-        var next = ServiceLocator.Tasks.GetSegmentsForRange(now, now.AddDays(2))
-            .Where(x => x.Task.IsOperationallyVisible && x.Segment.StartLocal > now)
-            .OrderBy(x => x.Segment.StartLocal)
-            .FirstOrDefault();
-
-        if (next.Task == null)
-        {
-            _nextFocusTaskId = Guid.Empty;
-            NextFocusText = "Kein weiterer Fokus geplant";
-            return;
-        }
-
-        _nextFocusTaskId = next.Task.Id;
-        NextFocusText = $"Nächster Fokus: {next.Segment.StartLocal:HH:mm} · {next.Task.Title}";
+        _ = RefreshNextFocusAsync();
     }
+
+    private async Task RefreshNextFocusAsync()
+    {
+        var now = DateTime.Now;
+        try
+        {
+            var next = await Task.Run(() => ServiceLocator.Tasks.GetSegmentsForRange(now, now.AddDays(2))
+                .Where(x => x.Task.IsOperationallyVisible && x.Segment.StartLocal > now)
+                .OrderBy(x => x.Segment.StartLocal)
+                .Select(x => new { x.Task, x.Segment })
+                .FirstOrDefault());
+            if (next == null)
+            {
+                _nextFocusTaskId = Guid.Empty;
+                NextFocusText = "Kein weiterer Fokus geplant";
+                return;
+            }
+
+            _nextFocusTaskId = next.Task.Id;
+            NextFocusText = $"Nächster Fokus: {next.Segment.StartLocal:HH:mm} · {next.Task.Title}";
+        }
+        catch (Exception error)
+        {
+            ServiceLocator.Logger?.Error($"[Performance] operation=DynamicIslandNextFocus failed={error.GetType().Name}");
+        }
+        finally { Interlocked.Exchange(ref _nextFocusRefreshRunning, 0); }
+    }
+
+    private void OnSegmentsChanged() => _nextFocusRefreshAt = DateTime.MinValue;
 
     private void StartStop()
     {

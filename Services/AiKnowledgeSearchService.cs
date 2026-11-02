@@ -7,19 +7,32 @@ using Microsoft.Data.Sqlite;
 namespace TaskTool.Services;
 
 public sealed record AiKnowledgeMatch(string Content, string RelativePath, string CategoryPath, string FileName, int? PageNumber, double Score, AiKnowledgeSourceKind SourceKind = AiKnowledgeSourceKind.User);
+internal sealed record RelevanceEvaluation(double Score, int MatchedTerms, int MeaningfulMatchedTerms, int MeaningfulTermCount,
+    double MeaningfulCoverage, bool HasSpecificExactMatch, bool HasStrongTitleOrSectionMatch,
+    int AnchorCount = 0, int HardAnchorCount = 0, bool HasAnchorMatch = true, bool HasIntentMatch = true,
+    bool HasSubjectMatch = true, bool HasStrongSemanticMatch = false)
+{
+    public bool IsRelevant => Score > 0;
+}
+internal sealed record KnowledgeQueryAnalysis(string[] SearchTerms, string[] RetrievalTerms, string[] OriginalTerms, IReadOnlyList<string> Anchors,
+    string? PrimaryAnchor, int HardAnchorCount, HashSet<string> Domains, string? Entity = null,
+    IReadOnlyList<string>? EntityAliases = null, IReadOnlyList<string>? IntentTerms = null,
+    IReadOnlyList<string>? ActionTerms = null, IReadOnlyList<string>? SubjectTerms = null,
+    IReadOnlyList<string>? ProblemTerms = null, IReadOnlyList<string>? Identifiers = null, IReadOnlyList<string>? Phrases = null);
 
 public sealed class AiKnowledgeSearchService
 {
     public const int DefaultTopN = 4;
     private const int MaximumQueryTerms = 12;
     private static readonly Regex TokenPattern = new(@"[\p{L}\p{N}_-]{2,}", RegexOptions.Compiled);
+    private static readonly Regex TokenPartPattern = new(@"[\p{L}\p{N}]{2,}", RegexOptions.Compiled);
     private static readonly HashSet<string> StopWords = new(StringComparer.OrdinalIgnoreCase)
     {
-        "der", "die", "das", "den", "dem", "des", "ein", "eine", "einer", "einen", "einem",
-        "und", "oder", "aber", "mit", "ohne", "von", "für", "auf", "in", "im", "am", "an", "zu", "zum", "zur",
+        "der", "die", "das", "den", "dem", "des", "ein", "eine", "einer", "eines", "einen", "einem",
+        "und", "oder", "aber", "mit", "ohne", "von", "vom", "für", "auf", "in", "im", "am", "an", "aus", "bei", "beim", "zu", "zum", "zur",
         "ist", "sind", "war", "wie", "was", "wer", "wo", "wann", "warum", "welche", "welcher", "welches",
         "ich", "du", "mir", "mich", "mein", "meine", "meinem", "meinen", "bitte", "nur", "antworte", "antwort", "sage", "sag", "schreibe", "schreib",
-        "habe", "hast", "hat", "haben", "dass", "dies", "dieses", "dieser", "sehr", "auch", "noch",
+        "habe", "hast", "hat", "haben", "dass", "dies", "dieses", "dieser", "sehr", "auch", "noch", "dabei", "dazu",
         "kann", "könnte", "können", "man", "dagegen", "tun", "machen", "sein",
         "test", "hallo", "danke", "the", "a", "an", "and", "or", "with", "without", "please", "answer", "reply"
     };
@@ -28,6 +41,22 @@ public sealed class AiKnowledgeSearchService
       "langsam", "langsamer", "performance", "leistung", "auslastung", "hängt", "hängen", "ruckelt", "träge", "latency", "latenz" };
     private static readonly HashSet<string> GenericSymptoms = new(StringComparer.OrdinalIgnoreCase)
     { "langsam", "langsamer", "performance", "leistung", "problem", "probleme", "fehler", "auslastung", "hängt", "hängen", "ruckelt", "träge", "latency", "latenz" };
+    private static readonly HashSet<string> ActionTerms = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "konfigurieren", "einspielen", "installieren", "hinzufügen", "anlegen", "entsperren", "entsperre", "entsperrt",
+        "sperren", "löschen", "ändern", "zurücksetzen", "zurückgesetzt", "öffnen", "anmelden", "prüfen", "prüfe", "beheben", "behebe",
+        "starten", "gestartet", "stoppen", "gestoppt", "erneuern", "verteilen", "importieren"
+    };
+    private static readonly HashSet<string> SubjectTerms = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "user", "users", "benutzer", "konto", "passwort", "kennwort", "benutzerpasswort", "lizenz", "server", "client", "dienst", "service",
+        "einstellung", "einstellungen", "konfiguration", "zugriff", "problem", "fehler", "proxy", "speicher", "drucker", "zertifikat"
+    };
+    private static readonly HashSet<string> GenericIntentTerms = new(ActionTerms.Concat(SubjectTerms), StringComparer.OrdinalIgnoreCase);
+    private static readonly HashSet<string> GenericAcronyms = new(StringComparer.OrdinalIgnoreCase)
+    { "IT", "KI", "AI", "PC", "PDF", "URL", "API" };
+    private static readonly HashSet<string> GenericHierarchyTerms = new(StringComparer.OrdinalIgnoreCase)
+    { "it", "ita", "wiki", "home", "dokumentation", "anwendungen", "allgemein" };
     private static readonly IReadOnlyDictionary<string, string[]> DomainTerms = new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase)
     {
         ["windows"] = ["windows", "pc", "client", "rechner", "0x80070035"],
@@ -57,6 +86,7 @@ public sealed class AiKnowledgeSearchService
         }
 
         var watch = Stopwatch.StartNew();
+        var query = AnalyzeQuery(question);
         await using var db = new SqliteConnection($"Data Source={_indexPath};Mode=ReadOnly");
         await db.OpenAsync(ct);
         await using var cmd = db.CreateCommand();
@@ -66,7 +96,7 @@ public sealed class AiKnowledgeSearchService
             FROM knowledge_chunks_fts f JOIN knowledge_chunks c ON c.id=f.rowid
             WHERE knowledge_chunks_fts MATCH $query ORDER BY rank LIMIT $limit
             """;
-        cmd.Parameters.AddWithValue("$query", string.Join(" OR ", terms.Select(t => $"\"{t}\"*")));
+        cmd.Parameters.AddWithValue("$query", string.Join(" OR ", query.RetrievalTerms.Select(t => $"\"{t}\"*")));
         cmd.Parameters.AddWithValue("$limit", Math.Max(topN * 4, topN));
         var candidates = new List<AiKnowledgeMatch>();
         var candidateCount = 0;
@@ -78,61 +108,188 @@ public sealed class AiKnowledgeSearchService
             var relativePath = reader.GetString(1);
             var category = reader.GetString(2);
             var file = reader.GetString(3);
-            var relevance = CalculateRelevance(terms, content, file, category);
+            var relevance = EvaluateRelevance(query, content, file, category).Score;
             if (relevance > 0)
                 candidates.Add(new(content, relativePath, category, file, reader.IsDBNull(4) ? null : reader.GetInt32(4), relevance, Enum.Parse<AiKnowledgeSourceKind>(reader.GetString(5))));
         }
 
-        var ordered = candidates.OrderByDescending(x => x.Score).ThenBy(x => x.RelativePath, StringComparer.OrdinalIgnoreCase).ToArray();
+        var ordered = candidates.OrderByDescending(x => x.Score)
+            .ThenBy(x => x.SourceKind == AiKnowledgeSourceKind.User ? 0 : 1)
+            .ThenBy(x => x.RelativePath, StringComparer.OrdinalIgnoreCase).ToArray();
         var firstPerDocument = ordered.GroupBy(x => $"{x.SourceKind}:{x.RelativePath}", StringComparer.OrdinalIgnoreCase).Select(group => group.First());
         var result = firstPerDocument.Concat(ordered.Where(x => !firstPerDocument.Contains(x))).Take(Math.Max(0, topN)).ToArray();
         _logger.OperationalInfo($"[AI Knowledge] Query completed candidates={candidateCount} accepted={result.Length} durationMs={watch.ElapsedMilliseconds}");
         return result;
     }
 
-    internal static string[] NormalizeTerms(string question) => TokenPattern.Matches(question)
-        .Select(match => match.Value.Replace("\"", ""))
+    internal static string[] NormalizeTerms(string question) => ExpandTokens(question)
         .Where(term => !StopWords.Contains(term))
         .Distinct(StringComparer.OrdinalIgnoreCase)
         .Take(MaximumQueryTerms)
         .ToArray();
 
     internal static double CalculateRelevance(IReadOnlyList<string> terms, string content, string titleOrFile, string category)
+        => EvaluateRelevance(AnalyzeTerms(terms), content, titleOrFile, category).Score;
+
+    internal static RelevanceEvaluation EvaluateRelevance(IReadOnlyList<string> terms, string content, string titleOrFile, string category,
+        string hierarchyPath = "", string parentTitle = "")
+        => EvaluateRelevance(AnalyzeTerms(terms), content, titleOrFile, category, hierarchyPath, parentTitle);
+
+    internal static RelevanceEvaluation EvaluateRelevance(KnowledgeQueryAnalysis query, string content, string titleOrFile, string category,
+        string hierarchyPath = "", string parentTitle = "")
     {
+        var terms = query.SearchTerms;
         var contentTokens = Tokens(content); var titleTokens = Tokens(titleOrFile); var categoryTokens = Tokens(category);
-        var queryDomains = DetectDomains(terms);
-        var documentDomains = DetectDomains(contentTokens.Concat(titleTokens).Concat(categoryTokens));
-        if (queryDomains.Count > 0 && documentDomains.Count > 0 && !queryDomains.Overlaps(documentDomains)) return 0;
-        var meaningfulTerms = terms.Where(term => !GenericTechnicalTerms.Contains(term)).ToArray();
+        var hierarchyTokens = Tokens(hierarchyPath).Where(term => !GenericHierarchyTerms.Contains(term)).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var parentTokens = Tokens(parentTitle).Where(term => !GenericHierarchyTerms.Contains(term)).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var searchableValues = new[] { content, titleOrFile, category, hierarchyPath, parentTitle };
+        var aliases = query.EntityAliases ?? Array.Empty<string>();
+        var anchorMatch = aliases.Count > 0 ? aliases.Any(alias => MatchesAnchor(alias, searchableValues))
+            : query.PrimaryAnchor is null || MatchesAnchor(query.PrimaryAnchor, searchableValues);
+        var actions = query.ActionTerms ?? Array.Empty<string>();
+        var subjects = query.SubjectTerms ?? Array.Empty<string>();
+        var actionMatch = actions.Count == 0 || actions.Any(action => MatchesIntent(action, searchableValues));
+        var subjectMatch = subjects.Count == 0 || subjects.Any(subject => MatchesSubject(subject, searchableValues));
+        var intentMatch = query.Entity is null || actionMatch;
+        var strongSemanticMatch = query.Entity is not null && anchorMatch && actions.Count > 0 && actionMatch && (subjects.Count == 0 || subjectMatch);
+        if (!anchorMatch || !intentMatch) return new(0, 0, 0, 0, 0, false, false, query.Anchors.Count, query.HardAnchorCount, anchorMatch, intentMatch, subjectMatch, false);
+        var queryDomains = query.Domains;
+        var documentDomains = DetectDomains(contentTokens.Concat(titleTokens).Concat(categoryTokens).Concat(hierarchyTokens));
+        if (queryDomains.Count > 0 && documentDomains.Count > 0 && !queryDomains.Overlaps(documentDomains)) return new(0, 0, 0, 0, 0, false, false, query.Anchors.Count, query.HardAnchorCount, true);
+        var structuredSemanticTerms = actions.Concat(subjects).Concat(query.ProblemTerms ?? []).Concat(query.Identifiers ?? [])
+            .Distinct(StringComparer.OrdinalIgnoreCase).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var meaningfulTerms = terms.Where(term => !GenericTechnicalTerms.Contains(term) && !IsEntityTerm(term, aliases)
+            && (query.Entity is null || structuredSemanticTerms.Count == 0 || structuredSemanticTerms.Contains(term))).ToArray();
         var matched = 0; var meaningfulMatches = 0; var symptomMatches = 0; var specificMatch = false; var strongMetadataMatch = false; var score = 0d;
         foreach (var term in terms)
         {
-            var inContent = contentTokens.Contains(term); var inTitle = titleTokens.Contains(term); var inCategory = categoryTokens.Contains(term);
-            if (!inContent && !inTitle && !inCategory) continue;
+            var actionTerm = actions.Contains(term, StringComparer.OrdinalIgnoreCase);
+            var subjectTerm = subjects.Contains(term, StringComparer.OrdinalIgnoreCase);
+            var inContent = MatchesSemanticTerm(term, actionTerm, subjectTerm, content, contentTokens);
+            var inTitle = MatchesSemanticTerm(term, actionTerm, subjectTerm, titleOrFile, titleTokens);
+            var inCategory = MatchesSemanticTerm(term, actionTerm, subjectTerm, category, categoryTokens);
+            var inHierarchy = MatchesSemanticTerm(term, actionTerm, subjectTerm, hierarchyPath, hierarchyTokens);
+            var inParent = MatchesSemanticTerm(term, actionTerm, subjectTerm, parentTitle, parentTokens);
+            if (!inContent && !inTitle && !inCategory && !inHierarchy) continue;
             matched++;
             var specific = IsSpecific(term);
-            if (!GenericTechnicalTerms.Contains(term)) meaningfulMatches++;
+            if (meaningfulTerms.Contains(term, StringComparer.OrdinalIgnoreCase)) meaningfulMatches++;
             if (GenericSymptoms.Contains(term)) symptomMatches++;
             if (specific) specificMatch = true;
-            if (!GenericTechnicalTerms.Contains(term) && (inTitle || inCategory)) strongMetadataMatch = true;
-            score += (inContent ? 2 : 0) + (inTitle ? 4 : 0) + (inCategory ? 3 : 0) + (specific ? 6 : 0);
+            if (!GenericTechnicalTerms.Contains(term) && (inTitle || inCategory || inHierarchy)) strongMetadataMatch = true;
+            var anchorBonus = query.Anchors.Contains(term) ? (inTitle ? 6 : inParent ? 5 : inCategory ? 4 : inHierarchy ? 3 : inContent ? 2 : 0) : 0;
+            score += (inContent ? 2 : 0) + (inTitle ? 4 : 0) + (inCategory ? 3 : 0) + (inParent ? 3 : inHierarchy ? 2 : 0) + (specific ? 6 : 0) + anchorBonus;
         }
 
         // A unique technical token is sufficient. Otherwise generic platform words do not
         // establish relevance: require two meaningful terms, or one backed by strong metadata.
         if (!specificMatch)
         {
+            var entityActionQualified = strongSemanticMatch;
             // A clearly identified domain may combine with a symptom ("Windows PC langsam").
             // The symptom alone, or a conflicting domain, can never qualify a document.
             var matchingDomainAndSymptom = queryDomains.Count > 0 && queryDomains.Overlaps(documentDomains) && symptomMatches > 0;
-            if ((meaningfulTerms.Length == 0 || meaningfulMatches == 0) && !matchingDomainAndSymptom) return 0;
-            if (meaningfulTerms.Length == 1 && !strongMetadataMatch) return 0;
-            if (meaningfulTerms.Length > 1 && meaningfulMatches < 2) return 0;
+            if ((meaningfulTerms.Length == 0 || meaningfulMatches == 0) && !matchingDomainAndSymptom && !entityActionQualified) return new(0, matched, meaningfulMatches, meaningfulTerms.Length, 0, false, strongMetadataMatch, query.Anchors.Count, query.HardAnchorCount, true);
+            if (meaningfulTerms.Length == 1 && !strongMetadataMatch && !entityActionQualified) return new(0, matched, meaningfulMatches, 1, meaningfulMatches, false, false, query.Anchors.Count, query.HardAnchorCount, true);
+            if (meaningfulTerms.Length > 1 && (meaningfulMatches < 2 || (double)meaningfulMatches / meaningfulTerms.Length < .5) && !entityActionQualified)
+                return new(0, matched, meaningfulMatches, meaningfulTerms.Length, (double)meaningfulMatches / meaningfulTerms.Length, false, strongMetadataMatch, query.Anchors.Count, query.HardAnchorCount, true);
         }
 
         var meaningfulCoverage = meaningfulTerms.Length == 0 ? 0 : (double)meaningfulMatches / meaningfulTerms.Length;
-        return score + (double)matched / terms.Count * 4 + meaningfulCoverage * 6;
+        return new(score + (double)matched / terms.Length * 4 + meaningfulCoverage * 6, matched, meaningfulMatches,
+            meaningfulTerms.Length, meaningfulCoverage, specificMatch, strongMetadataMatch, query.Anchors.Count, query.HardAnchorCount, true, true, subjectMatch, strongSemanticMatch);
     }
+
+    internal static bool HasEntityAnchors(string question) => AnalyzeQuery(question).Anchors.Count > 0;
+
+    internal static KnowledgeQueryAnalysis AnalyzeQuery(string question)
+    {
+        var originals = TokenPattern.Matches(question).Cast<Match>().Select(match => match.Value).Where(term => !StopWords.Contains(term))
+            .Distinct(StringComparer.OrdinalIgnoreCase).Take(MaximumQueryTerms).ToArray();
+        return CreateAnalysis(NormalizeTerms(question), originals, question);
+    }
+
+    private static KnowledgeQueryAnalysis AnalyzeTerms(IReadOnlyList<string> terms)
+    {
+        var derived = terms.Where(term => terms.Any(parent => (parent.Contains('_') || parent.Contains('-')) && !parent.Equals(term, StringComparison.OrdinalIgnoreCase)
+            && TokenPartPattern.Matches(parent).Cast<Match>().Any(part => part.Value.Equals(term, StringComparison.OrdinalIgnoreCase)))).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        return CreateAnalysis(terms.ToArray(), terms.Where(term => !derived.Contains(term)).ToArray(), null);
+    }
+
+    private static KnowledgeQueryAnalysis CreateAnalysis(string[] searchTerms, string[] originalTerms, string? rawQuery)
+    {
+        var entity = rawQuery is null ? null : KnowledgeEntityAliases.Resolve(rawQuery);
+        var retrievalTerms = entity is null ? searchTerms : searchTerms.Concat(entity.Aliases.SelectMany(ExpandTokens))
+            .Distinct(StringComparer.OrdinalIgnoreCase).Take(24).ToArray();
+        var hard = originalTerms.Where(IsHardAnchor).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+        var soft = originalTerms.Where(term => !StopWords.Contains(term) && !GenericTechnicalTerms.Contains(term) && !GenericIntentTerms.Contains(term) && !GenericHierarchyTerms.Contains(term))
+            .Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+        var phrases = originalTerms.Zip(originalTerms.Skip(1), (first, second) => (first, second))
+            .Where(pair => pair.first.Length >= 3 && pair.second.Length >= 3 && char.IsUpper(pair.first[0]) && char.IsUpper(pair.second[0])
+                && !GenericTechnicalTerms.Contains(pair.first) && !GenericTechnicalTerms.Contains(pair.second)
+                && ((!GenericIntentTerms.Contains(pair.first) && !GenericIntentTerms.Contains(pair.second)) || soft.Length == 0))
+            .Select(pair => $"{pair.first} {pair.second}").Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+        var strongHard = hard.Where(term => !term.All(char.IsDigit) && !(term.Length <= 3 && term.Any(char.IsDigit))).ToArray();
+        var values = hard.Concat(phrases).Concat(soft).Concat(entity?.Aliases ?? Array.Empty<string>()).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+        var primary = entity?.CanonicalName ?? strongHard.FirstOrDefault() ?? phrases.FirstOrDefault() ?? soft.FirstOrDefault() ?? hard.FirstOrDefault();
+        var actions = originalTerms.Where(ActionTerms.Contains).ToList();
+        if (rawQuery is not null && originalTerms.Any(term => term.Equals("zurück", StringComparison.OrdinalIgnoreCase))
+            && originalTerms.Any(term => term.StartsWith("setz", StringComparison.OrdinalIgnoreCase))) actions.Add("zurücksetzen");
+        var subjects = originalTerms.Where(SubjectTerms.Contains).ToArray();
+        var intents = actions.Concat(subjects).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+        return new(searchTerms, retrievalTerms, originalTerms, values, primary, hard.Length, DetectDomains(searchTerms), entity?.CanonicalName,
+            entity?.Aliases, intents, actions.Distinct(StringComparer.OrdinalIgnoreCase).ToArray(), subjects,
+            originalTerms.Where(GenericSymptoms.Contains).ToArray(), hard, phrases);
+    }
+
+    private static bool MatchesAnchor(string anchor, params string[] values)
+    {
+        if (!anchor.Contains(' ')) return values.Any(value => Tokens(value).Contains(anchor));
+        var pattern = $@"(?<![\p{{L}}\p{{N}}]){Regex.Escape(anchor).Replace("\\ ", @"[\s_-]+")}(?![\p{{L}}\p{{N}}])";
+        return values.Any(value => Regex.IsMatch(value, pattern, RegexOptions.IgnoreCase));
+    }
+
+    private static bool MatchesIntent(string intent, params string[] values)
+    {
+        var root = intent.ToLowerInvariant() switch
+        {
+            var value when value.StartsWith("entsperr", StringComparison.Ordinal) => "entsperr",
+            var value when value.StartsWith("zurücksetz", StringComparison.Ordinal) => "zurücksetz",
+            var value when value.StartsWith("konfigurier", StringComparison.Ordinal) => "konfigurier",
+            var value when value.StartsWith("installier", StringComparison.Ordinal) => "installier",
+            var value when value.StartsWith("einspiel", StringComparison.Ordinal) => "einspiel",
+            var value when value.StartsWith("start", StringComparison.Ordinal) || value.StartsWith("gestart", StringComparison.Ordinal) => "start",
+            var value when value.StartsWith("stopp", StringComparison.Ordinal) || value.StartsWith("gestopp", StringComparison.Ordinal) => "stopp",
+            _ => intent.ToLowerInvariant()
+        };
+        return values.SelectMany(value => Tokens(value)).Any(token => token.StartsWith(root, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static bool MatchesSubject(string subject, params string[] values)
+    {
+        var alternatives = subject.ToLowerInvariant() switch
+        {
+            "user" or "users" or "benutzer" => new[] { "user", "users", "benutzer" },
+            "passwort" or "kennwort" or "benutzerpasswort" => new[] { "passwort", "kennwort", "benutzerpasswort" },
+            "dienst" or "service" => new[] { "dienst", "service" },
+            _ => new[] { subject }
+        };
+        var tokens = values.SelectMany(Tokens).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        return alternatives.Any(tokens.Contains);
+    }
+
+    private static bool MatchesSemanticTerm(string term, bool actionTerm, bool subjectTerm, string value, IReadOnlySet<string> tokens)
+        => tokens.Contains(term) || (actionTerm && MatchesIntent(term, value)) || (subjectTerm && MatchesSubject(term, value));
+
+    private static bool IsEntityTerm(string term, IReadOnlyList<string> aliases) => aliases
+        .SelectMany(ExpandTokens).Any(aliasTerm => aliasTerm.Equals(term, StringComparison.OrdinalIgnoreCase));
+
+    private static bool IsHardAcronym(string term) => term.Length is >= 3 and <= 8 && !GenericAcronyms.Contains(term)
+        && term.All(character => !char.IsLetter(character) || char.IsUpper(character)) && term.Any(char.IsLetter);
+
+    private static bool IsHardAnchor(string term) => IsHardAcronym(term) || term.Contains('_') || term.Contains('-') || term.Any(char.IsDigit)
+        || (term.Length >= 6 && term.Skip(1).Any(char.IsUpper) && term.Any(char.IsLower))
+        || (term.Length > 8 && !GenericAcronyms.Contains(term) && term.All(character => !char.IsLetter(character) || char.IsUpper(character)) && term.Any(char.IsLetter));
 
     private static HashSet<string> DetectDomains(IEnumerable<string> tokens)
     {
@@ -140,15 +297,76 @@ public sealed class AiKnowledgeSearchService
         return DomainTerms.Where(domain => domain.Value.Any(values.Contains)).Select(domain => domain.Key).ToHashSet(StringComparer.OrdinalIgnoreCase);
     }
 
-    private static bool IsSpecific(string term) => !GenericTechnicalTerms.Contains(term) && (KnownSpecificTerms.Contains(term)
+    internal static bool IsSpecific(string term) => !GenericTechnicalTerms.Contains(term) && (KnownSpecificTerms.Contains(term)
+        || term.Contains('_') || term.Contains('-')
         || Regex.IsMatch(term, @"^0x[0-9a-f]{6,}$", RegexOptions.IgnoreCase)
         || term.Any(char.IsDigit)
+        || IsHardAcronym(term)
         || (term.Length >= 5 && term.All(character => !char.IsLetter(character) || char.IsUpper(character)))
-        || (term.Length >= 6 && term.Any(char.IsUpper) && term.Any(char.IsLower)));
+        || (term.Length >= 6 && term.Skip(1).Any(char.IsUpper) && term.Any(char.IsLower)));
 
-    private static HashSet<string> Tokens(string value) => Regex.Matches(value, @"[\p{L}\p{N}]+")
-        .Select(match => match.Value)
-        .ToHashSet(StringComparer.OrdinalIgnoreCase);
+    private static IEnumerable<string> ExpandTokens(string value)
+    {
+        foreach (Match match in TokenPattern.Matches(value))
+        {
+            yield return match.Value;
+            if (!match.Value.Contains('_') && !match.Value.Contains('-')) continue;
+            foreach (Match part in TokenPartPattern.Matches(match.Value))
+                if (!part.Value.Equals(match.Value, StringComparison.OrdinalIgnoreCase)) yield return part.Value;
+        }
+    }
+
+    private static HashSet<string> Tokens(string value) => ExpandTokens(value).ToHashSet(StringComparer.OrdinalIgnoreCase);
+}
+
+internal sealed record KnowledgeEntityAliasGroup(string CanonicalName, IReadOnlyList<string> Aliases);
+internal static class KnowledgeEntityAliases
+{
+    private static readonly KnowledgeEntityAliasGroup[] BuiltInGroups =
+    [
+        new("Password Secure", ["Password Secure", "Password Safe", "PasswordSafe", "Password-Safe", "Passwordsafe", "Passwort Safe", "Passwortsafe", "PWS"]),
+        new("Active Directory", ["Active Directory", "AD"]),
+        new("Remote Desktop", ["Remote Desktop", "RDP"])
+    ];
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, KnowledgeEntityAliasGroup> IndexedGroups = new(StringComparer.OrdinalIgnoreCase);
+
+    internal static void RegisterIndexedCandidates(IEnumerable<string> titles)
+    {
+        foreach (var title in titles.Select(value => Regex.Replace(value.Trim(), @"\s+", " ")).Where(IsUsefulCandidate).Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            var words = title.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            var compact = string.Concat(words); var dashed = string.Join('-', words);
+            var acronym = words.Length > 1 ? string.Concat(words.Select(word => char.ToUpperInvariant(word[0]))) : string.Empty;
+            var aliases = new[] { title, compact, dashed, acronym }.Where(value => value.Length >= 3).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+            IndexedGroups[Normalize(title)] = new(title, aliases);
+        }
+    }
+
+    internal static KnowledgeEntityAliasGroup? Resolve(string query)
+    {
+        var normalizedQuery = Normalize(query);
+        return BuiltInGroups.Concat(IndexedGroups.Values).OrderByDescending(group => Normalize(group.CanonicalName).Length)
+            .FirstOrDefault(group => group.Aliases.Any(alias => Matches(query, normalizedQuery, alias)));
+    }
+
+    private static bool IsUsefulCandidate(string value)
+    {
+        if (value.Length is < 3 or > 60) return false;
+        var words = value.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        if (words.Length > 4) return false;
+        var generic = new[] { "home", "wiki", "allgemein", "dokumentation", "anwendungen", "administration", "benutzerverwaltung" };
+        return !generic.Contains(value, StringComparer.OrdinalIgnoreCase) && words.Any(word => word.Length >= 3);
+    }
+
+    private static bool Matches(string query, string normalizedQuery, string alias)
+    {
+        var normalizedAlias = Normalize(alias);
+        return normalizedAlias.Length <= 3
+            ? Regex.IsMatch(query, $@"(?<![\p{{L}}\p{{N}}]){Regex.Escape(alias)}(?![\p{{L}}\p{{N}}])", RegexOptions.IgnoreCase)
+            : normalizedQuery.Contains(normalizedAlias, StringComparison.Ordinal);
+    }
+
+    private static string Normalize(string value) => string.Concat(value.Normalize().Where(char.IsLetterOrDigit)).ToLowerInvariant();
 }
 
 public sealed record AiKnowledgeContext(string Text, IReadOnlyList<AiKnowledgeMatch> IncludedMatches);
@@ -200,14 +418,32 @@ public static class AiCombinedContextBuilder
             Erfinde keine Quellen oder internen Fakten.
 
             """;
-        var selected = matches.OrderByDescending(x => x.Score).Take(AiKnowledgeContextBuilder.MaximumChunks).ToArray();
+        var materialized = matches
+            .DistinctBy(x => new { x.SourceType, x.DisplaySource, x.Title, x.SectionTitle, x.AttachmentName, x.PageNumber })
+            .ToArray();
+        var bestScore = materialized.Select(match => match.Score).DefaultIfEmpty().Max();
+        var qualified = materialized.Where(match => match.Score >= bestScore * .65).ToArray();
+        var bestWiki = qualified.Where(match => match.SourceType == AiKnowledgeSourceType.Wiki).OrderByDescending(match => match.Score).FirstOrDefault();
+        var selected = (bestWiki is not null && bestWiki.Score >= bestScore * .8
+                ? new[] { bestWiki }.Concat(qualified.Where(match => !ReferenceEquals(match, bestWiki)).OrderByDescending(match => match.Score))
+                : qualified.OrderByDescending(match => match.Score).ThenBy(match => match.SourceType == AiKnowledgeSourceType.Wiki ? 0 : 1))
+            .Take(AiKnowledgeContextBuilder.MaximumChunks).ToArray();
         if (selected.Length == 0) return new(string.Empty, Array.Empty<AiRetrievalMatch>());
+        const string separator = "\n---\n";
         var text = instruction; var included = new List<AiRetrievalMatch>();
-        foreach (var match in selected)
+        for (var index = 0; index < selected.Length; index++)
         {
-            var label = match.SourceType == AiKnowledgeSourceType.Wiki ? $"Wiki: {match.DisplaySource} · {match.Title}" : match.DisplaySource;
-            var header = $"Quelle: {label}\n---\n"; var available = AiKnowledgeContextBuilder.MaximumContextCharacters - text.Length - header.Length - 6;
-            if (available <= 0) break; text += header + match.Content[..Math.Min(match.Content.Length, available)] + "\n---\n"; included.Add(match);
+            var match = selected[index];
+            var label = match.SourceType == AiKnowledgeSourceType.Wiki
+                ? $"PRIORITÄT 1 – WIKI\nQuelle: Wiki · {match.DisplaySource}\nSpace: {match.SpaceKey}{(string.IsNullOrWhiteSpace(match.HierarchyPath) ? string.Empty : $"\nPfad: {match.HierarchyPath}")}\nSeite: {match.Title}{(string.IsNullOrWhiteSpace(match.SectionTitle) ? string.Empty : $"\nAbschnitt: {match.SectionTitle}")}{(string.IsNullOrWhiteSpace(match.AttachmentName) ? string.Empty : $"\nAttachment: {match.AttachmentName}")}{(match.PageNumber is int wikiPage ? $" · Seite {wikiPage}" : string.Empty)}"
+                : $"PRIORITÄT 2 – LOKALE KNOWLEDGE\nQuelle: {match.DisplaySource}";
+            var header = $"{label}\n---\n";
+            var pendingLocal = selected.Skip(index + 1).FirstOrDefault(x => x.SourceType == AiKnowledgeSourceType.LocalFiles);
+            var reservedForLocal = match.SourceType == AiKnowledgeSourceType.Wiki && pendingLocal is not null
+                ? $"PRIORITÄT 2 – LOKALE KNOWLEDGE\nQuelle: {pendingLocal.DisplaySource}\n---\n".Length + Math.Min(pendingLocal.Content.Length, 400) + separator.Length
+                : 0;
+            var available = AiKnowledgeContextBuilder.MaximumContextCharacters - text.Length - header.Length - separator.Length - reservedForLocal;
+            if (available <= 0) break; text += header + match.Content[..Math.Min(match.Content.Length, available)] + separator; included.Add(match);
         }
         return new(text[..Math.Min(text.Length, AiKnowledgeContextBuilder.MaximumContextCharacters)], included);
     }

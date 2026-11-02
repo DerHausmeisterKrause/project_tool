@@ -12,6 +12,7 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 8.0.x
-      - run: dotnet restore
+      - run: dotnet restore TaskTool.Wpf.csproj
+      - run: dotnet restore Tests/TaskTool.Tests.csproj
       - run: dotnet build TaskTool.Wpf.csproj -c Release --no-restore
       - run: dotnet test Tests/TaskTool.Tests.csproj -c Release

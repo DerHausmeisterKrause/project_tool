@@ -108,8 +108,21 @@ public sealed class AiChatViewModelTests
 
         var request = viewModel.BuildRequestMessages("LOKALES PLENARO-WISSEN:\nInhalt");
 
-        Assert.Single(request.Where(message => message.Role == AiChatRole.System));
+        Assert.Single(request, message => message.Role == AiChatRole.System);
         Assert.Contains("LOKALES PLENARO-WISSEN", request[0].Content);
+    }
+
+    [Fact]
+    public async Task EntitySpecificQuestionWithoutKnowledgeAddsGroundingInstruction()
+    {
+        var ai = new FakeAi();
+        var viewModel = CreateViewModel(ai);
+        viewModel.InputText = "Pentaho Lizenz einspielen";
+
+        await viewModel.SendAsync();
+
+        Assert.Contains("keine ausreichend passende interne Wissensquelle", ai.LastMessages![0].Content);
+        Assert.Empty(viewModel.Messages.Last().KnowledgeSources!);
     }
 
     private sealed class FakeAi : IAiChatService
@@ -124,7 +137,7 @@ public sealed class AiChatViewModelTests
         public int CallCount { get; private set; }
         public IReadOnlyList<AiChatRequestMessage>? LastMessages { get; private set; }
         public AiRequestOptions? LastOptions { get; private set; }
-        public event EventHandler? StateChanged;
+        public event EventHandler? StateChanged { add { } remove { } }
 
         public Task<string> ChatAsync(IReadOnlyList<AiChatRequestMessage> messages, AiRequestOptions options, CancellationToken cancellationToken = default)
         {

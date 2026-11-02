@@ -49,8 +49,8 @@ public sealed class ZnunyAgentTests
         await Task.WhenAll(service.GetAgentsAsync(), service.GetAgentsAsync(), service.GetAgentsAsync());
         await service.GetAgentsAsync();
 
-        Assert.Equal(1, handler.Count("/Custom/Agents"));
-        Assert.Contains("SessionID=test-session", handler.Requests.Single(request => request.Path == "/Custom/Agents").Uri);
+        Assert.Equal(1, handler.Count("/api/Custom/Agents"));
+        Assert.Contains("SessionID=test-session", handler.Requests.Single(request => request.Path == "/api/Custom/Agents").Uri);
     }
 
     [Fact]

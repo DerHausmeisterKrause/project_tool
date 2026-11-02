@@ -155,14 +155,18 @@ public sealed class LocalLlamaServerManager : IDisposable
             ActiveComputeMode = _settings.Current.AiLocalComputeMode; UsedCpuFallback = false; DetectedGpu = null;
             Log($"Local AI setup started preset={preset} backend={LocalAiRuntimeCatalog.Get(ActiveComputeMode).Backend}");
             Stop();
-            preset = await EnsureInstalledAsync(progress, token);
-            _setupStage = "server-start";
-            try { await StartAndWaitForReadyAsync(preset, token); }
+            try
+            {
+                preset = await EnsureInstalledAsync(progress, token);
+                _setupStage = "server-start";
+                await StartAndWaitForReadyAsync(preset, token);
+            }
             catch (Exception gpuFailure) when (ShouldFallbackToCpu(ActiveComputeMode, gpuFailure))
             {
                 Log($"GPU startup failed; falling back to CPU: {gpuFailure.GetType().Name}: {gpuFailure.Message}");
                 Stop(); ActiveComputeMode = LocalAiComputeMode.Cpu; UsedCpuFallback = true;
                 await EnsureInstalledAsync(progress, token);
+                _setupStage = "server-start";
                 await StartAndWaitForReadyAsync(preset, token);
                 LastError = "GPU-Beschleunigung konnte nicht gestartet werden. Lokale KI wird auf CPU gestartet.";
             }

@@ -1,0 +1,39 @@
+<UserControl x:Class="TaskTool.Views.Settings.DemoFeaturesSettingsView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             Background="Transparent">
+    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Padding="0,0,8,16">
+        <StackPanel MaxWidth="1200" HorizontalAlignment="Center">
+            <TextBlock Text="Demofunktionen" Style="{StaticResource SettingsSectionTitleStyle}"/>
+            <Border Style="{StaticResource CardStyle}" BorderBrush="#F59E0B">
+                <TextBlock Text="Demofunktionen befinden sich noch in Erprobung und sind nicht für den regulären Produktiveinsatz freigegeben."
+                           TextWrapping="Wrap" Foreground="#FBBF24"/>
+            </Border>
+
+            <Border Style="{StaticResource CardStyle}">
+                <StackPanel>
+                    <TextBlock Text="{Binding DemoFeaturesStatus}" FontSize="17" FontWeight="SemiBold" Margin="0,0,0,12"/>
+
+                    <StackPanel x:Name="LockedPanel">
+                        <TextBlock Text="Masterpasswort" Style="{StaticResource SettingsLabelStyle}"/>
+                        <PasswordBox x:Name="MasterPasswordBox" MaxLength="256" Background="{StaticResource SurfaceAltBrush}"
+                                     Foreground="{StaticResource TextBrush}" BorderBrush="{StaticResource BorderBrushColor}"
+                                     BorderThickness="1" Padding="10,6" Margin="0,2,0,8"/>
+                        <Button Content="Demofunktionen freischalten" HorizontalAlignment="Left" Margin="0,8,0,0" Click="Unlock_Click"/>
+                        <TextBlock Text="{Binding DemoFeaturesMessage}" Foreground="#F87171" Margin="0,8,0,0"/>
+                    </StackPanel>
+
+                    <StackPanel x:Name="UnlockedPanel">
+                        <TextBlock Text="Verfügbarkeit bei Ticketzuweisung" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,8"/>
+                        <TextBlock Text="Zeigt beim Auswählen von Besitzer oder Verantwortlichem einen groben Verfügbarkeitshinweis für die nächsten 14 Tage an.&#x0a;&#x0a;Die Funktion dient ausschließlich als unverbindliche Planungshilfe bei der Ticketverteilung und nicht zur Arbeitszeit-, Leistungs- oder Verhaltensüberwachung."
+                                   TextWrapping="Wrap" Foreground="{StaticResource MutedTextBrush}"/>
+                        <TextBlock Margin="0,12,0,0" TextWrapping="Wrap" Foreground="{StaticResource MutedTextBrush}"
+                                   Text="Für die Bewertung werden ausschließlich aggregierte Outlook-Free/Busy-Informationen sowie die Anzahl aktuell offener zugewiesener Tickets verwendet. Es werden keine Terminbetreffs, Inhalte, Teilnehmer oder Orte ausgewertet oder gespeichert. Es werden keine Arbeitszeiten, Prozentwerte oder Ticketzahlen angezeigt. Es erfolgt keine Historisierung, kein Mitarbeiterranking und kein Teamvergleich."/>
+                        <TextBlock Margin="0,12,0,0" TextWrapping="Wrap" Text="✓ nur Free/Busy&#x0a;✓ keine Kalenderinhalte&#x0a;✓ keine Arbeitszeiterfassung&#x0a;✓ keine Historie&#x0a;✓ kein Mitarbeiterranking&#x0a;✓ nur grobe Ampel"/>
+                        <Button Content="Demofunktionen wieder sperren" Style="{StaticResource SecondaryButtonStyle}" HorizontalAlignment="Left" Margin="0,16,0,0" Click="Lock_Click"/>
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>

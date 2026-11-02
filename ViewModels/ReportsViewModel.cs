@@ -1,8 +1,10 @@
 using System.Collections.ObjectModel;
 using System.Globalization;
+using System.Windows;
 using TaskTool.Infrastructure;
 using TaskTool.Models;
 using TaskTool.Services;
+using TaskTool.Views;
 
 namespace TaskTool.ViewModels;
 
@@ -28,6 +30,8 @@ public class ReportsViewModel : ObservableObject
 
     public ObservableCollection<MonthlyReportItem> MonthlyReports { get; } = new();
     public RelayCommand RefreshCommand { get; }
+    public RelayCommand AddTimeAdjustmentCommand { get; }
+    public RelayCommand<MonthlyReportItem> ShowTimeAdjustmentsCommand { get; }
 
     public ReportsViewModel(
         TaskService tasks,
@@ -42,6 +46,8 @@ public class ReportsViewModel : ObservableObject
         _germanTime = germanTime;
         _logger = logger;
         RefreshCommand = new RelayCommand(Refresh);
+        AddTimeAdjustmentCommand = new RelayCommand(AddTimeAdjustment);
+        ShowTimeAdjustmentsCommand = new RelayCommand<MonthlyReportItem>(ShowTimeAdjustments, item => item?.HasManualAdjustments == true);
         Refresh();
     }
 
@@ -55,6 +61,10 @@ public class ReportsViewModel : ObservableObject
             var bookingStats = _tasks.GetSuccessfulBookingStatistics(localToday, timeZone);
             var markerStats = _workDays.GetMonthlyMarkerStatistics()
                 .ToDictionary(item => item.Month);
+            var adjustments = _tasks.GetMonthlyReportTimeAdjustments();
+            var adjustmentSecondsByMonth = adjustments
+                .GroupBy(item => item.Month)
+                .ToDictionary(group => group.Key, group => group.Sum(item => item.Seconds));
 
             BookedSecondsToday = bookingStats.TodaySeconds;
             var todayMinutes = WholeMinutes(BookedSecondsToday);
@@ -63,6 +73,7 @@ public class ReportsViewModel : ObservableObject
 
             var months = bookingStats.SecondsByMonth.Keys
                 .Concat(markerStats.Keys)
+                .Concat(adjustmentSecondsByMonth.Keys)
                 .Append(currentMonth)
                 .Where(month => month <= currentMonth)
                 .Distinct()
@@ -71,7 +82,9 @@ public class ReportsViewModel : ObservableObject
 
             var reports = months.Select(month =>
             {
-                var seconds = bookingStats.SecondsByMonth.GetValueOrDefault(month);
+                var bookedSeconds = bookingStats.SecondsByMonth.GetValueOrDefault(month);
+                var manualSeconds = adjustmentSecondsByMonth.GetValueOrDefault(month);
+                var seconds = bookedSeconds + manualSeconds;
                 var minutes = WholeMinutes(seconds);
                 markerStats.TryGetValue(month, out var markers);
                 var homeOfficeDays = markers?.HomeOfficeDays ?? 0;
@@ -82,9 +95,12 @@ public class ReportsViewModel : ObservableObject
                     Month = month,
                     MonthText = month.ToString("MMMM yyyy", ReportCulture),
                     TotalSeconds = seconds,
+                    BookedSeconds = bookedSeconds,
+                    ManualAdjustmentSeconds = manualSeconds,
                     TotalMinutes = minutes,
                     MinutesText = FormatMinutes(minutes),
                     HoursText = FormatHours(minutes),
+                    ManualAdjustmentText = manualSeconds > 0 ? $"davon {FormatHours(WholeMinutes(manualSeconds))} nachgebucht" : string.Empty,
                     HomeOfficeDays = homeOfficeDays,
                     VacationDays = vacationDays,
                     AmDays = amDays,
@@ -110,6 +126,24 @@ public class ReportsViewModel : ObservableObject
             BookedHoursTodayText = FormatHours(0);
             MonthlyReports.Clear();
         }
+    }
+
+    private void AddTimeAdjustment()
+    {
+        var now = _germanTime.GetLocalNow(_settings.Current.CalendarTimeZoneId);
+        var dialog = new MonthlyReportTimeAdjustmentDialog(_tasks, new DateTime(now.Year, now.Month, 1));
+        if (Application.Current?.MainWindow is { } owner) dialog.Owner = owner;
+        if (dialog.ShowDialog() == true)
+            Refresh();
+    }
+
+    private void ShowTimeAdjustments(MonthlyReportItem? report)
+    {
+        if (report == null) return;
+        var dialog = new MonthlyReportTimeAdjustmentsDialog(_tasks, report.Month);
+        if (Application.Current?.MainWindow is { } owner) dialog.Owner = owner;
+        dialog.ShowDialog();
+        if (dialog.Changed) Refresh();
     }
 
     private static long WholeMinutes(long seconds) => Math.Max(0, seconds) / 60;

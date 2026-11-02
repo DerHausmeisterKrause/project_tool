@@ -29,6 +29,7 @@ public class NotificationService : IDisposable
     private DynamicIslandWindow? _islandWindow;
     private static int _windowCreateCount;
     private bool _isShuttingDown;
+    private int _reminderCheckRunning;
 
     public NotificationService(LoggerService logger, SettingsService settings, TaskService tasks)
     {
@@ -36,7 +37,7 @@ public class NotificationService : IDisposable
         _settings = settings;
         _tasks = tasks;
         _timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(20) };
-        _timer.Tick += (_, _) => CheckReminders();
+        _timer.Tick += (_, _) => _ = CheckRemindersAsync();
         _timer.Start();
         HandleSettingsChanged();
 
@@ -115,7 +116,7 @@ public class NotificationService : IDisposable
     {
         TrimFiredKeys();
         _logger.Info("Notification scheduler refreshed.");
-        CheckReminders();
+        _ = CheckRemindersAsync();
     }
 
     public void ShowTestNotification()
@@ -218,8 +219,9 @@ public class NotificationService : IDisposable
         }
     }
 
-    private void CheckReminders()
+    private async Task CheckRemindersAsync()
     {
+        if (Interlocked.Exchange(ref _reminderCheckRunning, 1) != 0) return;
         try
         {
             var now = DateTime.Now;
@@ -227,9 +229,9 @@ public class NotificationService : IDisposable
 
             var from = now.AddHours(-1);
             var to = now.AddDays(2);
-            var segments = _tasks.GetSegmentsForRange(from, to)
+            var segments = await Task.Run(() => _tasks.GetSegmentsForRange(from, to)
                 .Where(x => x.Task.IsOperationallyVisible && x.Segment.StartLocal > now.AddHours(-1))
-                .ToList();
+                .ToList());
 
             foreach (var (task, segment) in segments)
             {
@@ -255,6 +257,10 @@ public class NotificationService : IDisposable
         catch (Exception ex)
         {
             _logger.Error($"Reminder check failed: {ex}");
+        }
+        finally
+        {
+            Interlocked.Exchange(ref _reminderCheckRunning, 0);
         }
     }
 

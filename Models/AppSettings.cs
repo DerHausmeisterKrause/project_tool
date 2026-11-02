@@ -2,6 +2,7 @@ namespace TaskTool.Models;
 
 public class AppSettings
 {
+    public string DemoFeaturesUnlockGrantEncrypted { get; set; } = string.Empty;
     public bool AiEnabled { get; set; } = false;
     public bool AiKnowledgeEnabled { get; set; } = false;
     public bool AiChatUseKnowledgeBase { get; set; } = true;

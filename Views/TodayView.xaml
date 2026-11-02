@@ -1,6 +1,7 @@
 <UserControl x:Class="TaskTool.Views.TodayView"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:ui="clr-namespace:TaskTool.Infrastructure">
     <UserControl.Resources>
         <Style x:Key="TaskFilterSegmentBaseStyle" TargetType="RadioButton">
             <Setter Property="Height" Value="30"/>
@@ -98,7 +99,7 @@
                 <TextBlock Text="Neue Aufgabe" FontWeight="SemiBold" Margin="0,0,0,8"/>
                 <Grid>
                     <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-                    <TextBox x:Name="QuickAddTextBox" Grid.Column="0" Text="{Binding QuickAddText, UpdateSourceTrigger=PropertyChanged}" FontSize="16" Padding="14,10" Margin="0"/>
+                    <TextBox x:Name="QuickAddTextBox" Grid.Column="0" Text="{Binding QuickAddText, UpdateSourceTrigger=PropertyChanged}" ui:TextInputAssist.IsFreeText="True" FontSize="16" Padding="14,10" Margin="0"/>
                     <Button Grid.Column="1" Content="＋" Width="44" Height="44" FontSize="22" Padding="0" Command="{Binding QuickAddCommand}"/>
                 </Grid>
             </StackPanel>

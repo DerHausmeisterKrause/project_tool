@@ -1,0 +1,33 @@
+<Window x:Class="TaskTool.Views.MonthlyReportTimeAdjustmentsDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Nachbuchungen" Width="560" Height="420" WindowStartupLocation="CenterOwner"
+        ShowInTaskbar="False" Background="{StaticResource BgBrush}">
+    <Border Style="{StaticResource CardStyle}" Margin="18" Padding="20">
+        <DockPanel>
+            <Button DockPanel.Dock="Bottom" Content="Schließen" HorizontalAlignment="Right" Margin="0,12,0,0" IsCancel="True"/>
+            <StackPanel>
+                <TextBlock Text="{Binding Heading}" FontSize="21" FontWeight="SemiBold" Margin="0,0,0,12"/>
+                <ScrollViewer VerticalScrollBarVisibility="Auto" MaxHeight="300">
+                    <ItemsControl ItemsSource="{Binding Adjustments}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Border Background="{StaticResource SurfaceAltBrush}" CornerRadius="6" Padding="10" Margin="0,0,0,6">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                                        <StackPanel>
+                                            <TextBlock Text="{Binding SummaryText}"/>
+                                            <TextBlock Text="{Binding CreatedText}" Foreground="{StaticResource MutedTextBrush}" FontSize="11"/>
+                                        </StackPanel>
+                                        <Button Grid.Column="1" Content="Löschen" Style="{StaticResource DangerButtonStyle}" Click="Delete_Click" Tag="{Binding}"/>
+                                    </Grid>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </ScrollViewer>
+                <TextBlock Text="Keine manuellen Nachbuchungen vorhanden." Foreground="{StaticResource MutedTextBrush}" Visibility="{Binding EmptyVisibility}"/>
+            </StackPanel>
+        </DockPanel>
+    </Border>
+</Window>

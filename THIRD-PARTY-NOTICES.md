@@ -12,6 +12,13 @@
 - License: Apache-2.0
 - Used locally to extract text from PDF knowledge documents.
 
+## AngleSharp
+
+- Source: `AngleSharp/AngleSharp`
+- Version: `1.8.2`
+- License: MIT
+- Used locally to parse Confluence storage HTML into structured knowledge blocks.
+
 The following optional components are downloaded at runtime and are not distributed
 in this repository.
 
