@@ -1,5 +1,6 @@
 using System.Net;
 using System.Text;
+using TaskTool.Models;
 using TaskTool.Services;
 using Xunit;
 
@@ -81,6 +82,60 @@ public sealed class TicketSystemServiceHttpTests
         Assert.Equal(2, handler.Count("/Ticket/42"));
         Assert.Equal(1, handler.Count("/Session"));
         Assert.Null(exception);
+    }
+
+    [Fact]
+    public void TrafficHistoryIsBoundedAndSummaryIsRateLimited()
+    {
+        using var service = new TicketSystemService(new RecordingHandler((_, _) => Json(HttpStatusCode.OK, "{}")), "https://znuny.test/Session");
+        service.EnableInfoLoggingForRegressionTest();
+        var now = new DateTime(2026, 1, 1, 12, 0, 0, DateTimeKind.Utc);
+        service.UtcNow = () => now;
+
+        for (var index = 0; index < 20_000; index++)
+            service.RecordGlobalTraffic(ZnunyRequestReason.ManualTicketRefresh, "TicketSearchOwner");
+
+        Assert.Equal(TicketSystemService.MaximumTrafficEvents, service.TrafficEventCount);
+        Assert.Equal(1, service.TrafficSummaryCount);
+
+        now = now.AddMinutes(16);
+        service.RecordGlobalTraffic(ZnunyRequestReason.ManualTicketRefresh, "TicketSearchOwner");
+        Assert.Equal(1, service.TrafficEventCount);
+        Assert.Equal(2, service.TrafficSummaryCount);
+    }
+
+    [Fact]
+    public void DisabledInfoLoggingDoesNotRetainOrSummarizeTraffic()
+    {
+        using var service = new TicketSystemService(new RecordingHandler((_, _) => Json(HttpStatusCode.OK, "{}")), "https://znuny.test/Session");
+        for (var index = 0; index < 20_000; index++)
+            service.RecordGlobalTraffic(ZnunyRequestReason.FullTimerSync, "TicketGetDetails");
+
+        Assert.Equal(0, service.TrafficEventCount);
+        Assert.Equal(0, service.TrafficSummaryCount);
+    }
+
+    [Fact]
+    public async Task CacheOnlyTicketContextNeverCreatesARequestWhenCacheIsIncomplete()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"plenaro-context-{Guid.NewGuid():N}.db");
+        try
+        {
+            var database = new DatabaseService(new LoggerService(), path);
+            database.Initialize();
+            var cache = new TicketDetailCacheService(database);
+            cache.Store(new TaskTool.Models.TicketBookingContext("42", "20260042", "4711", "A-1", [], [], "", [], null, "", "Cached", null, "", null, ""),
+                "open", DateTime.UtcNow);
+            var handler = new RecordingHandler((_, _) => throw new InvalidOperationException("No HTTP request expected."));
+            using var service = new TicketSystemService(handler, "https://znuny.test/Session", cache);
+            var task = new TaskTool.Models.TaskItem { Title = "Local", Tags = "ZnunyTicketID:42" };
+
+            var context = await service.GetTicketBookingContextAsync(task);
+
+            Assert.Equal("4711", context.CostCenterValue);
+            Assert.Empty(handler.Requests);
+        }
+        finally { try { File.Delete(path); } catch { } }
     }
 
     private const string Expired = "{\"Error\":{\"ErrorCode\":\"SessionInvalid\",\"ErrorMessage\":\"Session expired\"}}";

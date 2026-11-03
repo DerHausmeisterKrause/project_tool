@@ -29,6 +29,8 @@ public class TodayViewModel : ObservableObject
     private CancellationTokenSource? _ownerAvailabilityCancellation;
     private CancellationTokenSource? _responsibleAvailabilityCancellation;
     private int _ticketContextRequestVersion;
+    private CancellationTokenSource? _ticketSelectionCancellation;
+    private int _ticketSelectionVersion;
     private DateTime _agendaDate;
     private DateTime _lastTodayVisibilityRefreshMinute;
     private bool _lastHidePastTodayItems;
@@ -44,14 +46,14 @@ public class TodayViewModel : ObservableObject
     public ObservableCollection<TodayAgendaItem> TodayAgendaItems { get; } = new();
     public ObservableCollection<ZnunyCandidateTicket> NewTaskCandidates { get; } = new();
     public ObservableCollection<BreakEditRow> BreakRows { get; } = new();
-    public ObservableCollection<TaskSegment> Segments { get; } = new();
+    public BulkObservableCollection<TaskSegment> Segments { get; } = new();
     public ObservableCollection<SegmentAvailabilitySlot> SegmentAvailabilitySlots { get; } = new();
-    public ObservableCollection<TicketTimeBooking> TicketTimeBookings { get; } = new();
+    public BulkObservableCollection<TicketTimeBooking> TicketTimeBookings { get; } = new();
     public ObservableCollection<TicketFieldOption> CostCenterOptions { get; } = new();
     public ObservableCollection<TicketFieldOption> OrderOptions { get; } = new();
-    public ObservableCollection<TicketArticleItem> TicketArticles { get; } = new();
-    public ObservableCollection<ZnunyAgent> TicketAgents { get; } = new();
-    public ObservableCollection<WikiSearchResult> WikiResults { get; } = new();
+    public BulkObservableCollection<TicketArticleItem> TicketArticles { get; } = new();
+    public BulkObservableCollection<ZnunyAgent> TicketAgents { get; } = new();
+    public BulkObservableCollection<WikiSearchResult> WikiResults { get; } = new();
     private CancellationTokenSource? _wikiSearchCancellation;
     private IReadOnlyList<string> _wikiKeywords = Array.Empty<string>();
     private IReadOnlyList<TaskItem> _taskFilterSnapshot = Array.Empty<TaskItem>();
@@ -86,8 +88,10 @@ public class TodayViewModel : ObservableObject
                     ResetTicketAssignment();
                     ResetTicketConversation();
                 }
-                LoadPersistedWikiResults(value);
-                LoadSegments();
+                _ticketSelectionCancellation?.Cancel();
+                _ticketSelectionCancellation?.Dispose();
+                _ticketSelectionCancellation = new CancellationTokenSource();
+                var selectionVersion = Interlocked.Increment(ref _ticketSelectionVersion);
                 Raise(nameof(IsTaskSelected));
                 Raise(nameof(HasZnunyTicket));
                 Raise(nameof(DoneButtonText));
@@ -96,8 +100,7 @@ public class TodayViewModel : ObservableObject
                 Raise(nameof(ShowCreateTicketFromSelectedTask));
                 Raise(nameof(CanCreateTicketFromSelectedTask));
                 RaiseCommandStates();
-                UpdateTimerDisplay();
-                LoadTicketBookingHistory();
+                _ = LoadSelectedTaskLocalStateAsync(value, selectionVersion, _ticketSelectionCancellation.Token);
                 // Selection is deliberately local-only.  Znuny is a shared production
                 // system; merely displaying an already persisted task must never create
                 // a session or a TicketGet request.
@@ -1286,8 +1289,7 @@ public class TodayViewModel : ObservableObject
 
     private void LoadSegments()
     {
-        Segments.Clear();
-        if (SelectedTask == null) return;
+        if (SelectedTask == null) { Segments.ReplaceAll(Array.Empty<TaskSegment>()); return; }
 
         var orderedSegments = _tasks.GetSegments(SelectedTask.Id).OrderBy(s => s.StartLocal).ToList();
         for (var i = 0; i < orderedSegments.Count; i++)
@@ -1295,10 +1297,91 @@ public class TodayViewModel : ObservableObject
             var seg = orderedSegments[i];
             seg.DisplayIndex = i + 1;
             seg.OutlookStatus = string.IsNullOrWhiteSpace(seg.OutlookEntryId) ? "fehlt" : "vorhanden";
-            Segments.Add(seg);
+        }
+        Segments.ReplaceAll(orderedSegments);
+    }
+
+    private async Task LoadSelectedTaskLocalStateAsync(TaskItem? task, int selectionVersion, CancellationToken token)
+    {
+        if (task == null)
+        {
+            ApplyLocalTicketSnapshot(TicketLocalUiSnapshot.Empty);
+            return;
         }
 
-        EvaluateNewSegmentConflict();
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        try
+        {
+            var snapshot = await Task.Run(() =>
+            {
+                token.ThrowIfCancellationRequested();
+                var segments = _tasks.GetSegments(task.Id).OrderBy(segment => segment.StartLocal).ToArray();
+                for (var index = 0; index < segments.Length; index++)
+                {
+                    segments[index].DisplayIndex = index + 1;
+                    segments[index].OutlookStatus = string.IsNullOrWhiteSpace(segments[index].OutlookEntryId) ? "fehlt" : "vorhanden";
+                }
+                token.ThrowIfCancellationRequested();
+                var bookings = _tasks.GetAllTicketTimeBookings(task.Id).ToArray();
+                var baseline = _tasks.GetTicketTimeBookingBaselineSeconds(task.Id);
+                token.ThrowIfCancellationRequested();
+                var wikiTerms = ServiceLocator.WikiSearch.LoadSearchTerms(task.Id);
+                var wikiResults = ServiceLocator.WikiSearch.LoadResults(task.Id);
+                return new TicketLocalUiSnapshot(segments, bookings, baseline, wikiTerms, wikiResults);
+            }, token);
+
+            if (token.IsCancellationRequested || selectionVersion != _ticketSelectionVersion || SelectedTask?.Id != task.Id)
+                return;
+            var applyWatch = System.Diagnostics.Stopwatch.StartNew();
+            ApplyLocalTicketSnapshot(snapshot);
+            UpdateTimerDisplay();
+            if (applyWatch.ElapsedMilliseconds >= 50 && ServiceLocator.Logger.IsEnabled(AppLogLevel.Info))
+                ServiceLocator.Logger.Info($"[Performance] operation=TicketUiApply durationMs={applyWatch.ElapsedMilliseconds}");
+        }
+        catch (OperationCanceledException) { }
+        finally
+        {
+            if (watch.ElapsedMilliseconds >= 100 && ServiceLocator.Logger.IsEnabled(AppLogLevel.Info))
+                ServiceLocator.Logger.Info($"[Performance] operation=SelectedTaskLocalLoad durationMs={watch.ElapsedMilliseconds}");
+        }
+    }
+
+    private void ApplyLocalTicketSnapshot(TicketLocalUiSnapshot snapshot)
+    {
+        Segments.ReplaceAll(snapshot.Segments);
+        TicketTimeBookings.ReplaceAll(snapshot.Bookings);
+        _ticketTimeBookingBaselineSeconds = snapshot.BookingBaseline;
+        var successful = snapshot.Bookings.Where(booking => booking.Status == "Succeeded").ToArray();
+        _successfullyTransferredSeconds = successful.Sum(booking => booking.SourceSeconds);
+        _successfullyBookedMinutes = successful.Sum(booking => booking.BookedMinutes);
+        _hasUnresolvedTicketTimeBooking = snapshot.Bookings.Any(booking => booking.Status != "Succeeded");
+        if (_hasUnresolvedTicketTimeBooking && IsTimerEditMode) CancelTimerEdit();
+        _wikiKeywords = snapshot.WikiTerms;
+        WikiResults.ReplaceAll(snapshot.WikiResults);
+        Raise(nameof(WikiKeywordsText));
+        Raise(nameof(HasWikiResults));
+        Raise(nameof(SuccessfullyTransferredSeconds));
+        Raise(nameof(UnbookedTicketSeconds));
+        Raise(nameof(UnbookedTicketTimeText));
+        Raise(nameof(TransferredTicketTimeText));
+        BookTimeInTicketSystemCommand.RaiseCanExecuteChanged();
+        CheckTicketTimeBookingCommand.RaiseCanExecuteChanged();
+        RetryTicketTimeBookingCommand.RaiseCanExecuteChanged();
+        BeginTimerEditCommand.RaiseCanExecuteChanged();
+        CommitTimerEditCommand.RaiseCanExecuteChanged();
+        Raise(nameof(CanEditTicketTime));
+    }
+
+    private sealed record TicketLocalUiSnapshot(
+        IReadOnlyList<TaskSegment> Segments,
+        IReadOnlyList<TicketTimeBooking> Bookings,
+        long BookingBaseline,
+        IReadOnlyList<string> WikiTerms,
+        IReadOnlyList<WikiSearchResult> WikiResults)
+    {
+        public static TicketLocalUiSnapshot Empty { get; } = new(
+            Array.Empty<TaskSegment>(), Array.Empty<TicketTimeBooking>(), 0,
+            Array.Empty<string>(), Array.Empty<WikiSearchResult>());
     }
 
     private void EvaluateNewSegmentConflict()
@@ -1618,15 +1701,14 @@ public class TodayViewModel : ObservableObject
 
     private void LoadTicketBookingHistory()
     {
-        TicketTimeBookings.Clear();
+        TicketTimeBookings.ReplaceAll(Array.Empty<TicketTimeBooking>());
         _successfullyTransferredSeconds = 0;
         _successfullyBookedMinutes = 0;
         _ticketTimeBookingBaselineSeconds = 0;
         _hasUnresolvedTicketTimeBooking = false;
         if (SelectedTask != null)
         {
-            foreach (var booking in _tasks.GetAllTicketTimeBookings(SelectedTask.Id))
-                TicketTimeBookings.Add(booking);
+            TicketTimeBookings.ReplaceAll(_tasks.GetAllTicketTimeBookings(SelectedTask.Id));
             var successful = TicketTimeBookings.Where(booking => booking.Status == "Succeeded").ToList();
             _hasUnresolvedTicketTimeBooking = TicketTimeBookings.Any(booking => booking.Status != "Succeeded");
             if (_hasUnresolvedTicketTimeBooking && IsTimerEditMode) CancelTimerEdit();
@@ -1668,9 +1750,12 @@ public class TodayViewModel : ObservableObject
         TicketConversationMessage = "Ticket-Nachrichten werden geladen …";
         try
         {
+            var contextWatch = System.Diagnostics.Stopwatch.StartNew();
             var context = forceRemote
                 ? await _ticketSystem.RefreshTicketBookingContextAsync(task)
-                : await _ticketSystem.GetTicketBookingContextAsync(task);
+                : await Task.Run(() => _ticketSystem.GetTicketBookingContextAsync(task));
+            if (contextWatch.ElapsedMilliseconds >= 50 && ServiceLocator.Logger.IsEnabled(AppLogLevel.Info))
+                ServiceLocator.Logger.Info($"[Performance] operation=TicketContextCacheLoad durationMs={contextWatch.ElapsedMilliseconds}");
             if (!IsCurrentTicketContext(task, requestVersion)) return;
             ReplaceOptionsIfChanged(CostCenterOptions, context.CostCenterOptions);
             ReplaceOptionsIfChanged(OrderOptions, context.OrderOptions);
@@ -1681,8 +1766,7 @@ public class TodayViewModel : ObservableObject
             _originalResponsibleId = context.ResponsibleId;
             await LoadTicketAgentsAsync(task, false, context, requestVersion);
             if (!IsCurrentTicketContext(task, requestVersion)) return;
-            TicketArticles.Clear();
-            foreach (var article in context.Articles) TicketArticles.Add(article);
+            TicketArticles.ReplaceAll(context.Articles);
             _ticketSystem.ApplyArticleReadPresentation(task, TicketArticles);
             _ticketReplySourceArticle = context.ReplySourceArticle;
             TicketReplyRecipient = context.ReplyRecipient;
@@ -1748,10 +1832,11 @@ public class TodayViewModel : ObservableObject
         try
         {
             context ??= await _ticketSystem.GetTicketBookingContextAsync(task);
-            var agents = await _ticketSystem.GetAgentsAsync(forceRefresh);
+            var agents = forceRefresh
+                ? await _ticketSystem.GetAgentsAsync(forceRefresh: true)
+                : _ticketSystem.GetCachedAgents();
             if (SelectedTask?.Id != task.Id || (requestVersion.HasValue && requestVersion != _ticketContextRequestVersion)) return;
-            TicketAgents.Clear();
-            foreach (var agent in AddCurrentAgents(agents, context)) TicketAgents.Add(agent);
+            ReplaceAgentsIfChanged(TicketAgents, AddCurrentAgents(agents, context));
             _isAgentListAvailable = true;
             SelectedOwner = TicketAgents.FirstOrDefault(agent => agent.UserId == context.OwnerId);
             SelectedResponsible = TicketAgents.FirstOrDefault(agent => agent.UserId == context.ResponsibleId);
@@ -1760,10 +1845,10 @@ public class TodayViewModel : ObservableObject
         catch (Exception ex)
         {
             if (SelectedTask?.Id != task.Id || (requestVersion.HasValue && requestVersion != _ticketContextRequestVersion)) return;
-            TicketAgents.Clear();
+            TicketAgents.ReplaceAll(Array.Empty<ZnunyAgent>());
             _isAgentListAvailable = false;
             if (context != null)
-                foreach (var agent in AddCurrentAgents(Array.Empty<ZnunyAgent>(), context)) TicketAgents.Add(agent);
+                ReplaceAgentsIfChanged(TicketAgents, AddCurrentAgents(Array.Empty<ZnunyAgent>(), context));
             SelectedOwner = TicketAgents.FirstOrDefault(agent => agent.UserId == context?.OwnerId);
             SelectedResponsible = TicketAgents.FirstOrDefault(agent => agent.UserId == context?.ResponsibleId);
             TicketAssignmentStatus = $"Agenten konnten nicht geladen werden: {ex.Message}";
@@ -1909,13 +1994,10 @@ public class TodayViewModel : ObservableObject
 
     private void LoadPersistedWikiResults(TaskItem? task)
     {
-        WikiResults.Clear();
         _wikiKeywords = task == null
             ? Array.Empty<string>()
             : ServiceLocator.WikiSearch.LoadSearchTerms(task.Id);
-        if (task != null)
-            foreach (var result in ServiceLocator.WikiSearch.LoadResults(task.Id))
-                WikiResults.Add(result);
+        WikiResults.ReplaceAll(task == null ? Array.Empty<WikiSearchResult>() : ServiceLocator.WikiSearch.LoadResults(task.Id));
         Raise(nameof(WikiKeywordsText));
         Raise(nameof(HasWikiResults));
     }
@@ -2161,6 +2243,20 @@ public class TodayViewModel : ObservableObject
 
         target.Clear();
         foreach (var option in replacement) target.Add(option);
+        return true;
+    }
+
+    internal static bool ReplaceAgentsIfChanged(
+        BulkObservableCollection<ZnunyAgent> target,
+        IEnumerable<ZnunyAgent> source)
+    {
+        var replacement = source as IReadOnlyList<ZnunyAgent> ?? source.ToArray();
+        if (target.Count == replacement.Count
+            && target.Select((agent, index) => agent.UserId == replacement[index].UserId
+                                               && agent.DisplayName == replacement[index].DisplayName
+                                               && agent.Email == replacement[index].Email).All(equal => equal))
+            return false;
+        target.ReplaceAll(replacement);
         return true;
     }
 

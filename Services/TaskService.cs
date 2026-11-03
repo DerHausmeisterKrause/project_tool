@@ -48,6 +48,24 @@ public class TaskService
         while (reader.Read()) list.Add(MapTask(reader));
         return list;
     }
+
+    public IReadOnlyList<TaskItem> FindByZnunyTicketId(string ticketId)
+    {
+        if (string.IsNullOrWhiteSpace(ticketId)) return Array.Empty<TaskItem>();
+        var candidates = new List<TaskItem>();
+        using var conn = new SqliteConnection(_db.ConnectionString);
+        conn.Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT * FROM tasks WHERE tags LIKE $tag";
+        cmd.Parameters.AddWithValue("$tag", $"%ZnunyTicketID:{ticketId}%");
+        using var reader = cmd.ExecuteReader();
+        while (reader.Read()) candidates.Add(MapTask(reader));
+        return candidates.Where(task => (task.Tags ?? string.Empty)
+            .Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Any(tag => tag.StartsWith("ZnunyTicketID:", StringComparison.OrdinalIgnoreCase)
+                        && tag["ZnunyTicketID:".Length..].Equals(ticketId, StringComparison.OrdinalIgnoreCase)))
+            .ToArray();
+    }
     public List<TaskItem> GetTasksForRange(DateTime from, DateTime to)
     {
         var list = new List<TaskItem>();
